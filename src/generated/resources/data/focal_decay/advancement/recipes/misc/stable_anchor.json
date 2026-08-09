@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_mutation_controller": {
+      "conditions": {
+        "items": [
+          {
+            "items": "focal_decay:mutation_controller"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "focal_decay:stable_anchor"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_mutation_controller"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "focal_decay:stable_anchor"
+    ]
+  }
+}

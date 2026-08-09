@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "E": {
+      "item": "focal_decay:mutation_controller"
+    },
+    "F": {
+      "item": "minecraft:iron_block"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    }
+  },
+  "pattern": [
+    "RFR",
+    "FEF",
+    "RFR"
+  ],
+  "result": {
+    "count": 1,
+    "id": "focal_decay:stable_anchor"
+  }
+}

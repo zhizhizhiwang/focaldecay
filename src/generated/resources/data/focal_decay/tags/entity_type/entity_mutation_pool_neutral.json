@@ -1,0 +1,11 @@
+{
+  "values": [
+    "minecraft:zombified_piglin",
+    "minecraft:enderman",
+    "minecraft:spider",
+    "minecraft:cave_spider",
+    "minecraft:bee",
+    "minecraft:goat",
+    "minecraft:iron_golem"
+  ]
+}

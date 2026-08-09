@@ -1,0 +1,31 @@
+{
+  "itemGroup.focal_decay": "Focal Decay",
+
+  "block.focal_decay.stable_anchor": "Stable Anchor",
+  "block.focal_decay.mutation_controller": "Mutation Controller",
+  "block.focal_decay.observer_core": "Observer Core",
+
+  "item.focal_decay.semantic_fragment_rose": "Semantic Fragment · Rose",
+  "item.focal_decay.semantic_fragment_throne": "Semantic Fragment · Throne",
+  "item.focal_decay.semantic_fragment_semantic": "Semantic Fragment · Complete Semantics",
+  "item.focal_decay.semantic_fragment_42ms": "Semantic Fragment · 42ms",
+  "item.focal_decay.semantic_fragment_crystal": "Semantic Fragment · Sulfur-Copper Crystal",
+  "item.focal_decay.semantic_fragment_aaron": "Semantic Fragment · Aaron's Vow",
+  "item.focal_decay.semantic_fragment_cheng": "Semantic Fragment · Cheng Jiuzhang's Final Transmission",
+  "item.focal_decay.rebuilt_observer_protocol": "Rebuilt Observer Protocol",
+
+  "tooltip.focal_decay.stable_anchor": "OBSR-1β Complete Semantic Protection Field",
+
+  "lore.focal_decay.fragment_rose": "\"A rose is a rose is a rose...\"",
+  "lore.focal_decay.fragment_throne": "\"It is not something that can be described in words.\"",
+  "lore.focal_decay.fragment_semantic": "\"True understanding.\"",
+  "lore.focal_decay.fragment_42ms": "\"This is a hard time requirement.\"",
+  "lore.focal_decay.fragment_crystal": "\"A small piece of Dr. Kacper Darlin\"",
+  "lore.focal_decay.fragment_aaron": "\"The world will stay beautiful.\"",
+  "lore.focal_decay.fragment_cheng": "\"Then it is decided.\"",
+
+  "tag.block.focal_decay.global_mutation_pool": "Global Mutation Pool (Blocks)",
+  "tag.block.focal_decay.conversion_blacklist": "Conversion Blacklist",
+  "tag.block.focal_decay.stable_anchor_immune": "Stable Anchor Immune",
+  "tag.entity_type.focal_decay.entity_mutation_pool_passive": "Entity Mutation Pool (Passive)"
+}

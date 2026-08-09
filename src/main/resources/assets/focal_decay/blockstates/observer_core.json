@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "powered=false": {
+      "model": "focal_decay:block/observer_core"
+    },
+    "powered=true": {
+      "model": "focal_decay:block/observer_core_active"
+    }
+  }
+}

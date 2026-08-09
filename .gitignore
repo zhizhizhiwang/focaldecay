@@ -29,6 +29,10 @@ bin/
 ### VS Code ###
 .vscode/
 
+### proxy AI ###
+.proxyai/*
+
+
 ### Mac OS ###
 .DS_Store
 

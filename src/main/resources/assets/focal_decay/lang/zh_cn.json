@@ -1,0 +1,31 @@
+{
+  "itemGroup.focal_decay": "失焦",
+
+  "block.focal_decay.stable_anchor": "稳定锚",
+  "block.focal_decay.mutation_controller": "突变控制器",
+  "block.focal_decay.observer_core": "观测者核心",
+
+  "item.focal_decay.semantic_fragment_rose": "语义碎片·玫瑰",
+  "item.focal_decay.semantic_fragment_throne": "语义碎片·王座",
+  "item.focal_decay.semantic_fragment_semantic": "语义碎片·完备语义",
+  "item.focal_decay.semantic_fragment_42ms": "语义碎片·42ms",
+  "item.focal_decay.semantic_fragment_crystal": "语义碎片·硫铜结晶",
+  "item.focal_decay.semantic_fragment_aaron": "语义碎片·Aaron的誓约",
+  "item.focal_decay.semantic_fragment_cheng": "语义碎片·程玖章的最后传输",
+  "item.focal_decay.rebuilt_observer_protocol": "重建的观测协议",
+
+  "tooltip.focal_decay.stable_anchor": "OBSR-1β 完备语义保护场",
+
+  "lore.focal_decay.fragment_rose": "“玫瑰，是玫瑰，是玫瑰……”",
+  "lore.focal_decay.fragment_throne": "“它不是能用语言描述的事物。”",
+  "lore.focal_decay.fragment_semantic": "“真正的理解。”",
+  "lore.focal_decay.fragment_42ms": "“这是硬性时间要求。”",
+  "lore.focal_decay.fragment_crystal": "“一小块Dr. Kacper Darlin”",
+  "lore.focal_decay.fragment_aaron": "“世界会继续美丽。”",
+  "lore.focal_decay.fragment_cheng": "“那就这么决定了。”",
+
+  "tag.block.focal_decay.global_mutation_pool": "全局突变池（方块）",
+  "tag.block.focal_decay.conversion_blacklist": "转换黑名单",
+  "tag.block.focal_decay.stable_anchor_immune": "稳定锚免疫",
+  "tag.entity_type.focal_decay.entity_mutation_pool_passive": "实体突变池（被动）"
+}
