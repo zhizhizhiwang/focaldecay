@@ -175,16 +175,21 @@ public final class MutationPool {
 
 ### 5.1 算法
 ```java
-public static BlockState getTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex, List<Block> pool) {
-    if (pool.isEmpty()) return original;
-    long seed = pos.asLong() ^ worldSeed ^ periodIndex;
+public static BlockState getTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex, List<Block> pool, double probability) {
+    if (pool.isEmpty() || probability <= 0.0) return original;
+    long seed = mix64(pos.asLong() ^ worldSeed ^ periodIndex); // SplitMix64 雪崩混合
     Random rand = new Random(seed);
+    if (probability < 1.0 && rand.nextDouble() >= probability) return original;
     return pool.get(rand.nextInt(pool.size())).defaultBlockState();
 }
 ```
 - `periodIndex` = `gameTick / conversionInterval`。
 - 池子为 `List<Block>`（不含 `BlockState`，以简化）。
 - 服务端与客户端使用相同种子，保证一致。
+- **转换概率（2026-08-10 新增）**：每个方块每周期只有一定概率被转换，概率随阶段变化：阶段1/2/3 暂定 `0.1 / 0.6 / 1.0`（Server 配置 `block_mutation_chance_stage1/2/3`）。
+  - 概率 roll 与目标选择共用同一确定性种子（`pos.asLong() ^ worldSeed ^ periodIndex`），先 roll 后取目标，两端随机序列完全一致。
+  - **种子必须经 SplitMix64 雪崩混合（2026-08-10 修复）**：`periodIndex` 是小数字，直接异或只扰动种子低几位，LCG 首次 `nextDouble` 几乎不变，会导致"同一批固定位置每周期都失焦"。混合后每次周期切换失焦位置集合完全重排。
+  - 阶段判定（临时）：`currentStage(gameTick) = gameTick / 24000` 取原版天数，对照 `stage2_day` / `stage3_day`；待 §6 末日天数 SavedData 接入后替换。
 - 全局池以不可变排序列表形式存在，新增操作仅在服务端执行，并通过网络包在周期边界同步到客户端。”
 - 带有方块实体的目标均不转换
 
@@ -199,6 +204,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
   - 然后调用 `targetState.getDrops()` 生成物品掉落。
   - 给予目标方块的挖掘经验值（`targetState.getExpDrop()`）。
   - 移除 `BreakData`。
+- **创造模式支持（2026-08-10 新增，破坏行为最终修正）**：创造模式**破坏保持原版行为**——无掉落、不收入背包、不执行转换（仅生存模式破坏触发转换掉落）；中键选取（pick block）通过 Mixin `Minecraft#pickBlock` 返回可见的"失焦目标"方块（空气目标回退原方块）。
 
 ### 5.3 右击交互
 - 不触发真实转换。玩家放置方块或使用物品时，均针对原方块。由客户端视觉效果处理，服务端不干预。
@@ -219,6 +225,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 ### 6.2 阶段效果配置
 - 每个阶段定义：
   - `mutationInterval`：转换周期 (tick)
+  - `blockMutationChance`：方块每周期转换概率（阶段1/2/3 = 0.1/0.6/1.0，Server 配置）
   - `affectNonFullBlocks`：是否影响非完整方块（阶段2+）
   - `affectAir`：是否影响空气（阶段3）
   - `entityMutationChance`：实体每周期转换概率
@@ -308,7 +315,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - 位置：`config/focal_decay.toml`
 - 使用 NeoForge 的 `ModConfigSpec` 构建。
 - 分类：
-  - **Server**（同步到客户端）：`stage2_day`, `stage3_day`, `base_interval`, `stage2_interval`, `stage3_interval`, `entity_mutation_chance_stage2`, `entity_mutation_chance_stage3`, `enable_core_repair`。
+  - **Server**（同步到客户端）：`stage2_day`, `stage3_day`, `base_interval`, `stage2_interval`, `stage3_interval`, `entity_mutation_chance_stage2`, `entity_mutation_chance_stage3`, `block_mutation_chance_stage1/2/3`（0.1/0.6/1.0）, `enable_core_repair`。
   - **Common**（服务器/客户端各自加载）：`anchor_radius`, `post_intensity`。
   - **Client**：`postProcessEnabled`, `surface_update_frequency`, `max_render_distance`。
 
@@ -338,6 +345,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 
 ### 10.3 Mixin 列表
 - `MixinChunkRenderDispatcher`：替换编译时的方块状态。
+- `MinecraftPickBlockMixin`：中键选取返回"失焦目标"方块（替换 `Minecraft#pickBlock` 中的 `ClientLevel#getBlockState`）。
 - 不修改底层网络，仅注入渲染和方块处理。
 
 ---

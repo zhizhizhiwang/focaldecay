@@ -23,6 +23,9 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.DoubleValue ENTITY_MUTATION_CHANCE_STAGE2;
     public static final ModConfigSpec.DoubleValue ENTITY_MUTATION_CHANCE_STAGE3;
     public static final ModConfigSpec.BooleanValue ENABLE_CORE_REPAIR;
+    public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE1;
+    public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE2;
+    public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE3;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -51,6 +54,15 @@ public final class FocalDecayConfig {
         ENTITY_MUTATION_CHANCE_STAGE3 = builder
                 .comment("Per-cycle chance (0-1) for an entity to mutate in stage 3.")
                 .defineInRange("entity_mutation_chance_stage3", 0.05, 0.0, 1.0);
+        BLOCK_MUTATION_CHANCE_STAGE1 = builder
+                .comment("Per-cycle chance (0-1) for a block to mutate in stage 1.")
+                .defineInRange("block_mutation_chance_stage1", 0.1, 0.0, 1.0);
+        BLOCK_MUTATION_CHANCE_STAGE2 = builder
+                .comment("Per-cycle chance (0-1) for a block to mutate in stage 2.")
+                .defineInRange("block_mutation_chance_stage2", 0.6, 0.0, 1.0);
+        BLOCK_MUTATION_CHANCE_STAGE3 = builder
+                .comment("Per-cycle chance (0-1) for a block to mutate in stage 3.")
+                .defineInRange("block_mutation_chance_stage3", 1.0, 0.0, 1.0);
         ENABLE_CORE_REPAIR = builder
                 .comment("Whether the Observer Core can be repaired to end the defocus.")
                 .define("enable_core_repair", true);

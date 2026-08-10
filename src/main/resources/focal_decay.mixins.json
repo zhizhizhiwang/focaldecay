@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.zhizhiwang.focal_decay.mixin",
+  "client": [
+    "client.LevelRendererAccessor",
+    "client.MinecraftPickBlockMixin",
+    "client.RenderChunkRegionAccessor",
+    "client.SectionCompilerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

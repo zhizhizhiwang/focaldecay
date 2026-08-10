@@ -8,10 +8,14 @@ import com.zhizhiwang.focal_decay.data.ModDataGenerator;
 import com.zhizhiwang.focal_decay.data.recipe.ModRecipeSerializers;
 import com.zhizhiwang.focal_decay.item.ModCreativeTabs;
 import com.zhizhiwang.focal_decay.item.ModItems;
+import com.zhizhiwang.focal_decay.attachment.ModAttachments;
+import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
+import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
@@ -31,9 +35,14 @@ public final class FocalDecay {
         ModBlockEntities.BLOCK_ENTITY_TYPES.register(modEventBus);
         ModCreativeTabs.CREATIVE_MODE_TABS.register(modEventBus);
         ModRecipeSerializers.RECIPE_SERIALIZERS.register(modEventBus);
+        ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
 
         // Register data generators (runData)
         ModDataGenerator.register(modEventBus);
+
+        // Register game event handlers
+        NeoForge.EVENT_BUS.register(MutationEventHandler.class);
+        NeoForge.EVENT_BUS.register(InteractionHandler.class);
 
         // Register config specs
         modContainer.registerConfig(ModConfig.Type.SERVER, FocalDecayConfig.SERVER_SPEC);
