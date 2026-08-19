@@ -75,7 +75,7 @@
   - 客户端预览与服务器转换共用同一公式（`pos ^ worldSeed ^ period` + 同概率），未命中的方块保持原样、无幽灵
 - 创造模式支持：
   - 破坏：创造模式保持原版行为（无掉落、不收入背包、不执行转换），`InteractionHandler` 对创造玩家直接跳过；仅生存模式破坏触发"转换为目标方块 + 目标掉落/经验"
-  - 中键选取：新增 `Mixin MinecraftPickBlockMixin`（注入 `pickBlock()V` 中两处 `ClientLevel#getBlockState`），返回可见的失焦目标方块；`ClientRenderCache.visibleState()` 负责查询（空气目标回退原方块）
+  - 中键选取：新增 `Mixin MinecraftPickBlockMixin`（注入 `pickBlock()V` 中两处 `ClientLevel#getBlockState`），返回可见的失焦目标方块；`ClientRenderCache.visibleState()` 负责查询
 
 ### 7.5 修复：固定位置失焦 + 创造掉落行为（2026-08-10）
 - 固定位置失焦根因：`periodIndex` 是小数字，`seed = pos ^ worldSeed ^ periodIndex` 直接异或只扰动低几位，而 LCG 首次 `nextDouble` 由高位移位主导 → 同一批位置每周期都通过/不通过概率骰子（模拟验证重叠 100%）
@@ -91,32 +91,45 @@
 ### 8. 末日阶段系统（完成）
 - `mutation/FocalDecayWorldData.java`：全局天数 SavedData（`days` + 部分 tick），每 20 分钟游戏日（24000 tick）+1，玩家数为 0 暂停，`ServerTickEvent.Post` 驱动；天数变化经 `SyncWorldDataPacket` 广播，登录/换维时补发
 - 阶段判定与周期：`MutationHelper.currentStage(days)`（对照 `stage2_day/stage3_day`，`enable_stage_system=false` 恒为阶段 1）、`intervalForStage`（100/60/40 tick）；服务端与客户端（同步天数）共用
-- 阶段影响范围（§6.3，含"不完整方块排除转换源"修复）：`MutationHelper.isConversionSource` —— 阶段1 仅完整方块（`isCollisionShapeFullBlock`）；阶段2+ 增加非完整但有碰撞箱方块（栅栏/玻璃板/台阶）；空气/方块实体/黑名单始终排除；阶段3 方块→空气小概率（5%）、紧贴地形的空气→方块小概率（2%）由 `getVisibleTarget` 同种子分支处理（客户端预览 + 服务端破坏一致）
+- 阶段影响范围（§6.3，含"不完整方块排除转换源"修复）：`MutationHelper.isConversionSource` —— 阶段1 仅完整方块（`isCollisionShapeFullBlock`）；阶段2+ 增加非完整但有碰撞箱方块（栅栏/玻璃板/台阶）；空气/方块实体/黑名单始终排除；阶段3 影响范围与阶段2 一致
 - 实体突变（§6.4）：`mutation/DoomsdayHandler.java` 每阶段周期掷确定性骰子（`mix64(worldSeed ^ pos.asLong() ^ tick)`），`Mob`（排除玩家）从三阶段实体池转换（阶段1 被动 / 阶段2 +中立 / 阶段3 +敌对，源池=目标池），NBT 复制（去 UUID）替换实体；`ItemEntity` 掉落物目标物品改为方块池随机方块物品
-- 客户端 `ClientRenderCache` 接入阶段：同步 `worldDays`，`isCandidate`/`computeTarget`/`resolve`/扫描全部按阶段走源范围与空气分支，阶段变化自动清缓存重算
+- 客户端 `ClientRenderCache` 接入阶段：同步 `worldDays`，`isCandidate`/`computeTarget`/`resolve`/扫描全部按阶段走源范围，阶段变化自动清缓存重算
 - 测试命令（2026-08-13）：`/focaldecay days [<n>]` 查询/设定末日天数（设定需权限 2），经 `SyncWorldDataPacket` 广播后客户端即时重算阶段
 - 实体突变不生效修复（2026-08-13）：`lastEntityMutationTick` 曾初始化为 `Long.MIN_VALUE`，`serverTick - MIN_VALUE` 溢出恒为负、周期判断永假导致实体转换从不触发；已改为初始 0 并加防回归注释
 - 实体突变 NPE 修复（2026-08-13）：遍历活动实体列表期间 `discard`/`addFreshEntity` 会引入 null 墓碑，导致 `entity.isAlive()` 空指针；改为先拷贝快照再遍历并做 null 判空
 - 实体转换 NBT 白名单重构（2026-08-13）：`EntityMutation` 抽象出跨物种保留字段白名单（Age/ForcedAge/Health/CustomName/CustomNameVisible/PersistenceRequired/Tags/ActiveEffects），位置/朝向复制、速度清零，飞行/物理/渲染瞬态标志（如 NoGravity）从根上丢弃，替代原先整份 NBT 复制后逐个打补丁的做法
-- 累积转换与空气转换修复（2026-08-13）：方块失焦改为"有记忆"累积（未抽中的保留上次材质而非回退原方块），实现为回退扫描最近抽中周期；阶段3 空气→方块去掉"必须贴地"限制，整片天空空气均参与小概率转换
+- 累积转换（2026-08-13）：方块失焦改为"有记忆"累积（未抽中的保留上次材质而非回退原方块），实现为回退扫描最近抽中周期
+- 移除空气↔方块转换（2026-08-19）：阶段3 的"方块→空气 / 空气→方块"逻辑、配置项（`block_to_air_chance_stage3`/`air_to_block_chance_stage3`）与客户端空气预览全部删除，需求从大纲移除，恢复为仅方块材质间的确定性转换
 - 方块诞生周期（2026-08-13）：玩家放置的方块记录诞生周期（`MutationPoolManager` 维度级持久化 `Map<BlockPos, Long>`），`getVisibleTarget`/`cumulativeTarget` 增加起始周期，放置瞬间及同周期保持原方块、之后才崩坏；放置/破坏事件维护并广播，`SyncRegionDataPacket` 携带诞生周期同步客户端，锚固化与破坏转换同样尊重
 
 ## 未完成（按推荐实现顺序）
 
-### 9. 观测者核心与语义碎片
-- 观测者核心：世界结构生成（固定坐标、Y=-40~-20、种子决定）、右键 GUI（"观测者离线/在线"）、用重建协议激活（动画+粒子，powered=true，触发胜利）
-- 语义碎片来源：玫瑰失焦突变、核心结构内生成、村庄战利品、首次右键核心、铜块突变、所有战利品箱、稳定锚合成
+### 9. 观测稳定系统（2026-08-19 设计修订，取代原"稳定锚 + 突变控制器"）
+- **设计变更**：原 `stable_anchor` / `mutation_controller` 统一重构为 **稳定锚原型机**（`anchor_prototype`）+ **观测模型**（物品 + DataComponents）；新增 **训练终端**（`training_terminal`）与 **末地王座**；语义锁定/引导模型继承原突变控制器功能，完全稳定锚为终极形态。
+- 里程碑（对应 PROXYAI §12）：
+  1. 框架 + 注册原型机、训练终端、模型物品、王座方块（含对现有 stable_anchor/mutation_controller 代码的重构）
+  2. 模型 `ObserverModelData` 组件、空白模型合成、训练终端 GUI + 能量（FE 默认消耗 0 / 经验瓶回退）、语义锁定/引导模型训练交互（终端"训练"→手持空白模型右键收集→回终端完成）、模型复制配方
+  3. 原型机效果应用：有效原型机列表、保护/引导接入 `getVisibleTarget` 与渲染缓存、`SyncRegionDataPacket` 扩展
+  4. 生物稳定模型：周围生物生命值消耗、能量换算/衰减、范围内方块/实体稳定、阶段3双倍消耗
+  5. 末地王座结构（种子决定、主岛与外岛间虚空环带、规避末影龙机制）与仪式（触发/计时默认 3~5 分钟/波次、`ThroneRitualPacket`）
+  6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制
+  7. 与末日阶段/渲染/网络整合（阶段3模型效果衰减等）
+  8. 彩蛋与打磨（粒子/音效/专属贴图/测试）
+
+### 10. 网络通信（承接现有实现）
+- `SyncRegionDataPacket`（S→C）：现有维度/锚/诞生周期 → 扩展为"有效原型机 + 模型效果"列表；登录/换维/原型机变化/方块放置破坏时发送
+- `ObserverCoreActivatePacket`（S→C）：核心激活时全服动画
+- `ThroneRitualPacket`（S→C，新增）：王座仪式进度/波次/完成同步
+- 使用 NeoForge 21.1 Payload API（现有 `ModNetwork` 基础上扩展），协议版本 "1"
+
+### 11. 观测者核心修复路径（保留）
+- 观测者核心块：右键 GUI（"观测者离线/在线"）、用重建协议激活（动画+粒子，powered=true，触发胜利）
+- 语义碎片来源：玫瑰失焦突变、王座/末地城结构、村庄战利品、首次右键核心、铜块突变、所有战利品箱、原型机合成
 - 战利品注入（碎片）：`GlobalLootModifier` 或 LootTableLoadEvent
 
-### 10. 网络通信
-- `SyncRegionDataPacket`（S→C）：维度 ID、覆盖区域列表（含有效方块列表）、稳定锚位置集合；玩家登录/覆盖更新时发送
-- `ObserverCoreActivatePacket`（S→C）：核心激活时全服动画
-- 用 `NetworkRegistry` 创建 `SimpleChannel`，协议版本 "1"
-
-### 11. 收尾
-- 稳定锚/控制器 GUI（突变控制器 MenuProvider：标签表达式输入 + 半径滑条 + 应用按钮）
-- 稳定锚粒子（蓝色漂浮、"42ms"字样）
-- 专属贴图/模型（目前用原版占位）
+### 12. 收尾
+- 原型机 GUI 与训练终端 GUI 的专属贴图/模型（目前用原版占位）
+- 粒子（蓝色漂浮、"42ms"、"完备语义分类"字样）
 - 测试与平衡调整
 
 ## 关键约定与注意事项

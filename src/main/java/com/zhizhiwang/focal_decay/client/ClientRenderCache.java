@@ -142,28 +142,6 @@ public final class ClientRenderCache {
         }
 
         int stage = currentStage();
-        if (original.isAir()) {
-            // 阶段3：空气小概率预览转换为方块（不限制是否贴地）
-            if (stage < 3) {
-                return original;
-            }
-            long key = pos.asLong();
-            long period = currentPeriod(clientLevel);
-            Entry entry = targetCache.get(key);
-            if (entry != null && entry.period == period) {
-                return entry.state;
-            }
-            if (entry != null) {
-                targetCache.remove(key, entry);
-                decrSection(pos);
-            }
-            BlockState target = computeTarget(clientLevel, pos, original);
-            if (target != original && isRenderableTarget(target)) {
-                putEntry(pos, target, period);
-                return target;
-            }
-            return original;
-        }
         if (!isCandidate(original, clientLevel, pos, stage)) {
             return original;
         }
@@ -189,7 +167,7 @@ public final class ClientRenderCache {
 
     /**
      * 中键选取（pick block）时使用的"可见状态"：
-     * 优先返回缓存的幽灵目标；未命中则按当前周期现算（空气目标回退原方块，避免取到空物品）。
+     * 优先返回缓存的幽灵目标；未命中则按当前周期现算。
      */
     public BlockState visibleState(ClientLevel level, BlockPos pos) {
         BlockState original = level.getBlockState(pos);
@@ -207,10 +185,10 @@ public final class ClientRenderCache {
         long period = currentPeriod(level);
         Entry entry = targetCache.get(key);
         if (entry != null && entry.period == period) {
-            return entry.state.isAir() ? original : entry.state;
+            return entry.state;
         }
         BlockState target = computeTarget(level, pos, original);
-        if (target != original && isRenderableTarget(target) && !target.isAir()) {
+        if (target != original && isRenderableTarget(target)) {
             return target;
         }
         return original;
@@ -503,27 +481,6 @@ public final class ClientRenderCache {
                     long key = pos.asLong();
                     BlockState state = level.getBlockState(pos);
 
-                    if (state.isAir()) {
-                        // 阶段3：空气小概率预览转换为方块（不限制是否贴地）
-                        if (stage >= 3 && !isProtected(pos)) {
-                            BlockState target = computeTarget(level, pos, state);
-                            if (target != state && isRenderableTarget(target)) {
-                                Entry prev = targetCache.put(key, new Entry(target, period));
-                                if (prev == null || prev.period != period || prev.state != target) {
-                                    if (prev == null) {
-                                        incrSection(pos);
-                                    }
-                                    changed = true;
-                                }
-                            } else if (removeEntry(pos, key)) {
-                                changed = true;
-                            }
-                        } else if (removeEntry(pos, key)) {
-                            changed = true;
-                        }
-                        continue;
-                    }
-
                     if (!isCandidate(state, level, pos, stage) || isProtected(pos) || !isExposed(level, pos)) {
                         if (removeEntry(pos, key)) {
                             changed = true;
@@ -567,7 +524,7 @@ public final class ClientRenderCache {
         double chance = MutationHelper.mutationChance(stage);
         long birthPeriod = getBlockBirthPeriod(pos);
         return MutationHelper.getVisibleTarget(original, pos, worldSeed(level), period, pool.snapshot(),
-                chance, isProtected(pos), stage, birthPeriod);
+                chance, isProtected(pos), birthPeriod);
     }
 
     private long currentPeriod(ClientLevel level) {
@@ -596,9 +553,9 @@ public final class ClientRenderCache {
                 && MutationHelper.isConversionSource(state, level, pos, stage);
     }
 
-    /** 目标可渲染：空气（消失预览）或常规模型，且不带方块实体/流体。 */
+    /** 目标可渲染：常规模型，且不带方块实体/流体。 */
     private static boolean isRenderableTarget(BlockState target) {
-        return (target.isAir() || target.getRenderShape() == RenderShape.MODEL)
+        return target.getRenderShape() == RenderShape.MODEL
                 && !target.hasBlockEntity()
                 && target.getFluidState().isEmpty();
     }

@@ -54,7 +54,7 @@ public class InteractionHandler {
         double chance = MutationHelper.mutationChance(stage);
         boolean isProtected = manager.isProtected(pos);
         long birthPeriod = manager.getBlockBirthPeriod(pos);
-        BlockState target = MutationHelper.getVisibleTarget(state, pos, worldSeed, periodIndex, pool, chance, isProtected, stage, birthPeriod);
+        BlockState target = MutationHelper.getVisibleTarget(state, pos, worldSeed, periodIndex, pool, chance, isProtected, birthPeriod);
 
         BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
         breakData.start(target, periodIndex);

@@ -27,8 +27,6 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE2;
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE3;
     public static final ModConfigSpec.BooleanValue ENABLE_STAGE_SYSTEM;
-    public static final ModConfigSpec.DoubleValue BLOCK_TO_AIR_CHANCE_STAGE3;
-    public static final ModConfigSpec.DoubleValue AIR_TO_BLOCK_CHANCE_STAGE3;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -69,12 +67,6 @@ public final class FocalDecayConfig {
         ENABLE_STAGE_SYSTEM = builder
                 .comment("Whether the doomsday stage system is enabled. When false the world stays in stage 1.")
                 .define("enable_stage_system", true);
-        BLOCK_TO_AIR_CHANCE_STAGE3 = builder
-                .comment("Stage 3: per-cycle chance for a block's mutation target to become air.")
-                .defineInRange("block_to_air_chance_stage3", 0.05, 0.0, 1.0);
-        AIR_TO_BLOCK_CHANCE_STAGE3 = builder
-                .comment("Stage 3: per-cycle chance for air (adjacent to terrain) to preview-convert to a block.")
-                .defineInRange("air_to_block_chance_stage3", 0.02, 0.0, 1.0);
         ENABLE_CORE_REPAIR = builder
                 .comment("Whether the Observer Core can be repaired to end the defocus.")
                 .define("enable_core_repair", true);

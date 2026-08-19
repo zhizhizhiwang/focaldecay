@@ -124,7 +124,7 @@ public class MutationEventHandler {
                     List<Block> pool = manager.getEffectivePool(p, state);
                     long birthPeriod = manager.getBlockBirthPeriod(p);
                     BlockState target = MutationHelper.getVisibleTarget(
-                            state, p, worldSeed, periodIndex, pool, chance, false, stage, birthPeriod);
+                            state, p, worldSeed, periodIndex, pool, chance, false, birthPeriod);
                     if (target != state) {
                         level.setBlock(p, target, 3);
                     }

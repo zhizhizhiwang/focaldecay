@@ -4,7 +4,6 @@ import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -47,10 +46,9 @@ public final class MutationHelper {
     /**
      * 统一的方块识别函数：生存破坏、创造中键选取、客户端预览共用。
      * 受稳定锚保护的方块一律返回原方块（不转换、不显示幽灵）。
-     * 阶段3额外处理"方块→空气 / 空气→方块"的小概率分支（两端同种子同分支）。
      */
     public static BlockState getVisibleTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
-                                              List<Block> pool, double probability, boolean isProtected, int stage,
+                                              List<Block> pool, double probability, boolean isProtected,
                                               long birthPeriod) {
         if (isProtected) {
             return original;
@@ -59,21 +57,6 @@ public final class MutationHelper {
         long fromPeriod = birthPeriod >= 0 ? birthPeriod + 1 : 0;
         if (periodIndex < fromPeriod) {
             return original;
-        }
-        if (stage >= 3) {
-            long seed = mix64(pos.asLong() ^ worldSeed ^ periodIndex);
-            RandomSource random = RandomSource.create(seed);
-            if (original.isAir()) {
-                double chance = FocalDecayConfig.AIR_TO_BLOCK_CHANCE_STAGE3.get();
-                if (chance > 0.0 && !pool.isEmpty() && random.nextDouble() < chance) {
-                    return pool.get(random.nextInt(pool.size())).defaultBlockState();
-                }
-                return original;
-            }
-            double chance = FocalDecayConfig.BLOCK_TO_AIR_CHANCE_STAGE3.get();
-            if (chance > 0.0 && random.nextDouble() < chance) {
-                return Blocks.AIR.defaultBlockState();
-            }
         }
         return cumulativeTarget(original, pos, worldSeed, periodIndex, pool, probability, fromPeriod);
     }
@@ -149,7 +132,7 @@ public final class MutationHelper {
      * 方块是否可作为当前阶段的"转换源"（设计大纲 §6.3）：
      *  - 阶段1：仅完整方块（isCollisionShapeFullBlock）；
      *  - 阶段2+：额外包含非完整但有碰撞箱的方块（栅栏、玻璃板、台阶等）；
-     *  - 空气、带方块实体、黑名单方块始终排除（阶段3的空气源由客户端预览单独处理）。
+     *  - 空气、带方块实体、黑名单方块始终排除。
      */
     public static boolean isConversionSource(BlockState state, BlockGetter level, BlockPos pos, int stage) {
         if (state.isAir() || state.hasBlockEntity() || state.is(ModTags.Blocks.CONVERSION_BLACKLIST)) {
