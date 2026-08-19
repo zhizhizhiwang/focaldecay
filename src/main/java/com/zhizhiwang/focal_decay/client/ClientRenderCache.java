@@ -16,7 +16,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
@@ -31,7 +33,11 @@ import org.slf4j.Logger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -73,6 +79,19 @@ public final class ClientRenderCache {
         }
     }
 
+    /** 某个维度收到的区域数据（稳定锚位置 + 切比雪夫半径 + 方块诞生周期）。 */
+    private static final class RegionData {
+        final int radius;
+        final Set<BlockPos> anchors;
+        final Map<BlockPos, Long> birthPeriods;
+
+        RegionData(int radius, Collection<BlockPos> anchors, Map<BlockPos, Long> birthPeriods) {
+            this.radius = radius;
+            this.anchors = Set.copyOf(anchors);
+            this.birthPeriods = Map.copyOf(birthPeriods);
+        }
+    }
+
     /** pos.asLong() -> 突变目标（含所属周期，防止跨周期读到旧值）。 */
     private final ConcurrentHashMap<Long, Entry> targetCache = new ConcurrentHashMap<>();
     /** pos.asLong()：当前已知暴露面的方块。 */
@@ -83,10 +102,13 @@ public final class ClientRenderCache {
     private final ConcurrentHashMap<Long, Integer> sectionCounts = new ConcurrentHashMap<>();
     /** 待扫描节队列（按到玩家距离升序）。 */
     private final Queue<Long> pendingSections = new ArrayDeque<>();
+    /** 各维度的保护区域数据（由 SyncRegionDataPacket 同步）。 */
+    private final Map<ResourceKey<Level>, RegionData> regionData = new ConcurrentHashMap<>();
 
     private volatile Frustum frustum;
     private volatile ClientLevel level;
     private volatile MutationPool pool = MutationPool.empty(0);
+    private volatile long worldDays;
     private long lastPeriodIndex = Long.MIN_VALUE;
     private int scanCooldown;
 
@@ -109,13 +131,40 @@ public final class ClientRenderCache {
      * 未命中缓存时惰性计算并写回，保证首次编译即有预览。
      */
     public BlockState resolve(RenderChunkRegion region, BlockPos pos, BlockState original) {
-        if (!isCandidate(original)) {
+        if (isProtected(pos)) {
             return original;
         }
         if (!(region instanceof RenderChunkRegionAccessor accessor)) {
             return original;
         }
         if (!(accessor.focaldecay$getLevel() instanceof ClientLevel clientLevel) || clientLevel != this.level) {
+            return original;
+        }
+
+        int stage = currentStage();
+        if (original.isAir()) {
+            // 阶段3：空气小概率预览转换为方块（不限制是否贴地）
+            if (stage < 3) {
+                return original;
+            }
+            long key = pos.asLong();
+            long period = currentPeriod(clientLevel);
+            Entry entry = targetCache.get(key);
+            if (entry != null && entry.period == period) {
+                return entry.state;
+            }
+            if (entry != null) {
+                targetCache.remove(key, entry);
+                decrSection(pos);
+            }
+            BlockState target = computeTarget(clientLevel, pos, original);
+            if (target != original && isRenderableTarget(target)) {
+                putEntry(pos, target, period);
+                return target;
+            }
+            return original;
+        }
+        if (!isCandidate(original, clientLevel, pos, stage)) {
             return original;
         }
 
@@ -144,14 +193,21 @@ public final class ClientRenderCache {
      */
     public BlockState visibleState(ClientLevel level, BlockPos pos) {
         BlockState original = level.getBlockState(pos);
-        if (!isCandidate(original)) {
+        if (isProtected(pos)) {
+            return original;
+        }
+        if (original.isAir()) {
+            return original; // 空气无法拾取
+        }
+        int stage = currentStage();
+        if (!isCandidate(original, level, pos, stage)) {
             return original;
         }
         long key = pos.asLong();
         long period = currentPeriod(level);
         Entry entry = targetCache.get(key);
         if (entry != null && entry.period == period) {
-            return entry.state;
+            return entry.state.isAir() ? original : entry.state;
         }
         BlockState target = computeTarget(level, pos, original);
         if (target != original && isRenderableTarget(target) && !target.isAir()) {
@@ -171,6 +227,8 @@ public final class ClientRenderCache {
             if (level != null || !targetCache.isEmpty() || !activeSections.isEmpty()) {
                 clearCache();
             }
+            regionData.clear();
+            worldDays = 0;
             level = null;
             pool = MutationPool.empty(0);
             lastPeriodIndex = Long.MIN_VALUE;
@@ -262,6 +320,104 @@ public final class ClientRenderCache {
         this.frustum = frustum;
     }
 
+    /** 服务端同步末日天数；阶段变化会改变周期/概率/影响范围，需要清缓存重算。 */
+    public void setWorldDays(long days) {
+        if (this.worldDays != days) {
+            this.worldDays = days;
+            clearCache();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 稳定锚保护区域（网络同步）
+    // ------------------------------------------------------------------
+
+    /** 收到服务端同步的区域数据（主线程）。 */
+    public void applyRegionData(ResourceKey<Level> dimension, int radius, long[] anchors,
+                                long[] birthPositions, long[] birthPeriods) {
+        List<BlockPos> anchorList = new ArrayList<>(anchors.length);
+        for (long l : anchors) {
+            anchorList.add(BlockPos.of(l));
+        }
+
+        Map<BlockPos, Long> newBirths = new HashMap<>();
+        for (int i = 0; i < birthPositions.length; i++) {
+            newBirths.put(BlockPos.of(birthPositions[i]), birthPeriods[i]);
+        }
+
+        RegionData old = regionData.get(dimension);
+        Set<BlockPos> changed = new HashSet<>();
+        if (old == null) {
+            changed.addAll(newBirths.keySet());
+        } else {
+            for (Map.Entry<BlockPos, Long> entry : newBirths.entrySet()) {
+                Long oldBirth = old.birthPeriods.get(entry.getKey());
+                if (oldBirth == null || !oldBirth.equals(entry.getValue())) {
+                    changed.add(entry.getKey());
+                }
+            }
+            for (BlockPos pos : old.birthPeriods.keySet()) {
+                if (!newBirths.containsKey(pos)) {
+                    changed.add(pos);
+                }
+            }
+        }
+
+        regionData.put(dimension, new RegionData(Math.max(0, radius), anchorList, newBirths));
+        refreshRegionData(changed);
+    }
+
+    /** 当前客户端所在维度的保护数据；未同步或无保护返回 null。 */
+    private RegionData currentRegionData() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) {
+            return null;
+        }
+        return regionData.get(mc.level.dimension());
+    }
+
+    /** 位置是否处于任一稳定锚的保护范围内。 */
+    public boolean isProtected(BlockPos pos) {
+        RegionData data = currentRegionData();
+        if (data == null || data.radius <= 0) {
+            return false;
+        }
+        for (BlockPos anchor : data.anchors) {
+            if (Math.max(Math.abs(pos.getX() - anchor.getX()),
+                    Math.max(Math.abs(pos.getY() - anchor.getY()), Math.abs(pos.getZ() - anchor.getZ())))
+                    <= data.radius) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 该方块的诞生周期；未同步或世界原生返回 -1。 */
+    public long getBlockBirthPeriod(BlockPos pos) {
+        RegionData data = currentRegionData();
+        return data == null ? -1L : data.birthPeriods.getOrDefault(pos, -1L);
+    }
+
+    /** 区域数据更新后：清掉保护范围内或诞生状态变化的幽灵缓存并触发重编译。 */
+    private void refreshRegionData(Set<BlockPos> changedBirths) {
+        if (targetCache.isEmpty()) {
+            return;
+        }
+        Set<Long> dirty = new HashSet<>();
+        targetCache.forEach((key, entry) -> {
+            BlockPos pos = BlockPos.of(key);
+            if (isProtected(pos) || changedBirths.contains(pos)) {
+                targetCache.remove(key, entry);
+                decrSection(pos);
+                visibleSurfaces.remove(key);
+                dirty.add(SectionPos.asLong(pos));
+            }
+        });
+        for (long sectionKey : dirty) {
+            markSectionDirty(SectionPos.of(sectionKey));
+        }
+    }
+
     // ------------------------------------------------------------------
     // 表面扫描
     // ------------------------------------------------------------------
@@ -337,6 +493,7 @@ public final class ClientRenderCache {
         SectionPos section = SectionPos.of(sectionKey);
         BlockPos min = section.origin();
         long period = currentPeriod(level);
+        int stage = currentStage();
         boolean changed = false;
 
         for (int y = 0; y < 16; y++) {
@@ -346,7 +503,28 @@ public final class ClientRenderCache {
                     long key = pos.asLong();
                     BlockState state = level.getBlockState(pos);
 
-                    if (!isCandidate(state) || !isExposed(level, pos)) {
+                    if (state.isAir()) {
+                        // 阶段3：空气小概率预览转换为方块（不限制是否贴地）
+                        if (stage >= 3 && !isProtected(pos)) {
+                            BlockState target = computeTarget(level, pos, state);
+                            if (target != state && isRenderableTarget(target)) {
+                                Entry prev = targetCache.put(key, new Entry(target, period));
+                                if (prev == null || prev.period != period || prev.state != target) {
+                                    if (prev == null) {
+                                        incrSection(pos);
+                                    }
+                                    changed = true;
+                                }
+                            } else if (removeEntry(pos, key)) {
+                                changed = true;
+                            }
+                        } else if (removeEntry(pos, key)) {
+                            changed = true;
+                        }
+                        continue;
+                    }
+
+                    if (!isCandidate(state, level, pos, stage) || isProtected(pos) || !isExposed(level, pos)) {
                         if (removeEntry(pos, key)) {
                             changed = true;
                         }
@@ -384,14 +562,20 @@ public final class ClientRenderCache {
         if (pool.isEmpty()) {
             return original;
         }
-        long gameTick = level.getGameTime();
+        int stage = currentStage();
         long period = currentPeriod(level);
-        double chance = MutationHelper.mutationChance(MutationHelper.currentStage(gameTick));
-        return MutationHelper.getTarget(original, pos, worldSeed(level), period, pool.snapshot(), chance);
+        double chance = MutationHelper.mutationChance(stage);
+        long birthPeriod = getBlockBirthPeriod(pos);
+        return MutationHelper.getVisibleTarget(original, pos, worldSeed(level), period, pool.snapshot(),
+                chance, isProtected(pos), stage, birthPeriod);
     }
 
-    private static long currentPeriod(ClientLevel level) {
-        return MutationHelper.periodIndex(level.getGameTime(), FocalDecayConfig.BASE_INTERVAL.get());
+    private long currentPeriod(ClientLevel level) {
+        return MutationHelper.periodIndex(level.getGameTime(), MutationHelper.intervalForStage(currentStage()));
+    }
+
+    private int currentStage() {
+        return MutationHelper.currentStage(worldDays);
     }
 
     /**
@@ -406,12 +590,10 @@ public final class ClientRenderCache {
         return 0L;
     }
 
-    /** 候选：非空气、无方块实体、不在黑名单、常规模型渲染。 */
-    private static boolean isCandidate(BlockState state) {
-        return !state.isAir()
-                && !state.hasBlockEntity()
-                && !state.is(ModTags.Blocks.CONVERSION_BLACKLIST)
-                && state.getRenderShape() == RenderShape.MODEL;
+    /** 候选（转换源）：常规模型渲染 + 满足阶段影响范围（§6.3：阶段1完整方块 / 阶段2+含碰撞非完整方块）。 */
+    private static boolean isCandidate(BlockState state, Level level, BlockPos pos, int stage) {
+        return state.getRenderShape() == RenderShape.MODEL
+                && MutationHelper.isConversionSource(state, level, pos, stage);
     }
 
     /** 目标可渲染：空气（消失预览）或常规模型，且不带方块实体/流体。 */

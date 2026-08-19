@@ -1,6 +1,5 @@
 # AI 守则
-1. 使用powershell语法
-2. 默认powershell为gbk, 编辑文件请使用utf-8
+1.默认powershell为gbk, 编辑文件请使用utf-8
 
 # Focal Decay: Observer Fallen
 
@@ -70,6 +69,7 @@
 - **效果**：以自身为中心，切比雪夫距离 8 格（可配置）内的所有方块被保护。
   - 被保护方块不会被加入客户端视锥渲染列表（即不替换模型）。
   - 交互时服务端不会触发真实转换（直接使用原方块状态）。
+- **放置时固化失焦状态（2026-08-10 新增）**：放置锚时先将保护范围内所有方块转换为"当前周期的失焦目标"（与生存破坏同一确定性公式，含概率 roll），再登记保护，避免保护住转换前的状态。
 - **保护检测**：在服务端和客户端分别维护 `Set<BlockPos>`（锚位置集合）。当锚被放置/破坏时更新该集合。
 - **粒子**：随机在表面生成漂浮蓝色粒子，偶尔拼出“42ms”字样（客户端粒子效果）。
 - **工具提示**：`“OBSR-1β 完备语义保护场”`
@@ -168,6 +168,7 @@ public final class MutationPool {
 ### 4.3 稳定锚保护
 - 服务端和客户端均维护 `Set<BlockPos> protectedPositions`（通过锚的放置/破坏事件更新）。
 - 当方块坐标在保护集合内时，不参与视觉转换，交互不转换。
+- **客户端同步（2026-08-10 实现）**：通过 `SyncRegionDataPacket`（S→C，含维度、锚位置、保护半径）在玩家登录/切换维度/锚变化时同步；客户端渲染与中键选取均查询该集合。
 
 ---
 
@@ -189,11 +190,14 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - **转换概率（2026-08-10 新增）**：每个方块每周期只有一定概率被转换，概率随阶段变化：阶段1/2/3 暂定 `0.1 / 0.6 / 1.0`（Server 配置 `block_mutation_chance_stage1/2/3`）。
   - 概率 roll 与目标选择共用同一确定性种子（`pos.asLong() ^ worldSeed ^ periodIndex`），先 roll 后取目标，两端随机序列完全一致。
   - **种子必须经 SplitMix64 雪崩混合（2026-08-10 修复）**：`periodIndex` 是小数字，直接异或只扰动种子低几位，LCG 首次 `nextDouble` 几乎不变，会导致"同一批固定位置每周期都失焦"。混合后每次周期切换失焦位置集合完全重排。
-  - 阶段判定（临时）：`currentStage(gameTick) = gameTick / 24000` 取原版天数，对照 `stage2_day` / `stage3_day`；待 §6 末日天数 SavedData 接入后替换。
+  - 阶段判定（2026-08-10 已接入 §6）：`currentStage(days)` 取 `FocalDecayWorldData` 末日天数，对照 `stage2_day` / `stage3_day`；统一识别函数 `getVisibleTarget(..., stage)` 额外处理阶段3"方块→空气 / 空气→方块"分支（同种子、两端一致）。
+  - **累积转换（2026-08-13）**：方块转换改为"有记忆"状态——每周期抽中的方块换新材质，未抽中的保留上一次材质，而不是回退原方块，实现世界逐渐崩坏；做法是从当前周期向前回退扫描最近一次抽中周期（确定性、两端一致，扫描上限 128 周期）。
+  - **方块诞生周期（2026-08-13 新增）**：玩家放置的方块记录"诞生周期"（`MutationPoolManager` 维度级持久化），转换只从"诞生周期 + 1"开始累积——放置瞬间及同一周期内保持原方块，之后才随周期逐渐崩坏；世界原生方块仍从周期 0 开始。服务端放置/破坏事件维护该表，`SyncRegionDataPacket` 同步给客户端用于预览，锚固化和破坏转换同样尊重诞生周期。
 - 全局池以不可变排序列表形式存在，新增操作仅在服务端执行，并通过网络包在周期边界同步到客户端。”
 - 带有方块实体的目标均不转换
 
 ### 5.2 交互锁定
+- **统一方块识别函数（2026-08-10 新增）**：`MutationHelper.getVisibleTarget(original, pos, worldSeed, periodIndex, pool, probability, isProtected)` 为生存破坏、创造中键选取、客户端预览共用的唯一识别入口；受保护位置一律返回原方块。
 - **挖掘开始**：`PlayerInteractEvent.LeftClickBlock`（服务端）记录：
   - 目标方块状态 `targetState`（此时计算）
   - 周期索引 `periodIndex`(锁定方块)
@@ -215,6 +219,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 
 ### 6.1 全局计时器
 - 使用单独的 `SavedData` 记录世界创建后的天数。
+- **实现（2026-08-10）**：`FocalDecayWorldData`（存于主世界 DimensionDataStorage），`ServerTickEvent.Post` 驱动，玩家数 >0 时累计，每 24000 tick（20 分钟游戏日）天数 +1 并通过 `SyncWorldDataPacket` 广播；玩家登录/切换维度时补发。
 - 所有阶段均不转换带方块实体的方块（无论源还是目标）
 - 阶段判定：
   - 阶段 1: `days < stage2_day`
@@ -231,17 +236,20 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
   - `entityMutationChance`：实体每周期转换概率
   - `postIntensity`：后处理强度乘数
 - 配置值通过 `FocalDecayConfig` 读取。
+- **实现（2026-08-10）**：周期 `base_interval/stage2_interval/stage3_interval`（100/60/40）、方块概率 `block_mutation_chance_stage1/2/3`（0.1/0.6/1.0）、实体概率 `entity_mutation_chance_stage2/3`、阶段开关 `enable_stage_system`、阶段3空气概率 `block_to_air_chance_stage3`（0.05）/`air_to_block_chance_stage3`（0.02）。
 
 ### 6.3 方块影响范围扩展
 - 阶段1：仅 `isCollisionShapeFullBlock()` 方块。
 - 阶段2：增加 `BlockBehaviour.Properties.dynamicShape()` 为非完整但有碰撞箱的方块（如栅栏、玻璃板）。但需在渲染时处理模型替换，可能需特殊处理。
 - 阶段3：使方块有小概率转换成空气, 同时空气也有小概率转换成方块, 概率可配置
+- **实现（2026-08-10 / 2026-08-13 修订）**：`MutationHelper.isConversionSource(state, level, pos, stage)` 统一判定（含"不完整方块排除转换源"）：阶段1 仅完整方块；阶段2+ 增加非完整但有碰撞箱方块；空气/方块实体/黑名单始终排除。阶段3 由 `getVisibleTarget` 同种子分支处理：方块→空气（`block_to_air_chance_stage3`）、空气→方块（`air_to_block_chance_stage3`，不限制是否贴地；客户端预览 + 服务端破坏一致）。客户端 `isCandidate` 与服务器交互共用该函数。
 
 ### 6.4 实体转换
 - 根据不同阶段决定池, 源池和目标池始终应该一致
 - 每周期（不同阶段周期不同）对每个实体生成随机数，若小于概率则转换。
 - 转换方式：从标签中随机选取目标实体类型，使用 `EntityType.create(level)` 生成新实体，复制位置、兼容的NBT（保留年龄等），移除旧实体，生成新实体。应用确定性随机种子：`(worldSeed ^ entity.blockPosition().asLong() ^ tick)` 选择目标类型。
 - 特殊处理掉落物, 使其目标物品改变
+- **实现（2026-08-10）**：`DoomsdayHandler` 每阶段周期对 `Mob`（排除玩家）与 `ItemEntity` 掷确定性骰子 `mix64(worldSeed ^ pos.asLong() ^ tick)`；`Mob` 从三阶段实体池（被动/中立/敌对，源池=目标池）选目标类型，NBT 复制（去 UUID）替换；掉落物改为方块池随机方块物品。
 ---
 
 ## 7. 渲染系统
@@ -281,6 +289,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - 注意排除液体、空气等由原版渲染管线的特殊处理，确保替换仅针对固体层。
 - 对于非完整方块，在阶段2+启用时，须同样处理它们的模型替换，可能需调整 `isCollisionShapeFullBlock` 判断。
 - 对于带方块实体的原方块，直接跳过替换，避免方块实体渲染器残留。
+- **受保护方块（2026-08-10）**：`ClientRenderCache.resolve` 先查 `isProtected(pos)`，保护范围内不替换模型、不入缓存。
 
 ### 7.4 后处理着色器
 - 注册自定义 `PostChain`：`focal_decay:observer_veil`。
@@ -297,15 +306,14 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 
 ### 8.1 数据包设计
 - **SyncRegionDataPacket**（S→C）：
-  - 维度ID、覆盖区域列表（每个覆盖：中心坐标、半径、有效方块列表）。
-  - 稳定锚位置集合。
-  - 在玩家登录、覆盖更新时发送。
+  - 维度ID、稳定锚位置集合、保护半径、方块诞生周期表（位置 → 周期）（2026-08-10/2026-08-13 已实现，覆盖区域列表为后续扩展）。
+  - 在玩家登录、切换维度、锚放置/破坏、方块放置/破坏（诞生周期变化）时发送。
 - **ObserverCoreActivatePacket**（S→C）：
   - 当核心被激活时，发送给所有玩家，触发全局动画和成就。
 - **BreakDataSyncPacket**（可无需，挖掘数据仅存服务器，客户端无需知道目标）。
 
 ### 8.2 网络注册
-- 使用 NeoForge `NetworkRegistry` 创建 `SimpleChannel`，协议版本 “1”。
+- 使用 NeoForge 21.1 **Payload API**（`RegisterPayloadHandlersEvent` + `PayloadRegistrar`；`SimpleChannel` 已在 21.1 移除），协议版本 “1”。
 
 ---
 
@@ -315,7 +323,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - 位置：`config/focal_decay.toml`
 - 使用 NeoForge 的 `ModConfigSpec` 构建。
 - 分类：
-  - **Server**（同步到客户端）：`stage2_day`, `stage3_day`, `base_interval`, `stage2_interval`, `stage3_interval`, `entity_mutation_chance_stage2`, `entity_mutation_chance_stage3`, `block_mutation_chance_stage1/2/3`（0.1/0.6/1.0）, `enable_core_repair`。
+  - **Server**（同步到客户端）：`stage2_day`, `stage3_day`, `base_interval`, `stage2_interval`, `stage3_interval`, `entity_mutation_chance_stage2`, `entity_mutation_chance_stage3`, `block_mutation_chance_stage1/2/3`（0.1/0.6/1.0）, `enable_stage_system`, `block_to_air_chance_stage3`（0.05）, `air_to_block_chance_stage3`（0.02）, `enable_core_repair`。
   - **Common**（服务器/客户端各自加载）：`anchor_radius`, `post_intensity`。
   - **Client**：`postProcessEnabled`, `surface_update_frequency`, `max_render_distance`。
 
@@ -348,6 +356,10 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - `MinecraftPickBlockMixin`：中键选取返回"失焦目标"方块（替换 `Minecraft#pickBlock` 中的 `ClientLevel#getBlockState`）。
 - 不修改底层网络，仅注入渲染和方块处理。
 
+### 10.4 测试命令（2026-08-13 新增）
+- `/focaldecay days`：查询当前末日天数与阶段。
+- `/focaldecay days <n>`：手动设定天数（权限 2），`FocalDecayWorldData.setDays` 落盘并通过 `SyncWorldDataPacket` 广播，客户端立即按新阶段重算（周期/概率/影响范围）。
+
 ---
 
 ## 11. 状态存储与持久化
@@ -355,6 +367,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - **MutationPoolManager**：`SavedData`，通过 `DimensionDataStorage` 读写，保存：
   - `List<RegionOverride>`（中心坐标、半径、表达式字符串）
   - 稳定锚位置集合（可从方块实体遍历获取，但缓存提高效率）
+  - 方块诞生周期表 `Map<BlockPos, Long>`（玩家放置的方块，放置时记录 periodIndex，破坏时移除）
 - **末日计时**：`FocalDecayWorldData`，存储游戏天数，独立维护，每20分钟游戏日更新一次, 服务端运行时在玩家数为0时暂停计时。
 - **玩家挖掘数据**：使用 NeoForge Capability `BreakData`，自动同步。
 

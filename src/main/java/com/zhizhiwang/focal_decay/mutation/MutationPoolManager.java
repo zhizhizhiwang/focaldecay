@@ -1,6 +1,7 @@
 package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
+import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -19,8 +20,10 @@ import net.minecraft.world.level.storage.DimensionDataStorage;
 import net.minecraft.tags.TagKey;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -33,9 +36,12 @@ public class MutationPoolManager extends SavedData {
     private static final String TAG_OVERRIDES = "Overrides";
     private static final String TAG_ANCHORS = "Anchors";
     private static final String TAG_POOL_VERSION = "PoolVersion";
+    private static final String TAG_BIRTHS = "Births";
 
     private final List<RegionOverride> overrides = new ArrayList<>();
     private final Set<BlockPos> anchorPositions = new HashSet<>();
+    /** 玩家放置方块的"诞生周期"（位置 -> 放置时的 periodIndex），未记录视为世界原生方块。 */
+    private final Map<BlockPos, Long> blockBirthPeriods = new HashMap<>();
     private MutationPool globalPool = MutationPool.empty(0);
 
     // ---- 工厂 ----
@@ -65,6 +71,12 @@ public class MutationPoolManager extends SavedData {
         for (long l : anchors) {
             manager.anchorPositions.add(BlockPos.of(l));
         }
+        manager.blockBirthPeriods.clear();
+        ListTag birthsTag = tag.getList(TAG_BIRTHS, Tag.TAG_COMPOUND);
+        for (int i = 0; i < birthsTag.size(); i++) {
+            CompoundTag entry = birthsTag.getCompound(i);
+            manager.blockBirthPeriods.put(BlockPos.of(entry.getLong("Pos")), entry.getLong("Period"));
+        }
         manager.globalPool = MutationPool.empty(tag.getLong(TAG_POOL_VERSION));
         return manager;
     }
@@ -83,6 +95,16 @@ public class MutationPoolManager extends SavedData {
             anchors[i++] = pos.asLong();
         }
         tag.put(TAG_ANCHORS, new LongArrayTag(anchors));
+
+        ListTag birthsTag = new ListTag();
+        for (Map.Entry<BlockPos, Long> entry : blockBirthPeriods.entrySet()) {
+            CompoundTag birth = new CompoundTag();
+            birth.putLong("Pos", entry.getKey().asLong());
+            birth.putLong("Period", entry.getValue());
+            birthsTag.add(birth);
+        }
+        tag.put(TAG_BIRTHS, birthsTag);
+
         tag.putLong(TAG_POOL_VERSION, globalPool.version());
         return tag;
     }
@@ -121,9 +143,33 @@ public class MutationPoolManager extends SavedData {
         return anchorPositions.stream().anyMatch(anchor -> isWithinRadius(pos, anchor));
     }
 
+    // ---- 方块诞生周期 ----
+    /** 返回该方块的诞生周期；未记录（世界原生）返回 -1。 */
+    public long getBlockBirthPeriod(BlockPos pos) {
+        return blockBirthPeriods.getOrDefault(pos, -1L);
+    }
+
+    public void setBlockBirthPeriod(BlockPos pos, long period) {
+        blockBirthPeriods.put(pos.immutable(), period);
+        setDirty();
+    }
+
+    public boolean removeBlockBirthPeriod(BlockPos pos) {
+        if (blockBirthPeriods.remove(pos) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
+    public Map<BlockPos, Long> getBlockBirthPeriods() {
+        return blockBirthPeriods;
+    }
+
     private static boolean isWithinRadius(BlockPos pos, BlockPos anchor) {
+        int radius = FocalDecayConfig.ANCHOR_RADIUS.get();
         return Math.max(Math.abs(pos.getX() - anchor.getX()),
-                Math.max(Math.abs(pos.getY() - anchor.getY()), Math.abs(pos.getZ() - anchor.getZ()))) <= 8;
+                Math.max(Math.abs(pos.getY() - anchor.getY()), Math.abs(pos.getZ() - anchor.getZ()))) <= radius;
     }
 
     // ---- 全局池 ----

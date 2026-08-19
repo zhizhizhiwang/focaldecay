@@ -2,8 +2,6 @@ package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.attachment.BreakData;
 import com.zhizhiwang.focal_decay.attachment.ModAttachments;
-import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
-import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
@@ -38,21 +36,25 @@ public class InteractionHandler {
         BlockPos pos = event.getPos();
         BlockState state = serverLevel.getBlockState(pos);
 
-        // 带方块实体的方块、空气、黑名单：不参与转换
-        if (state.isAir() || state.hasBlockEntity()
-                || state.is(ModTags.Blocks.CONVERSION_BLACKLIST)) {
+        MutationPoolManager manager = MutationPoolManager.get(serverLevel);
+        long days = FocalDecayWorldData.get(serverLevel.getServer()).getDays();
+        int stage = MutationHelper.currentStage(days);
+
+        // 带方块实体的方块、空气、黑名单、非本阶段转换源：不参与转换
+        if (!MutationHelper.isConversionSource(state, serverLevel, pos, stage)) {
             return;
         }
 
-        MutationPoolManager manager = MutationPoolManager.get(serverLevel);
         long gameTick = serverLevel.getGameTime();
-        long interval = currentInterval();
+        long interval = MutationHelper.intervalForStage(stage);
         long periodIndex = MutationHelper.periodIndex(gameTick, interval);
         long worldSeed = serverLevel.getSeed();
 
         List<Block> pool = manager.getEffectivePool(pos, state);
-        double chance = MutationHelper.mutationChance(MutationHelper.currentStage(gameTick));
-        BlockState target = MutationHelper.getTarget(state, pos, worldSeed, periodIndex, pool, chance);
+        double chance = MutationHelper.mutationChance(stage);
+        boolean isProtected = manager.isProtected(pos);
+        long birthPeriod = manager.getBlockBirthPeriod(pos);
+        BlockState target = MutationHelper.getVisibleTarget(state, pos, worldSeed, periodIndex, pool, chance, isProtected, stage, birthPeriod);
 
         BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
         breakData.start(target, periodIndex);
@@ -103,8 +105,4 @@ public class InteractionHandler {
         }
     }
 
-    /** 根据当前末日阶段获取转换周期（阶段系统后续接入，暂用基础值）。 */
-    private static long currentInterval() {
-        return FocalDecayConfig.BASE_INTERVAL.get();
-    }
 }

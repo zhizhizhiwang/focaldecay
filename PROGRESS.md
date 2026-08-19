@@ -82,13 +82,26 @@
   - 修复：`MutationHelper.getTarget` 对种子做 SplitMix64 雪崩混合后再交给 `RandomSource`（模拟验证跨周期失焦集合重叠降至 ~10%，位置每周期重排）；两端公式相同，同步性不变
 - 创造模式破坏修正：最终确定创造破坏保持原版行为（无掉落、不收入背包、不执行转换），撤销此前的转换/掉落逻辑；中键选取返回目标方块保持不变
 
-## 未完成（按推荐实现顺序）
+### 7.6 稳定锚修复 + 统一方块识别（2026-08-10）
+- 放置时固化失焦状态：`MutationEventHandler.convertAnchorRange` 在登记保护前，把锚保护范围内所有方块按当前周期确定性公式（含概率 roll）转换为失焦目标，再 `addAnchor`，避免稳定住转换前状态
+- 保护不再拦截渲染：新增网络同步 `SyncRegionDataPacket`（S→C：维度 + 锚位置 + 保护半径），登录/切换维度/锚放置破坏时发送；`ClientRenderCache` 按维度存 `RegionData`，`resolve()`/扫描/中键选取均跳过受保护位置，`refreshProtectedArea()` 清掉保护范围旧幽灵并重编译
+- 统一方块识别：`MutationHelper.getVisibleTarget(original, pos, worldSeed, periodIndex, pool, probability, isProtected)` 作为生存破坏、创造中键选取、客户端预览的唯一入口
+- 网络实现方式更新：NeoForge 21.1 已移除 `SimpleChannel`，改用现代 Payload API（`RegisterPayloadHandlersEvent` + `PayloadRegistrar`），协议版本 "1"（与 §8 一致）；保护半径改用 `FocalDecayConfig.ANCHOR_RADIUS` 并随包下发
 
-### 8. 末日阶段系统
-- `mutation/FocalDecayWorldData.java`：全局天数 SavedData，每 20 分钟游戏日 +1，玩家数为 0 暂停
-- 阶段判定（Server config 值）、实体突变（三阶段池 + 确定性种子 `worldSeed ^ pos.asLong() ^ tick`）
-- 阶段影响范围：阶段1 完整方块 / 阶段2 动态形状 / 阶段3 空气↔方块小概率
-- 掉落物特殊处理（目标物品改变）
+### 8. 末日阶段系统（完成）
+- `mutation/FocalDecayWorldData.java`：全局天数 SavedData（`days` + 部分 tick），每 20 分钟游戏日（24000 tick）+1，玩家数为 0 暂停，`ServerTickEvent.Post` 驱动；天数变化经 `SyncWorldDataPacket` 广播，登录/换维时补发
+- 阶段判定与周期：`MutationHelper.currentStage(days)`（对照 `stage2_day/stage3_day`，`enable_stage_system=false` 恒为阶段 1）、`intervalForStage`（100/60/40 tick）；服务端与客户端（同步天数）共用
+- 阶段影响范围（§6.3，含"不完整方块排除转换源"修复）：`MutationHelper.isConversionSource` —— 阶段1 仅完整方块（`isCollisionShapeFullBlock`）；阶段2+ 增加非完整但有碰撞箱方块（栅栏/玻璃板/台阶）；空气/方块实体/黑名单始终排除；阶段3 方块→空气小概率（5%）、紧贴地形的空气→方块小概率（2%）由 `getVisibleTarget` 同种子分支处理（客户端预览 + 服务端破坏一致）
+- 实体突变（§6.4）：`mutation/DoomsdayHandler.java` 每阶段周期掷确定性骰子（`mix64(worldSeed ^ pos.asLong() ^ tick)`），`Mob`（排除玩家）从三阶段实体池转换（阶段1 被动 / 阶段2 +中立 / 阶段3 +敌对，源池=目标池），NBT 复制（去 UUID）替换实体；`ItemEntity` 掉落物目标物品改为方块池随机方块物品
+- 客户端 `ClientRenderCache` 接入阶段：同步 `worldDays`，`isCandidate`/`computeTarget`/`resolve`/扫描全部按阶段走源范围与空气分支，阶段变化自动清缓存重算
+- 测试命令（2026-08-13）：`/focaldecay days [<n>]` 查询/设定末日天数（设定需权限 2），经 `SyncWorldDataPacket` 广播后客户端即时重算阶段
+- 实体突变不生效修复（2026-08-13）：`lastEntityMutationTick` 曾初始化为 `Long.MIN_VALUE`，`serverTick - MIN_VALUE` 溢出恒为负、周期判断永假导致实体转换从不触发；已改为初始 0 并加防回归注释
+- 实体突变 NPE 修复（2026-08-13）：遍历活动实体列表期间 `discard`/`addFreshEntity` 会引入 null 墓碑，导致 `entity.isAlive()` 空指针；改为先拷贝快照再遍历并做 null 判空
+- 实体转换 NBT 白名单重构（2026-08-13）：`EntityMutation` 抽象出跨物种保留字段白名单（Age/ForcedAge/Health/CustomName/CustomNameVisible/PersistenceRequired/Tags/ActiveEffects），位置/朝向复制、速度清零，飞行/物理/渲染瞬态标志（如 NoGravity）从根上丢弃，替代原先整份 NBT 复制后逐个打补丁的做法
+- 累积转换与空气转换修复（2026-08-13）：方块失焦改为"有记忆"累积（未抽中的保留上次材质而非回退原方块），实现为回退扫描最近抽中周期；阶段3 空气→方块去掉"必须贴地"限制，整片天空空气均参与小概率转换
+- 方块诞生周期（2026-08-13）：玩家放置的方块记录诞生周期（`MutationPoolManager` 维度级持久化 `Map<BlockPos, Long>`），`getVisibleTarget`/`cumulativeTarget` 增加起始周期，放置瞬间及同周期保持原方块、之后才崩坏；放置/破坏事件维护并广播，`SyncRegionDataPacket` 携带诞生周期同步客户端，锚固化与破坏转换同样尊重
+
+## 未完成（按推荐实现顺序）
 
 ### 9. 观测者核心与语义碎片
 - 观测者核心：世界结构生成（固定坐标、Y=-40~-20、种子决定）、右键 GUI（"观测者离线/在线"）、用重建协议激活（动画+粒子，powered=true，触发胜利）
@@ -108,7 +121,7 @@
 
 ## 关键约定与注意事项
 
-1. **AI 守则**：用 PowerShell 语法；默认 GBK，编辑文件用 UTF-8
+1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
 2. **NeoForge 21.1 差异**：Capability → attachment；`EntityTypeTags.create` 需要 String 参数（用 `TagKey.create`）；`SavedData.Factory` 三元组构造
 3. **反编译源码位置**：`~/.gradle/caches/neoformruntime/intermediate_results/decompile_*_output.jar`（查 MC 类）；`~/.gradle/caches/modules-2/.../neoforge-21.1.248-sources.jar`（查 NeoForge 类）
 4. **数据生成**：改 `data/` 下 Provider 后跑 `.\gradlew.bat runData`，输出到 `src/generated/resources`

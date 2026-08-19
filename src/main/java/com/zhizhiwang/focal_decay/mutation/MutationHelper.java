@@ -1,7 +1,10 @@
 package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -13,12 +16,15 @@ import java.util.List;
  * 服务端与客户端使用相同种子，保证两侧结果一致。
  */
 public final class MutationHelper {
+    /** 累积转换回退扫描的上限（周期数）。超出视为"从未抽中"，概率上已可忽略。 */
+    private static final int CUMULATIVE_SCAN_CAP = 128;
 
     private MutationHelper() {
     }
 
     /**
-     * 计算某方块在本周期的突变目标。
+     * 计算某方块在"单个周期"的突变目标（无记忆，抽不中就回原方块）。
+     * 有记忆的累积转换请走 {@link #getVisibleTarget}。
      * seed = mix64(pos.asLong() ^ worldSeed ^ periodIndex)
      * 池为空时返回原方块；概率 roll 使用同一确定性种子，两端结果一致。
      * <p>
@@ -38,26 +44,96 @@ public final class MutationHelper {
         return pool.get(random.nextInt(pool.size())).defaultBlockState();
     }
 
+    /**
+     * 统一的方块识别函数：生存破坏、创造中键选取、客户端预览共用。
+     * 受稳定锚保护的方块一律返回原方块（不转换、不显示幽灵）。
+     * 阶段3额外处理"方块→空气 / 空气→方块"的小概率分支（两端同种子同分支）。
+     */
+    public static BlockState getVisibleTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
+                                              List<Block> pool, double probability, boolean isProtected, int stage,
+                                              long birthPeriod) {
+        if (isProtected) {
+            return original;
+        }
+        // 玩家放置的方块：从"放置周期 + 1"才开始崩坏，放置瞬间保持原方块。
+        long fromPeriod = birthPeriod >= 0 ? birthPeriod + 1 : 0;
+        if (periodIndex < fromPeriod) {
+            return original;
+        }
+        if (stage >= 3) {
+            long seed = mix64(pos.asLong() ^ worldSeed ^ periodIndex);
+            RandomSource random = RandomSource.create(seed);
+            if (original.isAir()) {
+                double chance = FocalDecayConfig.AIR_TO_BLOCK_CHANCE_STAGE3.get();
+                if (chance > 0.0 && !pool.isEmpty() && random.nextDouble() < chance) {
+                    return pool.get(random.nextInt(pool.size())).defaultBlockState();
+                }
+                return original;
+            }
+            double chance = FocalDecayConfig.BLOCK_TO_AIR_CHANCE_STAGE3.get();
+            if (chance > 0.0 && random.nextDouble() < chance) {
+                return Blocks.AIR.defaultBlockState();
+            }
+        }
+        return cumulativeTarget(original, pos, worldSeed, periodIndex, pool, probability, fromPeriod);
+    }
+
+    /**
+     * 有记忆的累积转换（阶段1/2 与阶段3 的方块部分）：
+     * 从当前周期向前回退，找到最近一次"抽中突变"的周期，返回该周期的目标；
+     * 抽中前的周期之间状态保持不变——未抽中的方块保留上一次材质，而不是回退原方块。
+     * 服务端与客户端共用同一公式，保证预览与真实转换一致。
+     */
+    private static BlockState cumulativeTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
+                                               List<Block> pool, double probability, long fromPeriod) {
+        if (pool.isEmpty() || probability <= 0.0) {
+            return original;
+        }
+        long span = periodIndex - fromPeriod + 1;
+        int cap = (int) Math.min(span, CUMULATIVE_SCAN_CAP);
+        for (int back = 0; back < cap; back++) {
+            long period = periodIndex - back;
+            long seed = mix64(pos.asLong() ^ worldSeed ^ period);
+            RandomSource random = RandomSource.create(seed);
+            if (random.nextDouble() >= probability) {
+                continue;
+            }
+            return pool.get(random.nextInt(pool.size())).defaultBlockState();
+        }
+        return original;
+    }
+
     /** SplitMix64 雪崩混合：微小输入变化（如周期 +1）也能让输出完全发散。 */
-    private static long mix64(long z) {
+    public static long mix64(long z) {
         z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
         z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
         return z ^ (z >>> 31);
     }
 
     /**
-     * 阶段判定（临时实现）：按原版天数 gameTick / 24000。
-     * 待 §6 末日阶段系统接入自定义天数 SavedData 后替换。
+     * 阶段判定：按末日天数（FocalDecayWorldData，20 分钟游戏日 +1，玩家为 0 暂停）。
+     * 阶段可配置关闭（enable_stage_system=false 时恒为阶段 1）。
      */
-    public static int currentStage(long gameTick) {
-        long day = gameTick / 24000L;
-        if (day >= FocalDecayConfig.STAGE3_DAY.get()) {
+    public static int currentStage(long days) {
+        if (!FocalDecayConfig.ENABLE_STAGE_SYSTEM.get()) {
+            return 1;
+        }
+        if (days >= FocalDecayConfig.STAGE3_DAY.get()) {
             return 3;
         }
-        if (day >= FocalDecayConfig.STAGE2_DAY.get()) {
+        if (days >= FocalDecayConfig.STAGE2_DAY.get()) {
             return 2;
         }
         return 1;
+    }
+
+    /** 各阶段的转换周期（tick）。 */
+    public static long intervalForStage(int stage) {
+        return switch (stage) {
+            case 2 -> FocalDecayConfig.STAGE2_INTERVAL.get();
+            case 3 -> FocalDecayConfig.STAGE3_INTERVAL.get();
+            default -> FocalDecayConfig.BASE_INTERVAL.get();
+        };
     }
 
     /** 当前阶段的方块转换概率（Server 配置，同步到客户端）。 */
@@ -67,6 +143,22 @@ public final class MutationHelper {
             case 3 -> FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE3.get();
             default -> FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE1.get();
         };
+    }
+
+    /**
+     * 方块是否可作为当前阶段的"转换源"（设计大纲 §6.3）：
+     *  - 阶段1：仅完整方块（isCollisionShapeFullBlock）；
+     *  - 阶段2+：额外包含非完整但有碰撞箱的方块（栅栏、玻璃板、台阶等）；
+     *  - 空气、带方块实体、黑名单方块始终排除（阶段3的空气源由客户端预览单独处理）。
+     */
+    public static boolean isConversionSource(BlockState state, BlockGetter level, BlockPos pos, int stage) {
+        if (state.isAir() || state.hasBlockEntity() || state.is(ModTags.Blocks.CONVERSION_BLACKLIST)) {
+            return false;
+        }
+        if (state.isCollisionShapeFullBlock(level, pos)) {
+            return true;
+        }
+        return stage >= 2 && !state.getCollisionShape(level, pos).isEmpty();
     }
 
     /** 计算种子（供外部复用的确定性随机源）。 */

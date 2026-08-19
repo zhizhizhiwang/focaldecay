@@ -8,8 +8,11 @@ import com.zhizhiwang.focal_decay.data.ModDataGenerator;
 import com.zhizhiwang.focal_decay.data.recipe.ModRecipeSerializers;
 import com.zhizhiwang.focal_decay.item.ModCreativeTabs;
 import com.zhizhiwang.focal_decay.item.ModItems;
+import com.zhizhiwang.focal_decay.network.ModNetwork;
 import com.zhizhiwang.focal_decay.attachment.ModAttachments;
+import com.zhizhiwang.focal_decay.command.ModCommands;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
+import com.zhizhiwang.focal_decay.mutation.DoomsdayHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -40,9 +43,14 @@ public final class FocalDecay {
         // Register data generators (runData)
         ModDataGenerator.register(modEventBus);
 
+        // Register network payloads (NeoForge 21.1 Payload API)
+        modEventBus.addListener(ModNetwork::registerPayloads);
+
         // Register game event handlers
         NeoForge.EVENT_BUS.register(MutationEventHandler.class);
         NeoForge.EVENT_BUS.register(InteractionHandler.class);
+        NeoForge.EVENT_BUS.register(DoomsdayHandler.class);
+        NeoForge.EVENT_BUS.register(ModCommands.class);
 
         // Register config specs
         modContainer.registerConfig(ModConfig.Type.SERVER, FocalDecayConfig.SERVER_SPEC);
