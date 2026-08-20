@@ -21,8 +21,8 @@ public final class ModTags {
                 BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "global_mutation_pool"));
         public static final TagKey<Block> CONVERSION_BLACKLIST =
                 BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "conversion_blacklist"));
-        public static final TagKey<Block> STABLE_ANCHOR_IMMUNE =
-                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "stable_anchor_immune"));
+        public static final TagKey<Block> ANCHOR_PROTOTYPE_IMMUNE =
+                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "anchor_prototype_immune"));
     }
 
     public static class EntityTypes {

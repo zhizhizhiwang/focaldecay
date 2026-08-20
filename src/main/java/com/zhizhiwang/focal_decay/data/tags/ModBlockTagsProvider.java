@@ -20,7 +20,7 @@ public class ModBlockTagsProvider extends BlockTagsProvider {
     @Override
     protected void addTags(HolderLookup.Provider lookupProvider) {
         // 稳定锚免疫：观测者核心不可被转换
-        tag(ModTags.Blocks.STABLE_ANCHOR_IMMUNE)
+        tag(ModTags.Blocks.ANCHOR_PROTOTYPE_IMMUNE)
                 .add(ModBlocks.OBSERVER_CORE.get());
         // 转换黑名单：同样排除核心块
         tag(ModTags.Blocks.CONVERSION_BLACKLIST)

@@ -11,12 +11,26 @@ public final class ModItems {
     public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(FocalDecay.MODID);
 
     // 方块物品
-    public static final DeferredItem<BlockItem> STABLE_ANCHOR =
-            ITEMS.registerSimpleBlockItem("stable_anchor", ModBlocks.STABLE_ANCHOR);
-    public static final DeferredItem<BlockItem> MUTATION_CONTROLLER =
-            ITEMS.registerSimpleBlockItem("mutation_controller", ModBlocks.MUTATION_CONTROLLER);
+    public static final DeferredItem<BlockItem> ANCHOR_PROTOTYPE =
+            ITEMS.registerSimpleBlockItem("anchor_prototype", ModBlocks.ANCHOR_PROTOTYPE);
+    public static final DeferredItem<BlockItem> TRAINING_TERMINAL =
+            ITEMS.registerSimpleBlockItem("training_terminal", ModBlocks.TRAINING_TERMINAL);
     public static final DeferredItem<BlockItem> OBSERVER_CORE =
             ITEMS.registerSimpleBlockItem("observer_core", ModBlocks.OBSERVER_CORE);
+
+    // 观测模型（DataComponents 训练数据在里程碑 2 接入）
+    public static final DeferredItem<ObserverModelItem> OBSERVER_MODEL_BLANK =
+            ITEMS.register("observer_model_blank", () -> observerModel());
+    public static final DeferredItem<ObserverModelItem> SEMANTIC_LOCK_MODEL =
+            ITEMS.register("semantic_lock_model", () -> observerModel());
+    public static final DeferredItem<ObserverModelItem> GUIDED_MUTATION_MODEL =
+            ITEMS.register("guided_mutation_model", () -> observerModel());
+    public static final DeferredItem<ObserverModelItem> BIO_STABILIZER_MODEL =
+            ITEMS.register("bio_stabilizer_model", () -> observerModel());
+    public static final DeferredItem<ObserverModelItem> TOTAL_STABILITY_MODEL =
+            ITEMS.register("total_stability_model", () -> observerModel());
+    public static final DeferredItem<ObserverModelItem> TOTAL_STABILITY_MODEL_ACTIVATED =
+            ITEMS.register("total_stability_model_activated", () -> observerModel());
 
     // 语义碎片
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_ROSE =
@@ -40,6 +54,10 @@ public final class ModItems {
 
     private static SemanticFragmentItem fragment(String loreKey) {
         return new SemanticFragmentItem(new Item.Properties().stacksTo(16), loreKey);
+    }
+
+    private static ObserverModelItem observerModel() {
+        return new ObserverModelItem(new Item.Properties().stacksTo(1));
     }
 
     private ModItems() {

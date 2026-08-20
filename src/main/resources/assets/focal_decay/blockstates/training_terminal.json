@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "focal_decay:block/training_terminal"
+    }
+  }
+}

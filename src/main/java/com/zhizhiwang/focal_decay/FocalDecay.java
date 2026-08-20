@@ -5,13 +5,16 @@ import com.zhizhiwang.focal_decay.block.ModBlocks;
 import com.zhizhiwang.focal_decay.block.entity.ModBlockEntities;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ModDataGenerator;
+import com.zhizhiwang.focal_decay.data.ModDataComponents;
 import com.zhizhiwang.focal_decay.data.recipe.ModRecipeSerializers;
 import com.zhizhiwang.focal_decay.item.ModCreativeTabs;
 import com.zhizhiwang.focal_decay.item.ModItems;
+import com.zhizhiwang.focal_decay.menu.ModMenus;
 import com.zhizhiwang.focal_decay.network.ModNetwork;
 import com.zhizhiwang.focal_decay.attachment.ModAttachments;
 import com.zhizhiwang.focal_decay.command.ModCommands;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
+import com.zhizhiwang.focal_decay.mutation.ModelTrainingHandler;
 import com.zhizhiwang.focal_decay.mutation.DoomsdayHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import net.neoforged.bus.api.IEventBus;
@@ -39,6 +42,8 @@ public final class FocalDecay {
         ModCreativeTabs.CREATIVE_MODE_TABS.register(modEventBus);
         ModRecipeSerializers.RECIPE_SERIALIZERS.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
+        ModMenus.MENUS.register(modEventBus);
+        ModDataComponents.DATA_COMPONENT_TYPES.register(modEventBus);
 
         // Register data generators (runData)
         ModDataGenerator.register(modEventBus);
@@ -51,6 +56,7 @@ public final class FocalDecay {
         NeoForge.EVENT_BUS.register(InteractionHandler.class);
         NeoForge.EVENT_BUS.register(DoomsdayHandler.class);
         NeoForge.EVENT_BUS.register(ModCommands.class);
+        NeoForge.EVENT_BUS.register(ModelTrainingHandler.class);
 
         // Register config specs
         modContainer.registerConfig(ModConfig.Type.SERVER, FocalDecayConfig.SERVER_SPEC);

@@ -52,7 +52,7 @@ public class InteractionHandler {
 
         List<Block> pool = manager.getEffectivePool(pos, state);
         double chance = MutationHelper.mutationChance(stage);
-        boolean isProtected = manager.isProtected(pos);
+        boolean isProtected = manager.isProtected(pos, state);
         long birthPeriod = manager.getBlockBirthPeriod(pos);
         BlockState target = MutationHelper.getVisibleTarget(state, pos, worldSeed, periodIndex, pool, chance, isProtected, birthPeriod);
 

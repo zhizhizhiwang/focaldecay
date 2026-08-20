@@ -3,7 +3,7 @@
   "category": "misc",
   "key": {
     "E": {
-      "item": "focal_decay:mutation_controller"
+      "item": "minecraft:ender_eye"
     },
     "F": {
       "item": "minecraft:iron_block"
@@ -19,6 +19,6 @@
   ],
   "result": {
     "count": 1,
-    "id": "focal_decay:stable_anchor"
+    "id": "focal_decay:anchor_prototype"
   }
 }

@@ -96,10 +96,10 @@
 - **GUI**：一个输入槽（放空白模型）+ 能量显示 + 训练进度条
 - **能量（2026-08-19 定稿）**：接入 NeoForge FE（`IEnergyStorage` 附件，与通用能量 API 兼容）；**默认 FE 消耗为 0**——单模组游玩时该机制不启用，仅当配置开启且存在 FE 源时才消耗能量；可回退为消耗经验瓶（配置可切换）
 - **训练交互（2026-08-19 定稿）**：
-  1. 终端放入空白模型，点击"训练"，GUI 关闭，进入训练模式；
-  2. 玩家手持空白模型，右键世界方块/生物收集目标（目标写入模型组件，带冷却/数量上限）；
-  3. 回到终端打开 GUI，点击"完成"，空白模型变为对应模型物品。
-- **训练逻辑（服务端处理，训练中模型不可取出）**：
+  1. 终端放入空白模型，点击"训练：语义锁定/引导"，GUI 关闭，模型进入"训练中"状态（组件 type=training）；
+  2. **模型可随时取出使用**：手持训练中模型右键世界方块/生物，每次右键添加一个目标（方块写入 trainedTargets，生物写入 trainedEntities），直到数量上限；
+  3. **可随时继续训练**：将训练中模型放回终端，可继续收集或直接点击"完成训练"，生成对应的语义锁定/引导模型（保留全部目标）。
+- **训练逻辑（服务端处理）**：
   - 语义锁定模型：按上述流程收集方块/生物目标
   - 引导模型：同上，但记录的是"突变目标池"方块（旧突变控制器的继承）
   - 生物稳定模型：**不需要训练**（见 §4.3）
@@ -121,7 +121,7 @@
   2. 语义锁定模型 `semantic_lock_model` — 训练；范围内被锁定的方块/生物不参与失焦
   3. 引导模型 `guided_mutation_model` — 训练；范围内突变目标池限制为训练列表
   4. 生物稳定模型 `bio_stabilizer_model` — 无需训练；消耗周围生物生命值换取能量，范围内所有方块与生物稳定
-  5. 完全稳定模型 `total_stability_model` — 终极；王座仪式激活（获取见 §5.4）
+  5. 完全稳定模型——**两个独立物品**：`total_stability_model`（未激活，末影龙掉落）与 `total_stability_model_activated`（已激活，王座仪式后）；已激活模型 + 空白模型可复制（获取见 §5.4）
 
 ### 3.4 观测者核心块（Observer Core Block，修复路径保留）
 - **注册名**：`observer_core`
@@ -144,8 +144,9 @@
 5. **结果**：完全稳定锚可拾取并重新放置在任何地方。
 
 #### 3.5.2 完全稳定模型获取（2026-08-19 定稿）
-- **第一枚**：击败末影龙后的稀有掉落（未激活）。
-- **后续复制**：王座仪式激活后，**已激活的完全稳定模型 + 空白模型**合成可复制出新的完全稳定模型（复制产物是否仍需仪式激活：默认"仍需仪式"，可调）。
+- **第一枚**：击败末影龙后的稀有掉落，物品为 `total_stability_model`（未激活）。
+- **王座仪式后**：原型机升级为完全稳定锚，同时得到独立物品 `total_stability_model_activated`（已激活）。
+- **后续复制**：`total_stability_model_activated` + 空白模型合成可复制出新的已激活完全稳定模型（仅已激活物品可复制，未激活不可复制）。
 - 不走训练终端。
 
 ---
@@ -442,7 +443,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - 方块实体类型：`anchor_prototype`, `training_terminal`
 - 能力：`break_data`
 - 标签：
-  - 方块：`global_mutation_pool`, `conversion_blacklist`, `stable_anchor_immune`
+  - 方块：`global_mutation_pool`, `conversion_blacklist`, `anchor_prototype_immune`
   - 实体类型：`entity_mutation_pool_passive`
 - 着色器：`observer_veil`
 - 包网络：`sync_region`, `sync_world`, `core_activate`, `throne_ritual`

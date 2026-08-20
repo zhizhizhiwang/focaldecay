@@ -11,13 +11,13 @@ public final class ModBlockEntities {
     public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITY_TYPES =
             DeferredRegister.create(Registries.BLOCK_ENTITY_TYPE, FocalDecay.MODID);
 
-    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<StableAnchorBlockEntity>> STABLE_ANCHOR =
-            BLOCK_ENTITY_TYPES.register("stable_anchor", () ->
-                    BlockEntityType.Builder.of(StableAnchorBlockEntity::new, ModBlocks.STABLE_ANCHOR.get()).build(null));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<AnchorPrototypeBlockEntity>> ANCHOR_PROTOTYPE =
+            BLOCK_ENTITY_TYPES.register("anchor_prototype", () ->
+                    BlockEntityType.Builder.of(AnchorPrototypeBlockEntity::new, ModBlocks.ANCHOR_PROTOTYPE.get()).build(null));
 
-    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<MutationControllerBlockEntity>> MUTATION_CONTROLLER =
-            BLOCK_ENTITY_TYPES.register("mutation_controller", () ->
-                    BlockEntityType.Builder.of(MutationControllerBlockEntity::new, ModBlocks.MUTATION_CONTROLLER.get()).build(null));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<TrainingTerminalBlockEntity>> TRAINING_TERMINAL =
+            BLOCK_ENTITY_TYPES.register("training_terminal", () ->
+                    BlockEntityType.Builder.of(TrainingTerminalBlockEntity::new, ModBlocks.TRAINING_TERMINAL.get()).build(null));
 
     private ModBlockEntities() {
     }

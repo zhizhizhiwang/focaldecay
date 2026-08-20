@@ -1,11 +1,11 @@
 {
   "parent": "minecraft:recipes/root",
   "criteria": {
-    "has_mutation_controller": {
+    "has_book": {
       "conditions": {
         "items": [
           {
-            "items": "focal_decay:mutation_controller"
+            "items": "minecraft:book"
           }
         ]
       },
@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "focal_decay:stable_anchor"
+        "recipe": "focal_decay:observer_model_blank"
       },
       "trigger": "minecraft:recipe_unlocked"
     }
@@ -21,12 +21,12 @@
   "requirements": [
     [
       "has_the_recipe",
-      "has_mutation_controller"
+      "has_book"
     ]
   ],
   "rewards": {
     "recipes": [
-      "focal_decay:stable_anchor"
+      "focal_decay:observer_model_blank"
     ]
   }
 }

@@ -7,8 +7,8 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 public final class ModBlocks {
     public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(FocalDecay.MODID);
 
-    public static final DeferredBlock<StableAnchorBlock> STABLE_ANCHOR = BLOCKS.register("stable_anchor", StableAnchorBlock::new);
-    public static final DeferredBlock<MutationControllerBlock> MUTATION_CONTROLLER = BLOCKS.register("mutation_controller", MutationControllerBlock::new);
+    public static final DeferredBlock<AnchorPrototypeBlock> ANCHOR_PROTOTYPE = BLOCKS.register("anchor_prototype", AnchorPrototypeBlock::new);
+    public static final DeferredBlock<TrainingTerminalBlock> TRAINING_TERMINAL = BLOCKS.register("training_terminal", TrainingTerminalBlock::new);
     public static final DeferredBlock<ObserverCoreBlock> OBSERVER_CORE = BLOCKS.register("observer_core", ObserverCoreBlock::new);
 
     private ModBlocks() {

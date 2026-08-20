@@ -1,8 +1,10 @@
 package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.TagKey;
@@ -89,12 +91,36 @@ public final class DoomsdayHandler {
                     itemEntity.setItem(new ItemStack(block.asItem(), stack.getCount()));
                 }
             } else if (entity instanceof Mob mob && !(entity instanceof Player) && !entityPool.isEmpty()) {
+                if (isEntityProtected(level, mob)) {
+                    continue;
+                }
                 EntityType<?> targetType = entityPool.get(random.nextInt(entityPool.size()));
                 if (targetType != entity.getType()) {
                     EntityMutation.convert(level, mob, targetType);
                 }
             }
         }
+    }
+
+    /** 实体是否处于某原型机效果的"生物稳定"范围内（生物稳定/完全稳定全部，语义锁定命中训练实体）。 */
+    private static boolean isEntityProtected(ServerLevel level, Entity entity) {
+        String entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString();
+        for (MutationPoolManager.PrototypeEffect effect : MutationPoolManager.get(level).getPrototypeEffects()) {
+            if (Math.max(Math.abs((long) entity.getX() - effect.center().getX()),
+                    Math.max(Math.abs((long) entity.getY() - effect.center().getY()),
+                            Math.abs((long) entity.getZ() - effect.center().getZ()))) > effect.radius()) {
+                continue;
+            }
+            String type = effect.data().type();
+            if (ObserverModelData.TYPE_BIO.equals(type) || ObserverModelData.TYPE_TOTAL.equals(type)) {
+                return true;
+            }
+            if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)
+                    && effect.data().trainedEntities().contains(entityId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 阶段实体池：阶段1被动，阶段2加入中立，阶段3加入敌对。 */

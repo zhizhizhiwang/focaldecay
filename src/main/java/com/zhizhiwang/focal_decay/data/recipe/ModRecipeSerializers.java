@@ -14,6 +14,10 @@ public final class ModRecipeSerializers {
             RECIPE_SERIALIZERS.register("crafting_special_rebuildobserver",
                     RebuildObserverProtocolRecipe.Serializer::new);
 
+    public static final DeferredHolder<RecipeSerializer<?>, RecipeSerializer<?>> COPY_TRAINED_MODEL =
+            RECIPE_SERIALIZERS.register("crafting_special_copytrainedmodel",
+                    CopyTrainedModelRecipe.Serializer::new);
+
     private ModRecipeSerializers() {
     }
 }

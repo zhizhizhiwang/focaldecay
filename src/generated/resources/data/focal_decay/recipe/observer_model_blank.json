@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "minecraft:book"
+    },
+    {
+      "item": "minecraft:gold_ingot"
+    },
+    {
+      "item": "minecraft:lapis_lazuli"
+    },
+    {
+      "item": "minecraft:copper_ingot"
+    }
+  ],
+  "result": {
+    "count": 1,
+    "id": "focal_decay:observer_model_blank"
+  }
+}

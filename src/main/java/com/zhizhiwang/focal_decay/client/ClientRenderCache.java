@@ -2,9 +2,11 @@ package com.zhizhiwang.focal_decay.client;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import com.zhizhiwang.focal_decay.mixin.client.LevelRendererAccessor;
 import com.zhizhiwang.focal_decay.mixin.client.RenderChunkRegionAccessor;
+import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationPool;
 import net.minecraft.client.Minecraft;
@@ -15,11 +17,14 @@ import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -33,7 +38,6 @@ import org.slf4j.Logger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -79,17 +83,20 @@ public final class ClientRenderCache {
         }
     }
 
-    /** 某个维度收到的区域数据（稳定锚位置 + 切比雪夫半径 + 方块诞生周期）。 */
+    /** 某个维度收到的区域数据（原型机位置 + 切比雪夫半径 + 方块诞生周期）。 */
     private static final class RegionData {
-        final int radius;
-        final Set<BlockPos> anchors;
+        final List<ClientPrototype> prototypes;
         final Map<BlockPos, Long> birthPeriods;
 
-        RegionData(int radius, Collection<BlockPos> anchors, Map<BlockPos, Long> birthPeriods) {
-            this.radius = radius;
-            this.anchors = Set.copyOf(anchors);
+        RegionData(List<ClientPrototype> prototypes, Map<BlockPos, Long> birthPeriods) {
+            this.prototypes = List.copyOf(prototypes);
             this.birthPeriods = Map.copyOf(birthPeriods);
         }
+    }
+
+    /** 客户端侧原型机效果镜像。 */
+    private record ClientPrototype(BlockPos center, int radius, String type,
+                                   Set<String> trainedTargets, Set<String> trainedEntities) {
     }
 
     /** pos.asLong() -> 突变目标（含所属周期，防止跨周期读到旧值）。 */
@@ -131,7 +138,7 @@ public final class ClientRenderCache {
      * 未命中缓存时惰性计算并写回，保证首次编译即有预览。
      */
     public BlockState resolve(RenderChunkRegion region, BlockPos pos, BlockState original) {
-        if (isProtected(pos)) {
+        if (isProtected(pos, original)) {
             return original;
         }
         if (!(region instanceof RenderChunkRegionAccessor accessor)) {
@@ -171,7 +178,7 @@ public final class ClientRenderCache {
      */
     public BlockState visibleState(ClientLevel level, BlockPos pos) {
         BlockState original = level.getBlockState(pos);
-        if (isProtected(pos)) {
+        if (isProtected(pos, original)) {
             return original;
         }
         if (original.isAir()) {
@@ -311,11 +318,13 @@ public final class ClientRenderCache {
     // ------------------------------------------------------------------
 
     /** 收到服务端同步的区域数据（主线程）。 */
-    public void applyRegionData(ResourceKey<Level> dimension, int radius, long[] anchors,
+    public void applyRegionData(ResourceKey<Level> dimension, List<SyncRegionDataPacket.PrototypeData> prototypes,
                                 long[] birthPositions, long[] birthPeriods) {
-        List<BlockPos> anchorList = new ArrayList<>(anchors.length);
-        for (long l : anchors) {
-            anchorList.add(BlockPos.of(l));
+        List<ClientPrototype> prototypeList = new ArrayList<>(prototypes.size());
+        for (SyncRegionDataPacket.PrototypeData p : prototypes) {
+            prototypeList.add(new ClientPrototype(
+                    BlockPos.of(p.pos()), p.radius(), p.type(),
+                    Set.copyOf(p.trainedTargets()), Set.copyOf(p.trainedEntities())));
         }
 
         Map<BlockPos, Long> newBirths = new HashMap<>();
@@ -341,7 +350,7 @@ public final class ClientRenderCache {
             }
         }
 
-        regionData.put(dimension, new RegionData(Math.max(0, radius), anchorList, newBirths));
+        regionData.put(dimension, new RegionData(prototypeList, newBirths));
         refreshRegionData(changed);
     }
 
@@ -355,19 +364,33 @@ public final class ClientRenderCache {
     }
 
     /** 位置是否处于任一稳定锚的保护范围内。 */
-    public boolean isProtected(BlockPos pos) {
+    public boolean isProtected(BlockPos pos, BlockState state) {
         RegionData data = currentRegionData();
-        if (data == null || data.radius <= 0) {
+        if (data == null) {
             return false;
         }
-        for (BlockPos anchor : data.anchors) {
-            if (Math.max(Math.abs(pos.getX() - anchor.getX()),
-                    Math.max(Math.abs(pos.getY() - anchor.getY()), Math.abs(pos.getZ() - anchor.getZ())))
-                    <= data.radius) {
+        for (ClientPrototype prototype : data.prototypes) {
+            if (!withinRadius(pos, prototype)) {
+                continue;
+            }
+            if (ObserverModelData.TYPE_BIO.equals(prototype.type())
+                    || ObserverModelData.TYPE_TOTAL.equals(prototype.type())) {
                 return true;
+            }
+            if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(prototype.type())) {
+                String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+                if (prototype.trainedTargets().contains(id)) {
+                    return true;
+                }
             }
         }
         return false;
+    }
+
+    private static boolean withinRadius(BlockPos pos, ClientPrototype prototype) {
+        return Math.max(Math.abs(pos.getX() - prototype.center().getX()),
+                Math.max(Math.abs(pos.getY() - prototype.center().getY()),
+                        Math.abs(pos.getZ() - prototype.center().getZ()))) <= prototype.radius();
     }
 
     /** 该方块的诞生周期；未同步或世界原生返回 -1。 */
@@ -384,7 +407,10 @@ public final class ClientRenderCache {
         Set<Long> dirty = new HashSet<>();
         targetCache.forEach((key, entry) -> {
             BlockPos pos = BlockPos.of(key);
-            if (isProtected(pos) || changedBirths.contains(pos)) {
+            BlockState real = Minecraft.getInstance().level != null
+                    ? Minecraft.getInstance().level.getBlockState(pos)
+                    : Blocks.AIR.defaultBlockState();
+            if (isProtected(pos, real) || changedBirths.contains(pos)) {
                 targetCache.remove(key, entry);
                 decrSection(pos);
                 visibleSurfaces.remove(key);
@@ -481,7 +507,7 @@ public final class ClientRenderCache {
                     long key = pos.asLong();
                     BlockState state = level.getBlockState(pos);
 
-                    if (!isCandidate(state, level, pos, stage) || isProtected(pos) || !isExposed(level, pos)) {
+                    if (!isCandidate(state, level, pos, stage) || isProtected(pos, state) || !isExposed(level, pos)) {
                         if (removeEntry(pos, key)) {
                             changed = true;
                         }
@@ -523,8 +549,56 @@ public final class ClientRenderCache {
         long period = currentPeriod(level);
         double chance = MutationHelper.mutationChance(stage);
         long birthPeriod = getBlockBirthPeriod(pos);
-        return MutationHelper.getVisibleTarget(original, pos, worldSeed(level), period, pool.snapshot(),
-                chance, isProtected(pos), birthPeriod);
+        List<Block> effective = effectivePool(level, pos, original);
+        return MutationHelper.getVisibleTarget(original, pos, worldSeed(level), period, effective,
+                chance, isProtected(pos, original), birthPeriod);
+    }
+
+    /** 客户端有效池：受保护返回空；引导模型范围内把池限制为训练方块列表（交集，空则回退全局池）。 */
+    private List<Block> effectivePool(ClientLevel level, BlockPos pos, BlockState original) {
+        if (isProtected(pos, original)) {
+            return List.of();
+        }
+        List<Block> guided = null;
+        RegionData data = currentRegionData();
+        if (data != null) {
+            for (ClientPrototype prototype : data.prototypes) {
+                if (!withinRadius(pos, prototype) || !ObserverModelData.TYPE_GUIDED.equals(prototype.type())) {
+                    continue;
+                }
+                List<Block> sub = resolveTrainedBlocks(prototype.trainedTargets());
+                if (sub.isEmpty()) {
+                    continue;
+                }
+                if (guided == null) {
+                    guided = new ArrayList<>(sub);
+                } else {
+                    guided.retainAll(sub);
+                }
+                if (guided.isEmpty()) {
+                    break;
+                }
+            }
+        }
+        if (guided == null || guided.isEmpty()) {
+            return pool.snapshot();
+        }
+        return guided;
+    }
+
+    private static List<Block> resolveTrainedBlocks(Set<String> ids) {
+        List<Block> blocks = new ArrayList<>();
+        for (String id : ids) {
+            try {
+                Block block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse(id));
+                if (block != Blocks.AIR) {
+                    blocks.add(block);
+                }
+            } catch (Exception ignored) {
+                // 非法 ID 忽略
+            }
+        }
+        return blocks;
     }
 
     private long currentPeriod(ClientLevel level) {

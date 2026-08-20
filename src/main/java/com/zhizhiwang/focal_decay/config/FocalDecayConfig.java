@@ -27,6 +27,9 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE2;
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE3;
     public static final ModConfigSpec.BooleanValue ENABLE_STAGE_SYSTEM;
+    public static final ModConfigSpec.IntValue TRAINING_ENERGY_CAPACITY;
+    public static final ModConfigSpec.IntValue TRAINING_ENERGY_COST;
+    public static final ModConfigSpec.IntValue TRAINING_MAX_TARGETS;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -70,6 +73,15 @@ public final class FocalDecayConfig {
         ENABLE_CORE_REPAIR = builder
                 .comment("Whether the Observer Core can be repaired to end the defocus.")
                 .define("enable_core_repair", true);
+        TRAINING_ENERGY_CAPACITY = builder
+                .comment("Training Terminal FE capacity.")
+                .defineInRange("training_energy_capacity", 100000, 0, Integer.MAX_VALUE);
+        TRAINING_ENERGY_COST = builder
+                .comment("FE cost per training session. 0 disables the energy requirement (single-mod default).")
+                .defineInRange("training_energy_cost", 0, 0, Integer.MAX_VALUE);
+        TRAINING_MAX_TARGETS = builder
+                .comment("Max trained records per blank model.")
+                .defineInRange("training_max_targets", 64, 1, 1024);
 
         builder.pop();
         SERVER_SPEC = builder.build();
@@ -79,7 +91,7 @@ public final class FocalDecayConfig {
     // Common
     // ------------------------------------------------------------------
     public static final ModConfigSpec COMMON_SPEC;
-    public static final ModConfigSpec.IntValue ANCHOR_RADIUS;
+    public static final ModConfigSpec.IntValue PROTOTYPE_RADIUS;
     public static final ModConfigSpec.DoubleValue POST_INTENSITY;
 
     static {
@@ -88,9 +100,9 @@ public final class FocalDecayConfig {
         builder.comment("Focal Decay common settings (loaded on both sides).")
                 .push("common");
 
-        ANCHOR_RADIUS = builder
-                .comment("Chebyshev distance radius of the Stable Anchor protection field.")
-                .defineInRange("anchor_radius", 8, 1, 32);
+        PROTOTYPE_RADIUS = builder
+                .comment("Chebyshev distance radius of the Anchor Prototype effect field.")
+                .defineInRange("prototype_radius", 8, 1, 32);
         POST_INTENSITY = builder
                 .comment("Post-processing intensity multiplier for the observer veil shader.")
                 .defineInRange("post_intensity", 1.0, 0.0, 5.0);

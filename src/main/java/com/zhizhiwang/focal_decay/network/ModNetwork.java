@@ -1,6 +1,5 @@
 package com.zhizhiwang.focal_decay.network;
 
-import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.MutationPoolManager;
 import net.minecraft.core.BlockPos;
@@ -10,8 +9,9 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
-import java.util.Set;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 网络通道（设计大纲 §8）：NeoForge 21.1 使用 Payload API（SimpleChannel 已移除）。
@@ -49,11 +49,11 @@ public final class ModNetwork {
     }
 
     private static SyncRegionDataPacket regionDataPacket(ServerLevel level) {
-        Set<BlockPos> anchors = MutationPoolManager.get(level).getAnchorPositions();
-        long[] anchorLongs = new long[anchors.size()];
-        int i = 0;
-        for (BlockPos anchor : anchors) {
-            anchorLongs[i++] = anchor.asLong();
+        List<SyncRegionDataPacket.PrototypeData> prototypeData = new ArrayList<>();
+        for (MutationPoolManager.PrototypeEffect effect : MutationPoolManager.get(level).getPrototypeEffects()) {
+            prototypeData.add(new SyncRegionDataPacket.PrototypeData(
+                    effect.center().asLong(), effect.radius(), effect.data().type(),
+                    effect.data().trainedTargets(), effect.data().trainedEntities()));
         }
 
         Map<BlockPos, Long> births = MutationPoolManager.get(level).getBlockBirthPeriods();
@@ -66,7 +66,6 @@ public final class ModNetwork {
             j++;
         }
 
-        return new SyncRegionDataPacket(level.dimension(), FocalDecayConfig.ANCHOR_RADIUS.get(),
-                anchorLongs, birthPositions, birthPeriods);
+        return new SyncRegionDataPacket(level.dimension(), prototypeData, birthPositions, birthPeriods);
     }
 }

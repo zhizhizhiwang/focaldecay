@@ -7,6 +7,7 @@ import net.minecraft.data.recipes.RecipeCategory;
 import net.minecraft.data.recipes.RecipeOutput;
 import net.minecraft.data.recipes.RecipeProvider;
 import net.minecraft.data.recipes.ShapedRecipeBuilder;
+import net.minecraft.data.recipes.ShapelessRecipeBuilder;
 import net.minecraft.data.recipes.SpecialRecipeBuilder;
 import net.minecraft.world.item.Items;
 
@@ -20,26 +21,24 @@ public class ModRecipeProvider extends RecipeProvider {
 
     @Override
     protected void buildRecipes(RecipeOutput recipeOutput) {
-        // ---- 稳定锚：R F R / F E F / R F R (R=红石粉 F=铁块 E=突变控制器) ----
-        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.STABLE_ANCHOR.get())
+        // ---- 稳定锚原型机：R F R / F E F / R F R (R=红石粉 F=铁块 E=末影之眼) ----
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.ANCHOR_PROTOTYPE.get())
                 .pattern("RFR")
                 .pattern("FEF")
                 .pattern("RFR")
                 .define('R', Items.REDSTONE)
                 .define('F', Items.IRON_BLOCK)
-                .define('E', ModItems.MUTATION_CONTROLLER.get())
-                .unlockedBy("has_mutation_controller", has(ModItems.MUTATION_CONTROLLER.get()))
+                .define('E', Items.ENDER_EYE)
+                .unlockedBy("has_ender_eye", has(Items.ENDER_EYE))
                 .save(recipeOutput);
 
-        // ---- 突变控制器：A B A / B S B / A B A (S=末影珍珠 B=书与笔 A=金锭) ----
-        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.MUTATION_CONTROLLER.get())
-                .pattern("ABA")
-                .pattern("BSB")
-                .pattern("ABA")
-                .define('A', Items.GOLD_INGOT)
-                .define('B', Items.WRITABLE_BOOK)
-                .define('S', Items.ENDER_PEARL)
-                .unlockedBy("has_ender_pearl", has(Items.ENDER_PEARL))
+        // ---- 空白观测模型：书 + 金锭 + 青金石 + 铜锭（任意形状） ----
+        ShapelessRecipeBuilder.shapeless(RecipeCategory.MISC, ModItems.OBSERVER_MODEL_BLANK.get())
+                .requires(Items.BOOK)
+                .requires(Items.GOLD_INGOT)
+                .requires(Items.LAPIS_LAZULI)
+                .requires(Items.COPPER_INGOT)
+                .unlockedBy("has_book", has(Items.BOOK))
                 .save(recipeOutput);
 
         // ---- 重建的观测协议：7 碎片无序合成（自定义配方类型） ----
@@ -47,5 +46,11 @@ public class ModRecipeProvider extends RecipeProvider {
                 (net.minecraft.world.item.crafting.CraftingBookCategory category) ->
                         new RebuildObserverProtocolRecipe(category))
                 .save(recipeOutput, "focal_decay:rebuild_observer_protocol");
+
+        // ---- 训练模型复制：已训练模型 + 空白模型 → 2 份（保留训练数据） ----
+        SpecialRecipeBuilder.special(
+                (net.minecraft.world.item.crafting.CraftingBookCategory category) ->
+                        new CopyTrainedModelRecipe(category))
+                .save(recipeOutput, "focal_decay:copy_trained_model");
     }
 }

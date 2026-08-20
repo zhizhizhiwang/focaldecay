@@ -1,16 +1,16 @@
 package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.block.ModBlocks;
-import com.zhizhiwang.focal_decay.block.entity.MutationControllerBlockEntity;
+import com.zhizhiwang.focal_decay.block.entity.AnchorPrototypeBlockEntity;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.network.ModNetwork;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
@@ -20,8 +20,7 @@ import java.util.List;
 
 /**
  * 服务端事件挂载（设计大纲 §10.1）：
- *  - 稳定锚放置/破坏 → 更新锚位置集合
- *  - 突变控制器放置/破坏 → 更新区域覆盖
+ *  - 原型机放置/破坏 → 更新原型机位置集合（模型效果里程碑 3 接入）
  *  - 维度加载 → 加载全局池
  */
 public class MutationEventHandler {
@@ -35,21 +34,15 @@ public class MutationEventHandler {
         BlockState state = event.getPlacedBlock();
         MutationPoolManager manager = MutationPoolManager.get(serverLevel);
 
-        if (state.is(ModBlocks.STABLE_ANCHOR.get())) {
-            // 放置时先把保护范围内所有方块转换为当前周期的失焦目标，再登记保护，
-            // 避免"稳定了转换前的状态"
-            convertAnchorRange(serverLevel, pos, manager);
-            manager.addAnchor(pos);
-            ModNetwork.sendRegionDataToDimension(serverLevel);
-        } else if (state.is(ModBlocks.MUTATION_CONTROLLER.get())) {
-            BlockEntity be = serverLevel.getBlockEntity(pos);
-            if (be instanceof MutationControllerBlockEntity controller) {
-                manager.addOverride(new RegionOverride(
-                        pos,
-                        controller.getRadius(),
-                        controller.getTagExpression(),
-                        serverLevel.registryAccess().lookupOrThrow(net.minecraft.core.registries.Registries.BLOCK)));
+        if (state.is(ModBlocks.ANCHOR_PROTOTYPE.get())) {
+            ItemStack model = serverLevel.getBlockEntity(pos) instanceof AnchorPrototypeBlockEntity be
+                    ? be.getModelStack() : ItemStack.EMPTY;
+            manager.updatePrototypeEffect(pos, model);
+            // 放置即带有效模型时（罕见），固化范围内状态；常规流程为插入模型时触发
+            if (!model.isEmpty()) {
+                convertPrototypeRange(serverLevel, pos, manager);
             }
+            ModNetwork.sendRegionDataToDimension(serverLevel);
         } else {
             // 记录玩家放置方块的诞生周期：从放置那一刻重新开始计算崩坏
             manager.setBlockBirthPeriod(pos, currentPeriodIndex(serverLevel));
@@ -69,11 +62,9 @@ public class MutationEventHandler {
         if (manager.removeBlockBirthPeriod(pos)) {
             ModNetwork.sendRegionDataToDimension(serverLevel);
         }
-        if (state.is(ModBlocks.STABLE_ANCHOR.get())) {
-            manager.removeAnchor(pos);
+        if (state.is(ModBlocks.ANCHOR_PROTOTYPE.get())) {
+            manager.removePrototypeEffect(pos);
             ModNetwork.sendRegionDataToDimension(serverLevel);
-        } else if (state.is(ModBlocks.MUTATION_CONTROLLER.get())) {
-            manager.removeOverrideAt(pos);
         }
     }
 
@@ -105,8 +96,8 @@ public class MutationEventHandler {
      * 将锚保护范围内的方块全部转换为"当前的失焦目标"（与生存破坏同一公式），
      * 然后才由调用方登记保护。
      */
-    private static void convertAnchorRange(ServerLevel level, BlockPos anchorPos, MutationPoolManager manager) {
-        int radius = FocalDecayConfig.ANCHOR_RADIUS.get();
+    public static void convertPrototypeRange(ServerLevel level, BlockPos anchorPos, MutationPoolManager manager) {
+        int radius = FocalDecayConfig.PROTOTYPE_RADIUS.get();
         long periodIndex = currentPeriodIndex(level);
         int stage = MutationHelper.currentStage(FocalDecayWorldData.get(level.getServer()).getDays());
         long worldSeed = level.getSeed();

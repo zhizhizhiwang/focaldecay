@@ -2,45 +2,46 @@ package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
+import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.LongArrayTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.storage.DimensionDataStorage;
-import net.minecraft.tags.TagKey;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
- * 维度级突变池管理器（设计大纲 §4.2）。
- * 存储：区域覆盖列表、稳定锚位置集合、全局池缓存。
- * 提供 getEffectivePool(pos, original) 计算有效池。
+ * 维度级突变池管理器（设计大纲 §4.2 / §4.3）。
+ * 存储：有效原型机效果（位置 + 半径 + 模型数据）、方块诞生周期、全局池缓存。
+ * 提供 getEffectivePool(pos, state) 计算有效池；isProtected 由原型机模型效果决定。
  */
 public class MutationPoolManager extends SavedData {
     private static final String DATA_NAME = FocalDecay.MODID + "_mutation_pool";
-    private static final String TAG_OVERRIDES = "Overrides";
-    private static final String TAG_ANCHORS = "Anchors";
     private static final String TAG_POOL_VERSION = "PoolVersion";
     private static final String TAG_BIRTHS = "Births";
 
-    private final List<RegionOverride> overrides = new ArrayList<>();
-    private final Set<BlockPos> anchorPositions = new HashSet<>();
-    /** 玩家放置方块的"诞生周期"（位置 -> 放置时的 periodIndex），未记录视为世界原生方块。 */
+    /** 有效原型机效果：中心、切比雪夫半径、模型训练数据（瞬态，由方块实体在加载/换模时重建）。 */
+    public record PrototypeEffect(BlockPos center, int radius, ObserverModelData data) {
+    }
+
+    private final List<PrototypeEffect> prototypeEffects = new ArrayList<>();
+    /** 玩家放置方块的"诞生周期"（位置 -> 放置时的 periodIndex）。 */
     private final Map<BlockPos, Long> blockBirthPeriods = new HashMap<>();
     private MutationPool globalPool = MutationPool.empty(0);
 
@@ -61,16 +62,6 @@ public class MutationPoolManager extends SavedData {
 
     private static MutationPoolManager load(CompoundTag tag, HolderLookup.Provider registries) {
         MutationPoolManager manager = new MutationPoolManager();
-        manager.overrides.clear();
-        ListTag overridesTag = tag.getList(TAG_OVERRIDES, Tag.TAG_COMPOUND);
-        for (int i = 0; i < overridesTag.size(); i++) {
-            manager.overrides.add(RegionOverride.load(overridesTag.getCompound(i), registries));
-        }
-        manager.anchorPositions.clear();
-        long[] anchors = tag.getLongArray(TAG_ANCHORS);
-        for (long l : anchors) {
-            manager.anchorPositions.add(BlockPos.of(l));
-        }
         manager.blockBirthPeriods.clear();
         ListTag birthsTag = tag.getList(TAG_BIRTHS, Tag.TAG_COMPOUND);
         for (int i = 0; i < birthsTag.size(); i++) {
@@ -83,19 +74,6 @@ public class MutationPoolManager extends SavedData {
 
     @Override
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
-        ListTag overridesTag = new ListTag();
-        for (RegionOverride override : overrides) {
-            overridesTag.add(override.save(registries));
-        }
-        tag.put(TAG_OVERRIDES, overridesTag);
-
-        long[] anchors = new long[anchorPositions.size()];
-        int i = 0;
-        for (BlockPos pos : anchorPositions) {
-            anchors[i++] = pos.asLong();
-        }
-        tag.put(TAG_ANCHORS, new LongArrayTag(anchors));
-
         ListTag birthsTag = new ListTag();
         for (Map.Entry<BlockPos, Long> entry : blockBirthPeriods.entrySet()) {
             CompoundTag birth = new CompoundTag();
@@ -104,47 +82,120 @@ public class MutationPoolManager extends SavedData {
             birthsTag.add(birth);
         }
         tag.put(TAG_BIRTHS, birthsTag);
-
         tag.putLong(TAG_POOL_VERSION, globalPool.version());
         return tag;
     }
 
-    // ---- 覆盖 ----
-    public List<RegionOverride> getOverrides() {
-        return overrides;
+    // ---- 原型机效果 ----
+    public List<PrototypeEffect> getPrototypeEffects() {
+        return prototypeEffects;
     }
 
-    public void addOverride(RegionOverride override) {
-        overrides.add(override);
-        setDirty();
+    /**
+     * 原型机模型变化时更新效果：有有效模型（非空白）则加入/更新，否则移除。
+     * 模型半径：语义锁定/引导 = 基础半径，生物稳定 +4，完全稳定固定 32。
+     */
+    public void updatePrototypeEffect(BlockPos pos, ItemStack modelStack) {
+        prototypeEffects.removeIf(e -> e.center().equals(pos));
+        ObserverModelData data = modelStack.getItem() instanceof ObserverModelItem
+                ? ObserverModelItem.getData(modelStack) : null;
+        if (data != null && !ObserverModelData.TYPE_BLANK.equals(data.type())) {
+            prototypeEffects.add(new PrototypeEffect(pos.immutable(), radiusFor(data), data));
+        }
     }
 
-    public void removeOverrideAt(BlockPos controllerPos) {
-        overrides.removeIf(o -> o.center().equals(controllerPos));
-        setDirty();
+    public void removePrototypeEffect(BlockPos pos) {
+        prototypeEffects.removeIf(e -> e.center().equals(pos));
     }
 
-    // ---- 锚 ----
-    public Set<BlockPos> getAnchorPositions() {
-        return anchorPositions;
+    private static int radiusFor(ObserverModelData data) {
+        return switch (data.type()) {
+            case ObserverModelData.TYPE_BIO -> FocalDecayConfig.PROTOTYPE_RADIUS.get() + 4;
+            case ObserverModelData.TYPE_TOTAL -> 32;
+            default -> FocalDecayConfig.PROTOTYPE_RADIUS.get();
+        };
     }
 
-    public void addAnchor(BlockPos pos) {
-        anchorPositions.add(pos.immutable());
-        setDirty();
+    /**
+     * 位置是否被任一原型机效果"保护"（不参与视觉转换、交互不转换）：
+     *  - 生物稳定/完全稳定：范围内全部；
+     *  - 语义锁定：真实方块 ID 在 trainedTargets 中。
+     */
+    public boolean isProtected(BlockPos pos, BlockState state) {
+        for (PrototypeEffect effect : prototypeEffects) {
+            if (!withinRadius(pos, effect)) {
+                continue;
+            }
+            String type = effect.data().type();
+            if (ObserverModelData.TYPE_BIO.equals(type) || ObserverModelData.TYPE_TOTAL.equals(type)) {
+                return true;
+            }
+            if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)) {
+                String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+                if (effect.data().trainedTargets().contains(id)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
-    public void removeAnchor(BlockPos pos) {
-        anchorPositions.remove(pos);
-        setDirty();
+    /**
+     * 计算位置处的有效池（设计大纲 §4.3）：
+     * 受保护 → 空池（不转换）；引导模型 → 训练方块列表（多原型机取交集，为空回退全局池）；
+     * 否则全局池。
+     */
+    public List<Block> getEffectivePool(BlockPos pos, BlockState original) {
+        if (isProtected(pos, original)) {
+            return List.of();
+        }
+        List<Block> guided = null;
+        for (PrototypeEffect effect : prototypeEffects) {
+            if (!withinRadius(pos, effect) || !ObserverModelData.TYPE_GUIDED.equals(effect.data().type())) {
+                continue;
+            }
+            List<Block> sub = resolveTrainedBlocks(effect.data().trainedTargets());
+            if (sub.isEmpty()) {
+                continue;
+            }
+            if (guided == null) {
+                guided = new ArrayList<>(sub);
+            } else {
+                guided.retainAll(sub);
+            }
+            if (guided.isEmpty()) {
+                break;
+            }
+        }
+        if (guided == null || guided.isEmpty()) {
+            return globalPool.snapshot();
+        }
+        return guided;
     }
 
-    public boolean isProtected(BlockPos pos) {
-        return anchorPositions.stream().anyMatch(anchor -> isWithinRadius(pos, anchor));
+    private static boolean withinRadius(BlockPos pos, PrototypeEffect effect) {
+        return Math.max(Math.abs(pos.getX() - effect.center().getX()),
+                Math.max(Math.abs(pos.getY() - effect.center().getY()),
+                        Math.abs(pos.getZ() - effect.center().getZ()))) <= effect.radius();
+    }
+
+    /** 把训练目标 ID 列表解析为方块列表（忽略空气/非法 ID）。 */
+    private static List<Block> resolveTrainedBlocks(List<String> ids) {
+        List<Block> blocks = new ArrayList<>();
+        for (String id : ids) {
+            try {
+                Block block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse(id));
+                if (block != Blocks.AIR) {
+                    blocks.add(block);
+                }
+            } catch (Exception ignored) {
+                // 非法 ID 忽略
+            }
+        }
+        return blocks;
     }
 
     // ---- 方块诞生周期 ----
-    /** 返回该方块的诞生周期；未记录（世界原生）返回 -1。 */
     public long getBlockBirthPeriod(BlockPos pos) {
         return blockBirthPeriods.getOrDefault(pos, -1L);
     }
@@ -166,12 +217,6 @@ public class MutationPoolManager extends SavedData {
         return blockBirthPeriods;
     }
 
-    private static boolean isWithinRadius(BlockPos pos, BlockPos anchor) {
-        int radius = FocalDecayConfig.ANCHOR_RADIUS.get();
-        return Math.max(Math.abs(pos.getX() - anchor.getX()),
-                Math.max(Math.abs(pos.getY() - anchor.getY()), Math.abs(pos.getZ() - anchor.getZ()))) <= radius;
-    }
-
     // ---- 全局池 ----
     public MutationPool getGlobalPool() {
         return globalPool;
@@ -190,64 +235,5 @@ public class MutationPoolManager extends SavedData {
                 .ifPresent(holders -> holders.forEach(holder -> blocks.add(holder.value())));
         this.globalPool = MutationPool.of(blocks, globalPool.version() + 1);
         setDirty();
-    }
-
-    /**
-     * 计算位置处的有效池（设计大纲 §4.2）。
-     * 被稳定锚保护 → 空池（不转换）。
-     * 命中的覆盖取交集；交集为空回退全局池。
-     */
-    public List<Block> getEffectivePool(BlockPos pos, BlockState original) {
-        if (isProtected(pos)) {
-            return List.of();
-        }
-        Set<Block> result = null;
-        for (RegionOverride override : overrides) {
-            if (!override.contains(pos)) {
-                continue;
-            }
-            List<Block> subPool = resolveSubPool(override, original);
-            if (subPool.isEmpty()) {
-                continue;
-            }
-            Set<Block> sub = new HashSet<>(subPool);
-            result = result == null ? sub : intersection(result, sub);
-            if (result.isEmpty()) {
-                break;
-            }
-        }
-        if (result == null) {
-            return globalPool.snapshot();
-        }
-        return result.isEmpty() ? globalPool.snapshot() : new ArrayList<>(result);
-    }
-
-    /** 解析覆盖子池：标签匹配的方块，剔除带方块实体的。 */
-    private List<Block> resolveSubPool(RegionOverride override, BlockState original) {
-        Set<TagKey<Block>> tags = override.tags();
-        if (tags.isEmpty()) {
-            return List.of();
-        }
-        List<Block> subPool = new ArrayList<>();
-        for (Block block : BuiltInRegistries.BLOCK) {
-            BlockState state = block.defaultBlockState();
-            boolean matches = false;
-            for (TagKey<Block> tagKey : tags) {
-                if (state.is(tagKey)) {
-                    matches = true;
-                    break;
-                }
-            }
-            if (matches && !state.hasBlockEntity()) {
-                subPool.add(block);
-            }
-        }
-        return subPool;
-    }
-
-    private static Set<Block> intersection(Set<Block> a, Set<Block> b) {
-        Set<Block> result = new HashSet<>(a);
-        result.retainAll(b);
-        return result;
     }
 }

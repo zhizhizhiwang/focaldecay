@@ -1,8 +1,9 @@
 # Focal Decay 开发进度清单
 
-> 最后更新：2026-08-10
+> 最后更新：2026-08-20
 > 环境：NeoForge 21.1.248 / Minecraft 1.21.1 / Parchment 2024.11.17 / Java 21
 > Mod ID：`focal_decay`，包：`com.zhizhiwang.focal_decay`
+> 当前状态（2026-08-20）：`compileJava` 通过；`build/libs/focal_decay-1.0.0.jar` 构建于 2026-08-19 22:56。§9 重构整批改动尚未提交（含根目录误提交的 `net/minecraft/*.class` 删除），本地领先 origin/main 4 个提交。
 
 ## 已完成
 
@@ -12,9 +13,9 @@
 - 删除 examplemod 模板代码，编译与 build 通过
 
 ### 2. 方块/物品/方块实体骨架（完成）
-- 方块：`block/StableAnchorBlock.java`、`MutationControllerBlock.java`、`ObserverCoreBlock.java`（含 powered 状态）+ `block/ModBlocks.java`
-- 方块实体：`block/entity/StableAnchorBlockEntity.java`、`MutationControllerBlockEntity.java`（tagExpression + radius，NBT 持久化）+ `block/entity/ModBlockEntities.java`
-- 物品：`item/ModItems.java`（3 个方块物品 + 7 个语义碎片 `SemanticFragmentItem` + `rebuilt_observer_protocol`）
+- 方块：`block/AnchorPrototypeBlock.java`、`ObserverCoreBlock.java`（含 powered 状态）、`TrainingTerminalBlock.java` + `block/ModBlocks.java`（2026-08-19 重构：原 StableAnchorBlock/MutationControllerBlock 已移除，改为稳定锚原型机；训练终端已注册）
+- 方块实体：`block/entity/AnchorPrototypeBlockEntity.java`（模型插槽 + NBT 持久化 + MenuProvider/Container）、`TrainingTerminalBlockEntity.java` + `block/entity/ModBlockEntities.java`
+- 物品：`item/ModItems.java`（3 个方块物品 + 6 个观测模型 `ObserverModelItem`（含 `total_stability_model_activated`）+ 7 个语义碎片 + `rebuilt_observer_protocol`）
 - 创造标签：`item/ModCreativeTabs.java`
 - 语言：`assets/focal_decay/lang/en_us.json` + `zh_cn.json`（含全部 Lore）
 - 资源：blockstates / models 全部 JSON（贴图暂用原版方块占位）
@@ -24,18 +25,18 @@
 - 主类已注册三份 config spec
 
 ### 4. 标签与数据生成（完成）
-- `data/tags/ModTags.java`：BlockTags（global_mutation_pool/conversion_blacklist/stable_anchor_immune）+ EntityType 三阶段池标签
+- `data/tags/ModTags.java`：BlockTags（global_mutation_pool/conversion_blacklist/anchor_prototype_immune）+ EntityType 三阶段池标签
 - `data/tags/ModBlockTagsProvider.java`、`ModEntityTypeTagsProvider.java`
-- `data/recipe/ModRecipeProvider.java`（稳定锚、突变控制器形状合成）
-- `data/recipe/ModRecipeSerializers.java` + `RebuildObserverProtocolRecipe.java`（7 碎片无序合成，`crafting_special_rebuildobserver`）
+- `data/recipe/ModRecipeProvider.java`（原型机形状合成、空白模型无序合成、重建协议/复制模型特殊配方）
+- `data/recipe/ModRecipeSerializers.java`：`RebuildObserverProtocolRecipe`（7 碎片无序合成，`crafting_special_rebuildobserver`）+ `CopyTrainedModelRecipe`（训练模型复制，`crafting_special_copytrainedmodel`）
 - `data/ModDataGenerator.java`：`runData` 已成功生成 JSON 到 `src/generated/resources`
 
 ### 5. 全局池与确定性随机（完成）
 - `mutation/MutationPool.java`：按 BuiltInRegistries.BLOCK id 升序的不可变列表，带 version
-- `mutation/MutationHelper.java`：`getTarget(original, pos, worldSeed, periodIndex, pool)`，seed = pos.asLong() ^ worldSeed ^ periodIndex
-- `mutation/RegionOverride.java`：中心/半径/标签表达式（支持通配符），用 `RegistryLookup.listTags()` 编译，NBT 序列化
-- `mutation/MutationPoolManager.java`：维度级 SavedData，管理覆盖列表/锚集合/全局池，`getEffectivePool(pos, original)`
-- `mutation/MutationEventHandler.java`：锚/控制器放置破坏更新、维度加载 reloadGlobalPool；已注册游戏总线
+- `mutation/MutationHelper.java`：`getTarget(original, pos, worldSeed, periodIndex, pool)`，种子经 SplitMix64 雪崩混合；统一入口 `getVisibleTarget(...)`（含概率、保护、诞生周期）
+- `mutation/MutationPoolManager.java`：维度级 SavedData，管理有效原型机效果（位置/半径/模型数据）+ 方块诞生周期 + 全局池，`getEffectivePool(pos, original)`、`isProtected(pos, state)` 按模型判定
+- `mutation/MutationEventHandler.java`：原型机放置/换模/破坏更新、维度加载 reloadGlobalPool；已注册游戏总线
+- 旧 `RegionOverride`（覆盖列表）与突变控制器覆盖逻辑已删除（2026-08-19，由原型机效果取代）
 
 ### 6. 交互与转换（完成）
 - `attachment/BreakData.java` + `ModAttachments.java`：玩家挖掘锁定数据（用 NeoForge 21.1 attachment 替代旧 Capability）
@@ -51,7 +52,7 @@
   - `mixin/client/RenderChunkRegionAccessor.java`：`@Accessor("level")` 暴露编译线程读取的 Level
   - 配置：`focal_decay.mixins.json`（`client` 数组，`defaultRequire=1`）+ mods.toml `[[mixins]]`；NeoForge 运行时用官方映射，无需 refmap/MixinGradle，sponge-mixin 由 neoforge POM 传递提供
 - 后处理着色器：`observer_veil` PostChain（`assets/focal_decay/shaders/post/observer_veil.json`），每帧 `setUniform("Fade")` 按 `post_intensity` + 呼吸动画淡化；自定义 program 需放在 `assets/minecraft/shaders/program/`（PostChain 用默认命名空间解析 program/vsh/fsh）
-- 客户端保护集合/覆盖数据：仍待网络包 `SyncRegionDataPacket`（见第 10）
+  - 客户端保护集合/原型机效果数据：已由 `SyncRegionDataPacket` 同步（见 §7.6 与 §9 里程碑 3）
 
 ### 7.1 首轮实机修复（2026-08-10）
 - 崩溃修复：世界卸载/加载过渡期 `LevelRenderer.viewArea` 为 null，`setSectionDirty` 会 NPE；新增 `mixin/client/LevelRendererAccessor` 并在 `markSectionDirty` 中判空跳过
@@ -107,28 +108,29 @@
 ### 9. 观测稳定系统（2026-08-19 设计修订，取代原"稳定锚 + 突变控制器"）
 - **设计变更**：原 `stable_anchor` / `mutation_controller` 统一重构为 **稳定锚原型机**（`anchor_prototype`）+ **观测模型**（物品 + DataComponents）；新增 **训练终端**（`training_terminal`）与 **末地王座**；语义锁定/引导模型继承原突变控制器功能，完全稳定锚为终极形态。
 - 里程碑（对应 PROXYAI §12）：
-  1. 框架 + 注册原型机、训练终端、模型物品、王座方块（含对现有 stable_anchor/mutation_controller 代码的重构）
-  2. 模型 `ObserverModelData` 组件、空白模型合成、训练终端 GUI + 能量（FE 默认消耗 0 / 经验瓶回退）、语义锁定/引导模型训练交互（终端"训练"→手持空白模型右键收集→回终端完成）、模型复制配方
-  3. 原型机效果应用：有效原型机列表、保护/引导接入 `getVisibleTarget` 与渲染缓存、`SyncRegionDataPacket` 扩展
-  4. 生物稳定模型：周围生物生命值消耗、能量换算/衰减、范围内方块/实体稳定、阶段3双倍消耗
-  5. 末地王座结构（种子决定、主岛与外岛间虚空环带、规避末影龙机制）与仪式（触发/计时默认 3~5 分钟/波次、`ThroneRitualPacket`）
-  6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制
+  1. 框架 + 注册原型机、训练终端、模型物品、王座方块（含对现有 stable_anchor/mutation_controller 代码的重构）——**锚 + 训练终端部分已完成（2026-08-19）**：`anchor_prototype` 方块/实体/模型插槽/GUI（菜单+屏幕）、6 个观测模型物品注册、MutationPoolManager 原型机位置、`SyncRegionDataPacket` 更名为原型机语义、配方/语言/资源/标签更新；`mutation_controller` 及其方块实体已删除。**训练终端已注册并实现**：`training_terminal` 方块/方块实体/菜单/屏幕、`ModelTrainingHandler`（右键记录"可见目标"方块/实体）、`CopyTrainedModelRecipe`（复制配方）。王座方块待后续里程碑注册。
+  - 打磨（2026-08-19）：两个 GUI 换成自定义占位贴图（`assets/focal_decay/textures/gui/*.png`，替换贴图即换外观）；模型 tooltip 收纳袋风格（默认折叠数量、Shift 展开本地化目标列表）；训练右键改为记录"可见目标"方块（与客户端预览同公式）；训练提示改用本地化名称而非注册键。
+  3. 原型机效果应用——**已完成（2026-08-19）**：`MutationPoolManager` 改为"有效原型机效果"列表（位置/半径/模型数据，瞬态、由方块实体在放置/加载/换模时重建）；"无模型无效果"门控打开（移除旧的全范围保护）；`isProtected(pos, state)` 按模型判定（生物稳定/完全稳定范围内全部，语义锁定命中 trainedTargets）；`getEffectivePool` 由引导模型限制突变目标池（多原型机交集，空回退全局池）；插入首个有效模型时固化范围失焦状态；`SyncRegionDataPacket` 携带原型机效果同步客户端，客户端 `isProtected`/引导池接入渲染缓存；`DoomsdayHandler` 实体突变跳过稳定范围内的生物；旧 `RegionOverride`/突变控制器覆盖逻辑已删除。
+  4. 生物稳定模型：周围生物生命值消耗、能量换算/衰减、范围内方块/实体稳定、阶段3双倍消耗——**部分完成（2026-08-20）**：范围保护与实体突变跳过已随里程碑 3 生效；生命值消耗/能量换算/阶段3双倍消耗待实现
+  5. 末地王座结构（种子决定、主岛与外岛间虚空环带、规避末影龙机制）与仪式（触发/计时默认 3~5 分钟/波次、`ThroneRitualPacket`）——**未开始（2026-08-20）**：仅有语义碎片物品与 lore
+  6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制——**部分完成（2026-08-20）**：`total_stability_model`/`total_stability_model_activated` 物品与复制配方（`CopyTrainedModelRecipe`）已有；仪式升级、完美稳定视觉、掉落流程待实现
   7. 与末日阶段/渲染/网络整合（阶段3模型效果衰减等）
   8. 彩蛋与打磨（粒子/音效/专属贴图/测试）
 
 ### 10. 网络通信（承接现有实现）
-- `SyncRegionDataPacket`（S→C）：现有维度/锚/诞生周期 → 扩展为"有效原型机 + 模型效果"列表；登录/换维/原型机变化/方块放置破坏时发送
-- `ObserverCoreActivatePacket`（S→C）：核心激活时全服动画
-- `ThroneRitualPacket`（S→C，新增）：王座仪式进度/波次/完成同步
+- `SyncRegionDataPacket`（S→C）：**已完成扩展**——携带有效原型机效果（位置/半径/模型数据）+ 方块诞生周期；登录/换维/原型机变化/方块放置破坏时发送
+- `ObserverCoreActivatePacket`（S→C）：核心激活时全服动画——**未实现**
+- `ThroneRitualPacket`（S→C，新增）：王座仪式进度/波次/完成同步——**未实现**
 - 使用 NeoForge 21.1 Payload API（现有 `ModNetwork` 基础上扩展），协议版本 "1"
 
 ### 11. 观测者核心修复路径（保留）
+- **现状（2026-08-20）**：`observer_core` 方块已注册（含 powered 状态，亮度随状态变化）；右键 GUI、激活流程、动画/粒子、战利品注入均未实现
 - 观测者核心块：右键 GUI（"观测者离线/在线"）、用重建协议激活（动画+粒子，powered=true，触发胜利）
 - 语义碎片来源：玫瑰失焦突变、王座/末地城结构、村庄战利品、首次右键核心、铜块突变、所有战利品箱、原型机合成
 - 战利品注入（碎片）：`GlobalLootModifier` 或 LootTableLoadEvent
 
 ### 12. 收尾
-- 原型机 GUI 与训练终端 GUI 的专属贴图/模型（目前用原版占位）
+- 原型机 GUI 与训练终端 GUI：自定义占位贴图已替换（`assets/focal_decay/textures/gui/*.png`），专属模型/细化待做
 - 粒子（蓝色漂浮、"42ms"、"完备语义分类"字样）
 - 测试与平衡调整
 

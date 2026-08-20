@@ -1,10 +1,16 @@
 {
   "itemGroup.focal_decay": "失焦",
 
-  "block.focal_decay.stable_anchor": "稳定锚",
-  "block.focal_decay.mutation_controller": "突变控制器",
+  "block.focal_decay.anchor_prototype": "稳定锚原型机",
+  "block.focal_decay.training_terminal": "训练终端",
   "block.focal_decay.observer_core": "观测者核心",
 
+  "item.focal_decay.observer_model_blank": "观测模型·空白",
+  "item.focal_decay.semantic_lock_model": "观测模型·语义锁定",
+  "item.focal_decay.guided_mutation_model": "观测模型·引导突变",
+  "item.focal_decay.bio_stabilizer_model": "观测模型·生物稳定",
+  "item.focal_decay.total_stability_model": "观测模型·完全稳定",
+  "item.focal_decay.total_stability_model_activated": "观测模型·完全稳定（已激活）",
   "item.focal_decay.semantic_fragment_rose": "语义碎片·玫瑰",
   "item.focal_decay.semantic_fragment_throne": "语义碎片·王座",
   "item.focal_decay.semantic_fragment_semantic": "语义碎片·完备语义",
@@ -14,7 +20,25 @@
   "item.focal_decay.semantic_fragment_cheng": "语义碎片·程玖章的最后传输",
   "item.focal_decay.rebuilt_observer_protocol": "重建的观测协议",
 
-  "tooltip.focal_decay.stable_anchor": "OBSR-1β 完备语义保护场",
+  "tooltip.focal_decay.anchor_prototype": "观测者原型机——插入观测模型以提供稳定",
+  "tooltip.focal_decay.model_targets": "%s 个已训练目标——按住 Shift 查看详情",
+  "tooltip.focal_decay.model_shift_hint": "按住 Shift 展开",
+
+  "container.focal_decay.anchor_prototype": "观测者原型机",
+  "container.focal_decay.training_terminal": "训练终端",
+
+  "gui.focal_decay.training_semantic": "训练：语义锁定",
+  "gui.focal_decay.training_guided": "训练：引导突变",
+  "gui.focal_decay.training_finish": "完成训练",
+  "gui.focal_decay.energy": "能量：%s",
+
+  "message.focal_decay.training_need_blank": "请先放入空白观测模型",
+  "message.focal_decay.training_no_energy": "能量不足",
+  "message.focal_decay.training_not_in_progress": "当前没有训练进行中",
+  "message.focal_decay.training_no_targets": "请先至少收集一个训练目标",
+  "message.focal_decay.training_limit": "已达到目标记录上限",
+  "message.focal_decay.training_target_block": "已训练目标：%s",
+  "message.focal_decay.training_target_entity": "已训练实体：%s",
 
   "lore.focal_decay.fragment_rose": "“玫瑰，是玫瑰，是玫瑰……”",
   "lore.focal_decay.fragment_throne": "“它不是能用语言描述的事物。”",
@@ -26,6 +50,6 @@
 
   "tag.block.focal_decay.global_mutation_pool": "全局突变池（方块）",
   "tag.block.focal_decay.conversion_blacklist": "转换黑名单",
-  "tag.block.focal_decay.stable_anchor_immune": "稳定锚免疫",
+  "tag.block.focal_decay.anchor_prototype_immune": "原型机免疫",
   "tag.entity_type.focal_decay.entity_mutation_pool_passive": "实体突变池（被动）"
 }

@@ -1,10 +1,16 @@
 {
   "itemGroup.focal_decay": "Focal Decay",
 
-  "block.focal_decay.stable_anchor": "Stable Anchor",
-  "block.focal_decay.mutation_controller": "Mutation Controller",
+  "block.focal_decay.anchor_prototype": "Anchor Prototype",
+  "block.focal_decay.training_terminal": "Training Terminal",
   "block.focal_decay.observer_core": "Observer Core",
 
+  "item.focal_decay.observer_model_blank": "Observer Model · Blank",
+  "item.focal_decay.semantic_lock_model": "Observer Model · Semantic Lock",
+  "item.focal_decay.guided_mutation_model": "Observer Model · Guided Mutation",
+  "item.focal_decay.bio_stabilizer_model": "Observer Model · Bio Stabilizer",
+  "item.focal_decay.total_stability_model": "Observer Model · Total Stability",
+  "item.focal_decay.total_stability_model_activated": "Observer Model · Total Stability (Activated)",
   "item.focal_decay.semantic_fragment_rose": "Semantic Fragment · Rose",
   "item.focal_decay.semantic_fragment_throne": "Semantic Fragment · Throne",
   "item.focal_decay.semantic_fragment_semantic": "Semantic Fragment · Complete Semantics",
@@ -14,7 +20,25 @@
   "item.focal_decay.semantic_fragment_cheng": "Semantic Fragment · Cheng Jiuzhang's Final Transmission",
   "item.focal_decay.rebuilt_observer_protocol": "Rebuilt Observer Protocol",
 
-  "tooltip.focal_decay.stable_anchor": "OBSR-1β Complete Semantic Protection Field",
+  "tooltip.focal_decay.anchor_prototype": "Observer Prototype — insert an Observer Model to stabilize",
+  "tooltip.focal_decay.model_targets": "%s trained target(s) — hold Shift for details",
+  "tooltip.focal_decay.model_shift_hint": "Hold Shift to expand",
+
+  "container.focal_decay.anchor_prototype": "Observer Prototype",
+  "container.focal_decay.training_terminal": "Training Terminal",
+
+  "gui.focal_decay.training_semantic": "Train: Semantic Lock",
+  "gui.focal_decay.training_guided": "Train: Guided Mutation",
+  "gui.focal_decay.training_finish": "Finish Training",
+  "gui.focal_decay.energy": "Energy: %s",
+
+  "message.focal_decay.training_need_blank": "Place a blank Observer Model first",
+  "message.focal_decay.training_no_energy": "Not enough energy",
+  "message.focal_decay.training_not_in_progress": "No training in progress",
+  "message.focal_decay.training_no_targets": "Collect at least one target first",
+  "message.focal_decay.training_limit": "Target record limit reached",
+  "message.focal_decay.training_target_block": "Trained target: %s",
+  "message.focal_decay.training_target_entity": "Trained entity: %s",
 
   "lore.focal_decay.fragment_rose": "\"A rose is a rose is a rose...\"",
   "lore.focal_decay.fragment_throne": "\"It is not something that can be described in words.\"",
@@ -26,6 +50,6 @@
 
   "tag.block.focal_decay.global_mutation_pool": "Global Mutation Pool (Blocks)",
   "tag.block.focal_decay.conversion_blacklist": "Conversion Blacklist",
-  "tag.block.focal_decay.stable_anchor_immune": "Stable Anchor Immune",
+  "tag.block.focal_decay.anchor_prototype_immune": "Anchor Prototype Immune",
   "tag.entity_type.focal_decay.entity_mutation_pool_passive": "Entity Mutation Pool (Passive)"
 }
