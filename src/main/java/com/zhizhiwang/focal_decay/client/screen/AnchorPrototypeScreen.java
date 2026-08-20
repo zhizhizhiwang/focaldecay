@@ -1,11 +1,14 @@
 package com.zhizhiwang.focal_decay.client.screen;
 
 import com.zhizhiwang.focal_decay.menu.AnchorPrototypeMenu;
+import com.zhizhiwang.focal_decay.data.ObserverModelData;
+import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 
@@ -29,6 +32,19 @@ public class AnchorPrototypeScreen extends AbstractContainerScreen<AnchorPrototy
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         super.render(graphics, mouseX, mouseY, partialTick);
+        ItemStack model = this.menu.getSlot(0).getItem();
+        ObserverModelData data = ObserverModelItem.getData(model);
+        if (data != null && ObserverModelData.TYPE_BIO.equals(data.type())) {
+            graphics.drawString(this.font,
+                    Component.translatable("gui.focal_decay.bio_energy",
+                            this.menu.getBioEnergy(), this.menu.getBioCapacity()),
+                    this.leftPos + 8, this.topPos + 58, 0x404040, false);
+            if (this.menu.getBioEnergy() <= 0) {
+                graphics.drawString(this.font,
+                        Component.translatable("gui.focal_decay.bio_energy_empty"),
+                        this.leftPos + 8, this.topPos + 68, 0xFF5555, false);
+            }
+        }
         this.renderTooltip(graphics, mouseX, mouseY);
     }
 }

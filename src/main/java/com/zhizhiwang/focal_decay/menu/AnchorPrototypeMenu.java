@@ -1,11 +1,14 @@
 package com.zhizhiwang.focal_decay.menu;
 
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
+import com.zhizhiwang.focal_decay.block.entity.AnchorPrototypeBlockEntity;
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerData;
+import net.minecraft.world.inventory.SimpleContainerData;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 
@@ -14,15 +17,40 @@ import net.minecraft.world.item.ItemStack;
  */
 public class AnchorPrototypeMenu extends AbstractContainerMenu {
     private final Container modelContainer;
+    private final ContainerData energyData;
 
     /** 客户端侧占位构造。 */
     public AnchorPrototypeMenu(int containerId, Inventory playerInventory) {
-        this(containerId, playerInventory, new SimpleContainer(1));
+        this(containerId, playerInventory, new SimpleContainer(1), new SimpleContainerData(2));
     }
 
+    /** 服务端构造：数据槽 0 = 生物能量，1 = 能量容量。 */
     public AnchorPrototypeMenu(int containerId, Inventory playerInventory, Container modelContainer) {
+        this(containerId, playerInventory, modelContainer, new ContainerData() {
+            @Override
+            public int get(int index) {
+                if (modelContainer instanceof AnchorPrototypeBlockEntity be) {
+                    return index == 0 ? be.getBioEnergy() : be.getBioCapacity();
+                }
+                return 0;
+            }
+
+            @Override
+            public void set(int index, int value) {
+            }
+
+            @Override
+            public int getCount() {
+                return 2;
+            }
+        });
+    }
+
+    private AnchorPrototypeMenu(int containerId, Inventory playerInventory,
+                                Container modelContainer, ContainerData energyData) {
         super(ModMenus.ANCHOR_PROTOTYPE.get(), containerId);
         this.modelContainer = modelContainer;
+        this.energyData = energyData;
         checkContainerSize(modelContainer, 1);
         modelContainer.startOpen(playerInventory.player);
 
@@ -44,6 +72,15 @@ public class AnchorPrototypeMenu extends AbstractContainerMenu {
         for (int col = 0; col < 9; col++) {
             this.addSlot(new Slot(playerInventory, col, 8 + col * 18, 142));
         }
+        this.addDataSlots(energyData);
+    }
+
+    public int getBioEnergy() {
+        return energyData.get(0);
+    }
+
+    public int getBioCapacity() {
+        return energyData.get(1);
     }
 
     @Override

@@ -23,6 +23,8 @@
   "tooltip.focal_decay.anchor_prototype": "观测者原型机——插入观测模型以提供稳定",
   "tooltip.focal_decay.model_targets": "%s 个已训练目标——按住 Shift 查看详情",
   "tooltip.focal_decay.model_shift_hint": "按住 Shift 展开",
+  "tooltip.focal_decay.bio_stabilizer": "无需训练。消耗周围生物的生命值维持稳定效果。",
+  "tooltip.focal_decay.bio_energy": "生物能量：%s",
 
   "container.focal_decay.anchor_prototype": "观测者原型机",
   "container.focal_decay.training_terminal": "训练终端",
@@ -31,6 +33,8 @@
   "gui.focal_decay.training_guided": "训练：引导突变",
   "gui.focal_decay.training_finish": "完成训练",
   "gui.focal_decay.energy": "能量：%s",
+  "gui.focal_decay.bio_energy": "生物能量：%s / %s",
+  "gui.focal_decay.bio_energy_empty": "（能量耗尽，稳定效果失效）",
 
   "message.focal_decay.training_need_blank": "请先放入空白观测模型",
   "message.focal_decay.training_no_energy": "能量不足",

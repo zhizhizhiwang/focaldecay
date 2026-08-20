@@ -3,7 +3,7 @@
 > 最后更新：2026-08-20
 > 环境：NeoForge 21.1.248 / Minecraft 1.21.1 / Parchment 2024.11.17 / Java 21
 > Mod ID：`focal_decay`，包：`com.zhizhiwang.focal_decay`
-> 当前状态（2026-08-20）：`compileJava` 通过；`build/libs/focal_decay-1.0.0.jar` 构建于 2026-08-19 22:56。§9 重构整批改动尚未提交（含根目录误提交的 `net/minecraft/*.class` 删除），本地领先 origin/main 4 个提交。
+> 当前状态（2026-08-20）：`compileJava` 通过；`build/libs/focal_decay-1.0.0.jar` 构建于 2026-08-20 08:28。§9 重构整批改动尚未提交（含根目录误提交的 `net/minecraft/*.class` 删除），本地领先 origin/main 4 个提交。
 
 ## 已完成
 
@@ -21,7 +21,7 @@
 - 资源：blockstates / models 全部 JSON（贴图暂用原版方块占位）
 
 ### 3. 配置系统（完成）
-- `config/FocalDecayConfig.java`：Server（stage2_day/stage3_day/各阶段 interval/实体概率/enable_core_repair）、Common（anchor_radius/post_intensity）、Client（postProcessEnabled/surface_update_frequency/max_render_distance）
+- `config/FocalDecayConfig.java`：Server（stage2_day/stage3_day/各阶段 interval/实体概率/enable_core_repair/生物稳定能量参数 bio_energy_capacity・bio_conversion_per_hp・bio_drain_per_second・bio_stage3_double_drain・bio_stabilize_entities）、Common（anchor_radius/post_intensity）、Client（postProcessEnabled/surface_update_frequency/max_render_distance）
 - 主类已注册三份 config spec
 
 ### 4. 标签与数据生成（完成）
@@ -111,7 +111,7 @@
   1. 框架 + 注册原型机、训练终端、模型物品、王座方块（含对现有 stable_anchor/mutation_controller 代码的重构）——**锚 + 训练终端部分已完成（2026-08-19）**：`anchor_prototype` 方块/实体/模型插槽/GUI（菜单+屏幕）、6 个观测模型物品注册、MutationPoolManager 原型机位置、`SyncRegionDataPacket` 更名为原型机语义、配方/语言/资源/标签更新；`mutation_controller` 及其方块实体已删除。**训练终端已注册并实现**：`training_terminal` 方块/方块实体/菜单/屏幕、`ModelTrainingHandler`（右键记录"可见目标"方块/实体）、`CopyTrainedModelRecipe`（复制配方）。王座方块待后续里程碑注册。
   - 打磨（2026-08-19）：两个 GUI 换成自定义占位贴图（`assets/focal_decay/textures/gui/*.png`，替换贴图即换外观）；模型 tooltip 收纳袋风格（默认折叠数量、Shift 展开本地化目标列表）；训练右键改为记录"可见目标"方块（与客户端预览同公式）；训练提示改用本地化名称而非注册键。
   3. 原型机效果应用——**已完成（2026-08-19）**：`MutationPoolManager` 改为"有效原型机效果"列表（位置/半径/模型数据，瞬态、由方块实体在放置/加载/换模时重建）；"无模型无效果"门控打开（移除旧的全范围保护）；`isProtected(pos, state)` 按模型判定（生物稳定/完全稳定范围内全部，语义锁定命中 trainedTargets）；`getEffectivePool` 由引导模型限制突变目标池（多原型机交集，空回退全局池）；插入首个有效模型时固化范围失焦状态；`SyncRegionDataPacket` 携带原型机效果同步客户端，客户端 `isProtected`/引导池接入渲染缓存；`DoomsdayHandler` 实体突变跳过稳定范围内的生物；旧 `RegionOverride`/突变控制器覆盖逻辑已删除。
-  4. 生物稳定模型：周围生物生命值消耗、能量换算/衰减、范围内方块/实体稳定、阶段3双倍消耗——**部分完成（2026-08-20）**：范围保护与实体突变跳过已随里程碑 3 生效；生命值消耗/能量换算/阶段3双倍消耗待实现
+  4. 生物稳定模型：周围生物生命值消耗、能量换算/衰减、范围内方块/实体稳定、阶段3双倍消耗——**已完成（2026-08-20）**：`BioStabilizerHandler` 每 20 tick 结算——范围内非玩家生物每只损失 1 HP，按 `bio_conversion_per_hp` 补充 bioEnergy（上限 `bio_energy_capacity`）；效果按 `bio_drain_per_second` 消耗能量，阶段 3 双倍（`bio_stage3_double_drain`）；能量耗尽后方块保护与实体跳过失效（`isProtected`/`isEntityProtected` 按 `bioEnergy>0` 判定，实体跳过受 `bio_stabilize_entities` 开关控制）；`SyncRegionDataPacket` 携带 bioEnergy，客户端仅在"活跃↔耗尽"翻转时刷新；原型机 GUI 显示能量/容量，物品 tooltip 显示剩余能量；生物稳定模型物品自带 TYPE_BIO 数据（初始能量 0，无需训练）
   5. 末地王座结构（种子决定、主岛与外岛间虚空环带、规避末影龙机制）与仪式（触发/计时默认 3~5 分钟/波次、`ThroneRitualPacket`）——**未开始（2026-08-20）**：仅有语义碎片物品与 lore
   6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制——**部分完成（2026-08-20）**：`total_stability_model`/`total_stability_model_activated` 物品与复制配方（`CopyTrainedModelRecipe`）已有；仪式升级、完美稳定视觉、掉落流程待实现
   7. 与末日阶段/渲染/网络整合（阶段3模型效果衰减等）

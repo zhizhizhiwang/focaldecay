@@ -112,8 +112,11 @@ public final class DoomsdayHandler {
                 continue;
             }
             String type = effect.data().type();
-            if (ObserverModelData.TYPE_BIO.equals(type) || ObserverModelData.TYPE_TOTAL.equals(type)) {
+            if (ObserverModelData.TYPE_TOTAL.equals(type)) {
                 return true;
+            }
+            if (ObserverModelData.TYPE_BIO.equals(type)) {
+                return FocalDecayConfig.BIO_STABILIZE_ENTITIES.get() && effect.data().bioEnergy() > 0;
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)
                     && effect.data().trainedEntities().contains(entityId)) {

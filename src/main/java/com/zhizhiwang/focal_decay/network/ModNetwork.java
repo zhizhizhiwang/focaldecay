@@ -53,7 +53,8 @@ public final class ModNetwork {
         for (MutationPoolManager.PrototypeEffect effect : MutationPoolManager.get(level).getPrototypeEffects()) {
             prototypeData.add(new SyncRegionDataPacket.PrototypeData(
                     effect.center().asLong(), effect.radius(), effect.data().type(),
-                    effect.data().trainedTargets(), effect.data().trainedEntities()));
+                    effect.data().trainedTargets(), effect.data().trainedEntities(),
+                    effect.data().bioEnergy()));
         }
 
         Map<BlockPos, Long> births = MutationPoolManager.get(level).getBlockBirthPeriods();

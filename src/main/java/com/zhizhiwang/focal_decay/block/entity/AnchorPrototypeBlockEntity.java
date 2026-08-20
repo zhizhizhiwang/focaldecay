@@ -1,6 +1,7 @@
 package com.zhizhiwang.focal_decay.block.entity;
 
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
+import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.menu.AnchorPrototypeMenu;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
@@ -41,6 +42,17 @@ public class AnchorPrototypeBlockEntity extends BlockEntity implements MenuProvi
     public boolean hasActiveModel() {
         ObserverModelData data = ObserverModelItem.getData(modelStack);
         return data != null && !ObserverModelData.TYPE_BLANK.equals(data.type());
+    }
+
+    /** 生物稳定模型当前能量（GUI 显示/数据槽用）。 */
+    public int getBioEnergy() {
+        ObserverModelData data = ObserverModelItem.getData(modelStack);
+        return data == null ? 0 : Math.max(0, data.bioEnergy());
+    }
+
+    /** 生物稳定能量容量（Server 配置，随数据槽同步到客户端显示）。 */
+    public int getBioCapacity() {
+        return Math.max(0, FocalDecayConfig.BIO_ENERGY_CAPACITY.get());
     }
 
     @Override

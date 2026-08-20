@@ -30,6 +30,11 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_CAPACITY;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_COST;
     public static final ModConfigSpec.IntValue TRAINING_MAX_TARGETS;
+    public static final ModConfigSpec.IntValue BIO_ENERGY_CAPACITY;
+    public static final ModConfigSpec.IntValue BIO_CONVERSION_PER_HP;
+    public static final ModConfigSpec.IntValue BIO_DRAIN_PER_SECOND;
+    public static final ModConfigSpec.BooleanValue BIO_STAGE3_DOUBLE_DRAIN;
+    public static final ModConfigSpec.BooleanValue BIO_STABILIZE_ENTITIES;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -82,6 +87,21 @@ public final class FocalDecayConfig {
         TRAINING_MAX_TARGETS = builder
                 .comment("Max trained records per blank model.")
                 .defineInRange("training_max_targets", 64, 1, 1024);
+        BIO_ENERGY_CAPACITY = builder
+                .comment("Max bioEnergy stored in a Bio Stabilizer model.")
+                .defineInRange("bio_energy_capacity", 2000, 0, Integer.MAX_VALUE);
+        BIO_CONVERSION_PER_HP = builder
+                .comment("bioEnergy gained per 1 HP drained from creatures in range.")
+                .defineInRange("bio_conversion_per_hp", 20, 0, Integer.MAX_VALUE);
+        BIO_DRAIN_PER_SECOND = builder
+                .comment("bioEnergy consumed per second while a Bio Stabilizer is active. 0 disables drain.")
+                .defineInRange("bio_drain_per_second", 5, 0, Integer.MAX_VALUE);
+        BIO_STAGE3_DOUBLE_DRAIN = builder
+                .comment("Whether stage 3 doubles the Bio Stabilizer drain rate.")
+                .define("bio_stage3_double_drain", true);
+        BIO_STABILIZE_ENTITIES = builder
+                .comment("Whether creatures inside a Bio Stabilizer range are kept from entity mutation.")
+                .define("bio_stabilize_entities", true);
 
         builder.pop();
         SERVER_SPEC = builder.build();

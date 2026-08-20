@@ -118,7 +118,8 @@ public class MutationPoolManager extends SavedData {
 
     /**
      * 位置是否被任一原型机效果"保护"（不参与视觉转换、交互不转换）：
-     *  - 生物稳定/完全稳定：范围内全部；
+     *  - 生物稳定：范围内全部（能量耗尽时不保护）；
+     *  - 完全稳定：范围内全部；
      *  - 语义锁定：真实方块 ID 在 trainedTargets 中。
      */
     public boolean isProtected(BlockPos pos, BlockState state) {
@@ -127,7 +128,10 @@ public class MutationPoolManager extends SavedData {
                 continue;
             }
             String type = effect.data().type();
-            if (ObserverModelData.TYPE_BIO.equals(type) || ObserverModelData.TYPE_TOTAL.equals(type)) {
+            if (ObserverModelData.TYPE_TOTAL.equals(type)) {
+                return true;
+            }
+            if (ObserverModelData.TYPE_BIO.equals(type) && effect.data().bioEnergy() > 0) {
                 return true;
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)) {

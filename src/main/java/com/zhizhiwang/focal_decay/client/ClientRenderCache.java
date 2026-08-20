@@ -96,7 +96,7 @@ public final class ClientRenderCache {
 
     /** 客户端侧原型机效果镜像。 */
     private record ClientPrototype(BlockPos center, int radius, String type,
-                                   Set<String> trainedTargets, Set<String> trainedEntities) {
+                                   Set<String> trainedTargets, Set<String> trainedEntities, int bioEnergy) {
     }
 
     /** pos.asLong() -> 突变目标（含所属周期，防止跨周期读到旧值）。 */
@@ -324,7 +324,7 @@ public final class ClientRenderCache {
         for (SyncRegionDataPacket.PrototypeData p : prototypes) {
             prototypeList.add(new ClientPrototype(
                     BlockPos.of(p.pos()), p.radius(), p.type(),
-                    Set.copyOf(p.trainedTargets()), Set.copyOf(p.trainedEntities())));
+                    Set.copyOf(p.trainedTargets()), Set.copyOf(p.trainedEntities()), p.bioEnergy()));
         }
 
         Map<BlockPos, Long> newBirths = new HashMap<>();
@@ -373,8 +373,10 @@ public final class ClientRenderCache {
             if (!withinRadius(pos, prototype)) {
                 continue;
             }
-            if (ObserverModelData.TYPE_BIO.equals(prototype.type())
-                    || ObserverModelData.TYPE_TOTAL.equals(prototype.type())) {
+            if (ObserverModelData.TYPE_TOTAL.equals(prototype.type())) {
+                return true;
+            }
+            if (ObserverModelData.TYPE_BIO.equals(prototype.type()) && prototype.bioEnergy() > 0) {
                 return true;
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(prototype.type())) {

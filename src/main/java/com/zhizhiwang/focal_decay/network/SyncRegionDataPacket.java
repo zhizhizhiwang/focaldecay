@@ -23,15 +23,16 @@ public record SyncRegionDataPacket(ResourceKey<Level> dimension, List<PrototypeD
                                    long[] birthPositions, long[] birthPeriods)
         implements CustomPacketPayload {
 
-    /** 单个原型机的效果摘要（位置 + 半径 + 模型类型与训练目标）。 */
+    /** 单个原型机的效果摘要（位置 + 半径 + 模型类型与训练目标 + 生物稳定能量）。 */
     public record PrototypeData(long pos, int radius, String type,
-                                List<String> trainedTargets, List<String> trainedEntities) {
+                                List<String> trainedTargets, List<String> trainedEntities, int bioEnergy) {
         public static final StreamCodec<ByteBuf, PrototypeData> STREAM_CODEC = StreamCodec.composite(
                 ByteBufCodecs.VAR_LONG, PrototypeData::pos,
                 ByteBufCodecs.VAR_INT, PrototypeData::radius,
                 ByteBufCodecs.STRING_UTF8, PrototypeData::type,
                 ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), PrototypeData::trainedTargets,
                 ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), PrototypeData::trainedEntities,
+                ByteBufCodecs.VAR_INT, PrototypeData::bioEnergy,
                 PrototypeData::new);
     }
 

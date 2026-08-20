@@ -23,6 +23,8 @@
   "tooltip.focal_decay.anchor_prototype": "Observer Prototype — insert an Observer Model to stabilize",
   "tooltip.focal_decay.model_targets": "%s trained target(s) — hold Shift for details",
   "tooltip.focal_decay.model_shift_hint": "Hold Shift to expand",
+  "tooltip.focal_decay.bio_stabilizer": "No training required. Drains life from nearby creatures to sustain stability.",
+  "tooltip.focal_decay.bio_energy": "Bio Energy: %s",
 
   "container.focal_decay.anchor_prototype": "Observer Prototype",
   "container.focal_decay.training_terminal": "Training Terminal",
@@ -31,6 +33,8 @@
   "gui.focal_decay.training_guided": "Train: Guided Mutation",
   "gui.focal_decay.training_finish": "Finish Training",
   "gui.focal_decay.energy": "Energy: %s",
+  "gui.focal_decay.bio_energy": "Bio Energy: %s / %s",
+  "gui.focal_decay.bio_energy_empty": "(Out of energy — stabilization disabled)",
 
   "message.focal_decay.training_need_blank": "Place a blank Observer Model first",
   "message.focal_decay.training_no_energy": "Not enough energy",

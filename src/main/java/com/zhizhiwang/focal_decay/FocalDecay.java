@@ -15,6 +15,7 @@ import com.zhizhiwang.focal_decay.attachment.ModAttachments;
 import com.zhizhiwang.focal_decay.command.ModCommands;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.ModelTrainingHandler;
+import com.zhizhiwang.focal_decay.mutation.BioStabilizerHandler;
 import com.zhizhiwang.focal_decay.mutation.DoomsdayHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import net.neoforged.bus.api.IEventBus;
@@ -57,6 +58,7 @@ public final class FocalDecay {
         NeoForge.EVENT_BUS.register(DoomsdayHandler.class);
         NeoForge.EVENT_BUS.register(ModCommands.class);
         NeoForge.EVENT_BUS.register(ModelTrainingHandler.class);
+        NeoForge.EVENT_BUS.register(BioStabilizerHandler.class);
 
         // Register config specs
         modContainer.registerConfig(ModConfig.Type.SERVER, FocalDecayConfig.SERVER_SPEC);

@@ -2,6 +2,8 @@ package com.zhizhiwang.focal_decay.item;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.block.ModBlocks;
+import com.zhizhiwang.focal_decay.data.ModDataComponents;
+import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.neoforged.neoforge.registries.DeferredItem;
@@ -26,7 +28,9 @@ public final class ModItems {
     public static final DeferredItem<ObserverModelItem> GUIDED_MUTATION_MODEL =
             ITEMS.register("guided_mutation_model", () -> observerModel());
     public static final DeferredItem<ObserverModelItem> BIO_STABILIZER_MODEL =
-            ITEMS.register("bio_stabilizer_model", () -> observerModel());
+            ITEMS.register("bio_stabilizer_model", () -> new ObserverModelItem(
+                    new Item.Properties().stacksTo(1)
+                            .component(ModDataComponents.OBSERVER_MODEL_DATA.get(), ObserverModelData.bio())));
     public static final DeferredItem<ObserverModelItem> TOTAL_STABILITY_MODEL =
             ITEMS.register("total_stability_model", () -> observerModel());
     public static final DeferredItem<ObserverModelItem> TOTAL_STABILITY_MODEL_ACTIVATED =

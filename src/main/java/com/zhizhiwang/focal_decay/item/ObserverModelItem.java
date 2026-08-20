@@ -48,6 +48,13 @@ public class ObserverModelItem extends Item {
         if (data == null) {
             return;
         }
+        if (ObserverModelData.TYPE_BIO.equals(data.type())) {
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.bio_stabilizer")
+                    .withStyle(ChatFormatting.DARK_GREEN));
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.bio_energy",
+                    Math.max(0, data.bioEnergy())));
+            return; // 生物稳定无需训练，不显示目标列表
+        }
         if (Screen.hasShiftDown()) {
             for (String target : data.trainedTargets()) {
                 tooltipComponents.add(Component.literal("  ").append(blockName(target)));

@@ -42,4 +42,9 @@ public record ObserverModelData(String type, List<String> trainedTargets, List<S
     public static ObserverModelData blank() {
         return new ObserverModelData(TYPE_BLANK, List.of(), List.of(), 0.0, 0, false);
     }
+
+    /** 生物稳定模型：无需训练，初始能量为 0，靠范围内生物生命值补充。 */
+    public static ObserverModelData bio() {
+        return new ObserverModelData(TYPE_BIO, List.of(), List.of(), 1.0, 0, false);
+    }
 }
