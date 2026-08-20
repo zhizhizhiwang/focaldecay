@@ -24,18 +24,13 @@ public final class MutationHelper {
     /**
      * 计算某方块在"单个周期"的突变目标（无记忆，抽不中就回原方块）。
      * 有记忆的累积转换请走 {@link #getVisibleTarget}。
-     * seed = mix64(pos.asLong() ^ worldSeed ^ periodIndex)
      * 池为空时返回原方块；概率 roll 使用同一确定性种子，两端结果一致。
-     * <p>
-     * 注意：原始异或值必须经过 mix64 雪崩混合再交给 LCG——
-     * periodIndex 是小数字，直接异或只扰动低几位，LCG 首次采样几乎不变，
-     * 会导致"同一批固定位置每周期都失焦"。
      */
     public static BlockState getTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex, List<Block> pool, double probability) {
         if (pool.isEmpty() || probability <= 0.0) {
             return original;
         }
-        long seed = mix64(pos.asLong() ^ worldSeed ^ periodIndex);
+        long seed = seedFor(pos, worldSeed, periodIndex);
         RandomSource random = RandomSource.create(seed);
         if (probability < 1.0 && random.nextDouble() >= probability) {
             return original;
@@ -76,7 +71,7 @@ public final class MutationHelper {
         int cap = (int) Math.min(span, CUMULATIVE_SCAN_CAP);
         for (int back = 0; back < cap; back++) {
             long period = periodIndex - back;
-            long seed = mix64(pos.asLong() ^ worldSeed ^ period);
+            long seed = seedFor(pos, worldSeed, period);
             RandomSource random = RandomSource.create(seed);
             if (random.nextDouble() >= probability) {
                 continue;
@@ -91,6 +86,24 @@ public final class MutationHelper {
         z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
         z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
         return z ^ (z >>> 31);
+    }
+
+    /**
+     * 确定性种子（设计大纲 §5.1 修订，2026-08-20）：
+     * 三个坐标分量分别乘不同的大常数后异或，再经 SplitMix64 雪崩混合。
+     * <p>
+     * 旧公式 pos.asLong() ^ worldSeed ^ period 中 y 只占最低 12 位，与 period/worldSeed
+     * 的低位异或纠缠，再经 LegacyRandomSource 48 位截断 + 低概率累积回退扫描后，
+     * 纵向（y 变化）的熵会被吃掉——实测阶段1（概率 0.1）一列 32 格只有 3 个不同目标、
+     * 相邻 21 格相同。改为坐标独立哈希后，纵向与平面随机性一致（实测 27~28/32 不同）。
+     */
+    private static long seedFor(BlockPos pos, long worldSeed, long period) {
+        long h = (long) pos.getX() * 0x9E3779B97F4A7C15L
+                ^ (long) pos.getY() * 0xC2B2AE3D27D4EB4FL
+                ^ (long) pos.getZ() * 0x165667B19E3779F9L
+                ^ worldSeed
+                ^ period;
+        return mix64(h);
     }
 
     /**
@@ -146,7 +159,7 @@ public final class MutationHelper {
 
     /** 计算种子（供外部复用的确定性随机源）。 */
     public static long seed(BlockPos pos, long worldSeed, long periodIndex) {
-        return pos.asLong() ^ worldSeed ^ periodIndex;
+        return seedFor(pos, worldSeed, periodIndex);
     }
 
     /** 当前周期索引：gameTick / conversionInterval。 */

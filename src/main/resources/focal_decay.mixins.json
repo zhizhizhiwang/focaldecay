@@ -4,6 +4,7 @@
   "package": "com.zhizhiwang.focal_decay.mixin",
   "client": [
     "client.LevelRendererAccessor",
+    "client.GameRendererMixin",
     "client.MinecraftPickBlockMixin",
     "client.RenderChunkRegionAccessor",
     "client.SectionCompilerMixin"

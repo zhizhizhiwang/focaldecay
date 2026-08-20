@@ -34,6 +34,7 @@
 ### 5. 全局池与确定性随机（完成）
 - `mutation/MutationPool.java`：按 BuiltInRegistries.BLOCK id 升序的不可变列表，带 version
 - `mutation/MutationHelper.java`：`getTarget(original, pos, worldSeed, periodIndex, pool)`，种子经 SplitMix64 雪崩混合；统一入口 `getVisibleTarget(...)`（含概率、保护、诞生周期）
+  - **纵向随机性修复（2026-08-20）**：旧种子公式 `pos.asLong() ^ worldSeed ^ period` 中 y 只占最低 12 位，与 period/worldSeed 低位纠缠，再经 LegacyRandomSource 48 位截断 + 低概率累积回退扫描后纵向熵被吃掉（模拟实测阶段1一列 32 格仅 3 个不同目标、相邻 21 格相同）；改为三坐标分量分别乘不同大常数再异或 + mix64（`seedFor`），纵向与平面随机性一致（模拟实测 27~28/32 不同，三档概率均无相邻重复倾向），服务端/客户端共用同一公式同步不变
 - `mutation/MutationPoolManager.java`：维度级 SavedData，管理有效原型机效果（位置/半径/模型数据）+ 方块诞生周期 + 全局池，`getEffectivePool(pos, original)`、`isProtected(pos, state)` 按模型判定
 - `mutation/MutationEventHandler.java`：原型机放置/换模/破坏更新、维度加载 reloadGlobalPool；已注册游戏总线
 - 旧 `RegionOverride`（覆盖列表）与突变控制器覆盖逻辑已删除（2026-08-19，由原型机效果取代）
@@ -88,6 +89,11 @@
 - 保护不再拦截渲染：新增网络同步 `SyncRegionDataPacket`（S→C：维度 + 锚位置 + 保护半径），登录/切换维度/锚放置破坏时发送；`ClientRenderCache` 按维度存 `RegionData`，`resolve()`/扫描/中键选取均跳过受保护位置，`refreshProtectedArea()` 清掉保护范围旧幽灵并重编译
 - 统一方块识别：`MutationHelper.getVisibleTarget(original, pos, worldSeed, periodIndex, pool, probability, isProtected)` 作为生存破坏、创造中键选取、客户端预览的唯一入口
 - 网络实现方式更新：NeoForge 21.1 已移除 `SimpleChannel`，改用现代 Payload API（`RegisterPayloadHandlersEvent` + `PayloadRegistrar`），协议版本 "1"（与 §8 一致）；保护半径改用 `FocalDecayConfig.ANCHOR_RADIUS` 并随包下发
+
+### 7.7 手部渲染修复（2026-08-20）
+- 症状：第一人称手臂与手持方块模型不渲染。
+- 根因：`observer_veil` PostChain 在 `RenderLevelStageEvent.AFTER_LEVEL`（`LevelRenderer.renderLevel` 末尾）整链处理，而原版手部渲染在 `renderLevel` **返回之后**才执行——在"手还没画"时处理完整帧会破坏后续手部渲染的目标/状态。
+- 修复：新增 `mixin/client/GameRendererMixin`，注入 `GameRenderer.renderLevel(DeltaTracker)` 尾部（手部渲染之后）执行 `updateVeil`，并在处理后 `getMainRenderTarget().bindWrite(true)` 恢复主目标绑定（与原版 `postEffect.process` 之后的处理一致）；`AFTER_LEVEL` 事件中的调用移除。
 
 ### 8. 末日阶段系统（完成）
 - `mutation/FocalDecayWorldData.java`：全局天数 SavedData（`days` + 部分 tick），每 20 分钟游戏日（24000 tick）+1，玩家数为 0 暂停，`ServerTickEvent.Post` 驱动；天数变化经 `SyncWorldDataPacket` 广播，登录/换维时补发

@@ -299,6 +299,8 @@ public final class ClientRenderCache {
         float breathe = 0.75F + 0.25F * (float) Math.sin(veilTime * 0.05);
         veil.setUniform("Fade", Math.max(0.0F, Math.min(1.0F, intensity * breathe)));
         veil.process(partialTick);
+        // 与原版 postEffect.process 后一致：恢复主渲染目标绑定，供后续手部/UI 使用
+        mc.getMainRenderTarget().bindWrite(true);
     }
 
     public void captureFrustum(Frustum frustum) {

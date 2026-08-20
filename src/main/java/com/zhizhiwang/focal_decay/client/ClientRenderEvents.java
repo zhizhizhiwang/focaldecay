@@ -24,8 +24,6 @@ public final class ClientRenderEvents {
             ClientRenderCache.INSTANCE.captureFrustum(event.getFrustum());
         } else if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_PARTICLES) {
             ThroneBeamRenderer.render(event);
-        } else if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_LEVEL) {
-            ClientRenderCache.INSTANCE.updateVeil(event.getPartialTick().getGameTimeDeltaTicks());
         }
     }
 
