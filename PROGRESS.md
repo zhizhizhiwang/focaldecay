@@ -117,7 +117,7 @@
      - 视觉（2026-08-20）：四根角柱绘制折跃门式信标光束（`ThroneBeamRenderer` 客户端渲染，end_gateway_beam 贴图，结构生成后显示）；常驻粒子（每 2 秒末地棒/传送门漂浮）、仪式开始（传送门+末地棒爆发 + 末地传送门/潮涌核心音效）、进行中（每秒粒子 + 波次龙息粒子与远古守卫者诅咒音效）、完成（末地棒+传送门大爆发 + 信标激活/末地传送门音效）。
      - 仪式：右键基座触发（携带原型机物品或附近已放置 + 未激活完全稳定模型）；`ThroneRitualData`（维度级 SavedData）持久化进度，离开半径按 `throne_ritual_pause_on_leave` 暂停（同玩家返回续仪）或失败；按配置波次生成敌人（`throne_ritual_wave_entities/size/interval`）；完成时只升级"槽内本来就是未激活完全稳定模型"的原型机，其他情况激活模型交还玩家背包（不再覆盖原型机原有内容），广播 `ThroneRitualPacket`（开始/进度/波次/暂停/完成/失败）。
      - 模型接入修正（2026-08-20）：插入有效模型时**先按模型实际半径（完全稳定=32）固化范围失焦状态、再登记保护**（此前先登记保护导致 `getEffectivePool` 返回空、固化无效）；`convertPrototypeRange` 增加 `isLoaded` 防护避免大半径触发未加载区块加载；激活的完全稳定模型 tooltip 不再显示训练目标/Shift 提示。
-  6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制——**部分完成（2026-08-20）**：`total_stability_model`/`total_stability_model_activated` 物品与复制配方（`CopyTrainedModelRecipe`）已有；仪式升级、完美稳定视觉、掉落流程待实现
+  6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制——**已完成（2026-08-20）**：仪式升级（原型机插槽升级为 `total_stability_model_activated`，不覆盖原有模型）、半径 32 完美稳定（`radiusFor(TYPE_TOTAL)=32` + `isProtected`）、复制配方（`CopyTrainedModelRecipe`）、末影龙掉落（`DragonDropHandler`，配置 `ender_dragon_total_stability_drop_chance`，默认 1.0 必掉、可调成设计文档的稀有掉落）、特殊视觉（`TotalStabilityFieldHandler` 旋转光环粒子 + 锚上方漂浮粒子）
   7. 与末日阶段/渲染/网络整合（阶段3模型效果衰减等）
   8. 彩蛋与打磨（粒子/音效/专属贴图/测试）
 

@@ -43,6 +43,7 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.ConfigValue<List<? extends String>> THRONE_RITUAL_WAVE_ENTITIES;
     public static final ModConfigSpec.IntValue THRONE_RITUAL_RADIUS;
     public static final ModConfigSpec.BooleanValue THRONE_RITUAL_PAUSE_ON_LEAVE;
+    public static final ModConfigSpec.DoubleValue ENDER_DRAGON_TOTAL_STABILITY_DROP_CHANCE;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -130,6 +131,10 @@ public final class FocalDecayConfig {
         THRONE_RITUAL_PAUSE_ON_LEAVE = builder
                 .comment("Pause the ritual when the player leaves the radius; otherwise it fails.")
                 .define("throne_ritual_pause_on_leave", true);
+        ENDER_DRAGON_TOTAL_STABILITY_DROP_CHANCE = builder
+                .comment("Chance (0-1) for the Ender Dragon to drop the first unactivated Total Stability Model."
+                        + " 1.0 = guaranteed; lower values make it the 'rare drop' from the design doc.")
+                .defineInRange("ender_dragon_total_stability_drop_chance", 1.0, 0.0, 1.0);
 
         builder.pop();
         SERVER_SPEC = builder.build();

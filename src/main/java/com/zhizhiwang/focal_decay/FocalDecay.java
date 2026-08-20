@@ -18,6 +18,8 @@ import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.ModelTrainingHandler;
 import com.zhizhiwang.focal_decay.mutation.BioStabilizerHandler;
 import com.zhizhiwang.focal_decay.mutation.ThroneRitualHandler;
+import com.zhizhiwang.focal_decay.mutation.DragonDropHandler;
+import com.zhizhiwang.focal_decay.mutation.TotalStabilityFieldHandler;
 import com.zhizhiwang.focal_decay.mutation.DoomsdayHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import net.neoforged.bus.api.IEventBus;
@@ -65,6 +67,8 @@ public final class FocalDecay {
         NeoForge.EVENT_BUS.register(ModelTrainingHandler.class);
         NeoForge.EVENT_BUS.register(BioStabilizerHandler.class);
         NeoForge.EVENT_BUS.register(ThroneRitualHandler.class);
+        NeoForge.EVENT_BUS.register(DragonDropHandler.class);
+        NeoForge.EVENT_BUS.register(TotalStabilityFieldHandler.class);
 
         // Register config specs
         modContainer.registerConfig(ModConfig.Type.SERVER, FocalDecayConfig.SERVER_SPEC);
