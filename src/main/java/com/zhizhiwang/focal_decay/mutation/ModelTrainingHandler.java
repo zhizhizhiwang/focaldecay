@@ -112,7 +112,7 @@ public final class ModelTrainingHandler {
         MutationPoolManager manager = MutationPoolManager.get(level);
         long days = FocalDecayWorldData.get(level.getServer()).getDays();
         int stage = MutationHelper.currentStage(days);
-        long period = MutationHelper.periodIndex(level.getGameTime(), MutationHelper.intervalForStage(stage));
+        long period = MutationHelper.blockPeriod(level.getGameTime());
         List<Block> pool = manager.getEffectivePool(pos, real);
         double chance = MutationHelper.mutationChance(stage);
         boolean protectedPos = manager.isProtected(pos, real);

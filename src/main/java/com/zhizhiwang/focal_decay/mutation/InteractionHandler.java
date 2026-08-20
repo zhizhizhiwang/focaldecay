@@ -46,8 +46,7 @@ public class InteractionHandler {
         }
 
         long gameTick = serverLevel.getGameTime();
-        long interval = MutationHelper.intervalForStage(stage);
-        long periodIndex = MutationHelper.periodIndex(gameTick, interval);
+        long periodIndex = MutationHelper.blockPeriod(gameTick);
         long worldSeed = serverLevel.getSeed();
 
         List<Block> pool = manager.getEffectivePool(pos, state);

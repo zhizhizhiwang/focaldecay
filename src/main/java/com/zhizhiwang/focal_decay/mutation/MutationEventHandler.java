@@ -84,6 +84,7 @@ public class MutationEventHandler {
     public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             ModNetwork.sendRegionData(player);
+            ModNetwork.sendWorldData(player);
         }
     }
 
@@ -92,6 +93,7 @@ public class MutationEventHandler {
     public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             ModNetwork.sendRegionData(player);
+            ModNetwork.sendWorldData(player);
         }
     }
 
@@ -126,8 +128,6 @@ public class MutationEventHandler {
 
     /** 服务端当前周期的 periodIndex（与客户端预览同公式）。 */
     private static long currentPeriodIndex(ServerLevel level) {
-        long days = FocalDecayWorldData.get(level.getServer()).getDays();
-        int stage = MutationHelper.currentStage(days);
-        return MutationHelper.periodIndex(level.getGameTime(), MutationHelper.intervalForStage(stage));
+        return MutationHelper.blockPeriod(level.getGameTime());
     }
 }

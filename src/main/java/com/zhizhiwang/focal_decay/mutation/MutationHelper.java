@@ -60,6 +60,10 @@ public final class MutationHelper {
      * 有记忆的累积转换（阶段1/2 与阶段3 的方块部分）：
      * 从当前周期向前回退，找到最近一次"抽中突变"的周期，返回该周期的目标；
      * 抽中前的周期之间状态保持不变——未抽中的方块保留上一次材质，而不是回退原方块。
+     * 命中条件即阶段概率（0.1/0.6/1.0）：每周期以该概率掷骰，抽中换新材质，
+     * 未抽中保留上次材质，实现世界随周期逐渐积累崩坏。
+     * 注意：阶段切换（含 /focaldecay days 指令）会改变命中概率，使"最近抽中周期"
+     * 整体前移/后移，已失焦方块的目标材质随之重排——这是预期的确定性行为。
      * 服务端与客户端共用同一公式，保证预览与真实转换一致。
      */
     private static BlockState cumulativeTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
@@ -165,5 +169,14 @@ public final class MutationHelper {
     /** 当前周期索引：gameTick / conversionInterval。 */
     public static long periodIndex(long gameTick, long conversionInterval) {
         return gameTick / Math.max(1L, conversionInterval);
+    }
+
+    /**
+     * 方块突变的周期基准：固定为 base_interval，与阶段无关。
+     * 旧实现用各阶段 interval（100/60/40）计算周期，阶段切换时周期编号跳变，
+     * 导致全图方块目标瞬间重排；固定基准后阶段切换只改变概率门控与影响范围。
+     */
+    public static long blockPeriod(long gameTick) {
+        return gameTick / Math.max(1L, FocalDecayConfig.BASE_INTERVAL.get());
     }
 }

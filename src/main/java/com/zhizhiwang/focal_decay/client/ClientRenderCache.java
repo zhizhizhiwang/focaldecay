@@ -606,7 +606,7 @@ public final class ClientRenderCache {
     }
 
     private long currentPeriod(ClientLevel level) {
-        return MutationHelper.periodIndex(level.getGameTime(), MutationHelper.intervalForStage(currentStage()));
+        return MutationHelper.blockPeriod(level.getGameTime());
     }
 
     private int currentStage() {
