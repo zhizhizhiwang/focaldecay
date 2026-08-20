@@ -67,19 +67,19 @@ public final class FocalDecayConfig {
                 .defineInRange("stage3_interval", 40, 20, Integer.MAX_VALUE);
         ENTITY_MUTATION_CHANCE_STAGE2 = builder
                 .comment("Per-cycle chance (0-1) for an entity to mutate in stage 2.")
-                .defineInRange("entity_mutation_chance_stage2", 0.01, 0.0, 1.0);
+                .defineInRange("entity_mutation_chance_stage2", 0.1, 0.0, 1.0);
         ENTITY_MUTATION_CHANCE_STAGE3 = builder
                 .comment("Per-cycle chance (0-1) for an entity to mutate in stage 3.")
-                .defineInRange("entity_mutation_chance_stage3", 0.05, 0.0, 1.0);
+                .defineInRange("entity_mutation_chance_stage3", 0.3, 0.0, 1.0);
         BLOCK_MUTATION_CHANCE_STAGE1 = builder
                 .comment("Per-cycle chance (0-1) for a block to mutate in stage 1.")
-                .defineInRange("block_mutation_chance_stage1", 0.1, 0.0, 1.0);
+                .defineInRange("block_mutation_chance_stage1", 0.01, 0.0, 1.0);
         BLOCK_MUTATION_CHANCE_STAGE2 = builder
                 .comment("Per-cycle chance (0-1) for a block to mutate in stage 2.")
-                .defineInRange("block_mutation_chance_stage2", 0.6, 0.0, 1.0);
+                .defineInRange("block_mutation_chance_stage2", 0.3, 0.0, 1.0);
         BLOCK_MUTATION_CHANCE_STAGE3 = builder
                 .comment("Per-cycle chance (0-1) for a block to mutate in stage 3.")
-                .defineInRange("block_mutation_chance_stage3", 1.0, 0.0, 1.0);
+                .defineInRange("block_mutation_chance_stage3", 0.9, 0.0, 1.0);
         ENABLE_STAGE_SYSTEM = builder
                 .comment("Whether the doomsday stage system is enabled. When false the world stays in stage 1.")
                 .define("enable_stage_system", true);
@@ -112,7 +112,7 @@ public final class FocalDecayConfig {
                 .define("bio_stabilize_entities", true);
         THRONE_RITUAL_SECONDS = builder
                 .comment("Duration of the End Throne ritual in seconds (33 minutes is the optional homage cap).")
-                .defineInRange("throne_ritual_seconds", 240, 30, 1980);
+                .defineInRange("throne_ritual_seconds", 30, 1, 1980);
         THRONE_RITUAL_WAVE_INTERVAL_SECONDS = builder
                 .comment("Interval between ritual waves in seconds.")
                 .defineInRange("throne_ritual_wave_interval_seconds", 30, 10, 600);
