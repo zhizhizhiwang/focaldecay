@@ -19,6 +19,8 @@ public final class ModItems {
             ITEMS.registerSimpleBlockItem("training_terminal", ModBlocks.TRAINING_TERMINAL);
     public static final DeferredItem<BlockItem> OBSERVER_CORE =
             ITEMS.registerSimpleBlockItem("observer_core", ModBlocks.OBSERVER_CORE);
+    public static final DeferredItem<BlockItem> THRONE_BLOCK =
+            ITEMS.registerSimpleBlockItem("throne_block", ModBlocks.THRONE_BLOCK);
 
     // 观测模型（DataComponents 训练数据在里程碑 2 接入）
     public static final DeferredItem<ObserverModelItem> OBSERVER_MODEL_BLANK =

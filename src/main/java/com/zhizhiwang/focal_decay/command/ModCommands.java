@@ -4,10 +4,14 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
+import com.zhizhiwang.focal_decay.structure.ThroneStructure;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
@@ -15,6 +19,7 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
  * 测试命令：
  *  - /focaldecay days          查询当前末日天数与阶段
  *  - /focaldecay days <n>      手动设定天数（权限 2），广播给所有玩家
+ *  - /focaldecay throne        查询本世界末地王座的生成位置（调试用）
  */
 public final class ModCommands {
 
@@ -29,7 +34,9 @@ public final class ModCommands {
                         .executes(ctx -> queryDays(ctx.getSource()))
                         .then(Commands.argument("days", IntegerArgumentType.integer(0))
                                 .requires(source -> source.hasPermission(2))
-                                .executes(ctx -> setDays(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "days"))))));
+                                .executes(ctx -> setDays(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "days")))))
+                .then(Commands.literal("throne")
+                        .executes(ctx -> queryThrone(ctx.getSource()))));
     }
 
     private static int queryDays(CommandSourceStack source) {
@@ -46,6 +53,18 @@ public final class ModCommands {
         data.setDays(days);
         int stage = MutationHelper.currentStage(days);
         source.sendSuccess(() -> Component.literal("Focal Decay days set to " + days + " (stage " + stage + ")"), true);
+        return 1;
+    }
+
+    private static int queryThrone(CommandSourceStack source) {
+        ServerLevel level = source.getLevel();
+        long seed = level.getSeed();
+        BlockPos throne = ThroneStructure.thronePos(seed);
+        ChunkPos chunk = ThroneStructure.throneChunk(seed);
+        double distance = Math.hypot(throne.getX(), throne.getZ());
+        source.sendSuccess(() -> Component.literal("End Throne at "
+                + throne.toShortString() + " (chunk " + chunk.x + ", " + chunk.z
+                + "), distance " + Math.round(distance) + " blocks from origin"), false);
         return 1;
     }
 }

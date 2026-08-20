@@ -4,6 +4,7 @@
   "block.focal_decay.anchor_prototype": "Anchor Prototype",
   "block.focal_decay.training_terminal": "Training Terminal",
   "block.focal_decay.observer_core": "Observer Core",
+  "block.focal_decay.throne_block": "End Throne Block",
 
   "item.focal_decay.observer_model_blank": "Observer Model · Blank",
   "item.focal_decay.semantic_lock_model": "Observer Model · Semantic Lock",
@@ -25,6 +26,7 @@
   "tooltip.focal_decay.model_shift_hint": "Hold Shift to expand",
   "tooltip.focal_decay.bio_stabilizer": "No training required. Drains life from nearby creatures to sustain stability.",
   "tooltip.focal_decay.bio_energy": "Bio Energy: %s",
+  "tooltip.focal_decay.total_stabilizer": "Total stability: blocks and creatures in range are fully immune to defocus.",
 
   "container.focal_decay.anchor_prototype": "Observer Prototype",
   "container.focal_decay.training_terminal": "Training Terminal",
@@ -43,6 +45,15 @@
   "message.focal_decay.training_limit": "Target record limit reached",
   "message.focal_decay.training_target_block": "Trained target: %s",
   "message.focal_decay.training_target_entity": "Trained entity: %s",
+  "message.focal_decay.ritual_started": "Ritual started — stay within the throne's reach!",
+  "message.focal_decay.ritual_progress": "Ritual progress: %s seconds remaining",
+  "message.focal_decay.ritual_wave": "Wave %s incoming!",
+  "message.focal_decay.ritual_paused": "You left the throne — ritual paused",
+  "message.focal_decay.ritual_complete": "Ritual complete! Prototype upgraded to the Total Stability Anchor",
+  "message.focal_decay.ritual_failed": "Ritual failed",
+  "message.focal_decay.ritual_active": "A ritual is already in progress",
+  "message.focal_decay.ritual_need_model": "You need to carry an unactivated Total Stability Model",
+  "message.focal_decay.ritual_need_prototype": "You need to carry an Anchor Prototype (or place one near the throne)",
 
   "lore.focal_decay.fragment_rose": "\"A rose is a rose is a rose...\"",
   "lore.focal_decay.fragment_throne": "\"It is not something that can be described in words.\"",

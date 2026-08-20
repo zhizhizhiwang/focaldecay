@@ -3,6 +3,8 @@ package com.zhizhiwang.focal_decay.mutation;
 import com.zhizhiwang.focal_decay.block.ModBlocks;
 import com.zhizhiwang.focal_decay.block.entity.AnchorPrototypeBlockEntity;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.data.ObserverModelData;
+import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.network.ModNetwork;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
@@ -35,13 +37,14 @@ public class MutationEventHandler {
         MutationPoolManager manager = MutationPoolManager.get(serverLevel);
 
         if (state.is(ModBlocks.ANCHOR_PROTOTYPE.get())) {
-            ItemStack model = serverLevel.getBlockEntity(pos) instanceof AnchorPrototypeBlockEntity be
-                    ? be.getModelStack() : ItemStack.EMPTY;
-            manager.updatePrototypeEffect(pos, model);
-            // 放置即带有效模型时（罕见），固化范围内状态；常规流程为插入模型时触发
-            if (!model.isEmpty()) {
-                convertPrototypeRange(serverLevel, pos, manager);
+            AnchorPrototypeBlockEntity be = serverLevel.getBlockEntity(pos) instanceof AnchorPrototypeBlockEntity b ? b : null;
+            ItemStack model = be != null ? be.getModelStack() : ItemStack.EMPTY;
+            // 先按模型实际半径固化范围（此时效果尚未登记，getEffectivePool 仍走全局池），再登记保护
+            if (be != null && be.hasActiveModel()) {
+                convertPrototypeRange(serverLevel, pos, manager,
+                        MutationPoolManager.radiusFor(ObserverModelItem.getData(model)));
             }
+            manager.updatePrototypeEffect(pos, model);
             ModNetwork.sendRegionDataToDimension(serverLevel);
         } else {
             // 记录玩家放置方块的诞生周期：从放置那一刻重新开始计算崩坏
@@ -96,8 +99,7 @@ public class MutationEventHandler {
      * 将锚保护范围内的方块全部转换为"当前的失焦目标"（与生存破坏同一公式），
      * 然后才由调用方登记保护。
      */
-    public static void convertPrototypeRange(ServerLevel level, BlockPos anchorPos, MutationPoolManager manager) {
-        int radius = FocalDecayConfig.PROTOTYPE_RADIUS.get();
+    public static void convertPrototypeRange(ServerLevel level, BlockPos anchorPos, MutationPoolManager manager, int radius) {
         long periodIndex = currentPeriodIndex(level);
         int stage = MutationHelper.currentStage(FocalDecayWorldData.get(level.getServer()).getDays());
         long worldSeed = level.getSeed();
@@ -105,7 +107,7 @@ public class MutationEventHandler {
 
         BlockPos.betweenClosed(anchorPos.offset(-radius, -radius, -radius), anchorPos.offset(radius, radius, radius))
                 .forEach(p -> {
-                    if (p.equals(anchorPos)) {
+                    if (p.equals(anchorPos) || !level.isLoaded(p)) {
                         return;
                     }
                     BlockState state = level.getBlockState(p);

@@ -1,0 +1,6 @@
+{
+  "type": "focal_decay:end_throne",
+  "biomes": "#focal_decay:has_structure/end_throne",
+  "spawn_overrides": {},
+  "step": "surface_structures"
+}

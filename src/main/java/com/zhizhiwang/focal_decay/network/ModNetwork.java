@@ -26,6 +26,7 @@ public final class ModNetwork {
         PayloadRegistrar registrar = event.registrar(PROTOCOL_VERSION);
         registrar.playToClient(SyncRegionDataPacket.TYPE, SyncRegionDataPacket.STREAM_CODEC, SyncRegionDataPacket::handle);
         registrar.playToClient(SyncWorldDataPacket.TYPE, SyncWorldDataPacket.STREAM_CODEC, SyncWorldDataPacket::handle);
+        registrar.playToClient(ThroneRitualPacket.TYPE, ThroneRitualPacket.STREAM_CODEC, ThroneRitualPacket::handle);
     }
 
     /** 向单个玩家发送其当前维度的锚保护数据。 */
@@ -46,6 +47,11 @@ public final class ModNetwork {
     /** 广播全局末日天数给所有玩家（天数变化时调用）。 */
     public static void sendWorldDataToAll(long days) {
         PacketDistributor.sendToAllPlayers(new SyncWorldDataPacket(days));
+    }
+
+    /** 向所有玩家广播王座仪式状态。 */
+    public static void sendToAllPlayers(ThroneRitualPacket packet) {
+        PacketDistributor.sendToAllPlayers(packet);
     }
 
     private static SyncRegionDataPacket regionDataPacket(ServerLevel level) {

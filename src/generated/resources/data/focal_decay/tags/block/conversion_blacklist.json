@@ -1,5 +1,6 @@
 {
   "values": [
-    "focal_decay:observer_core"
+    "focal_decay:observer_core",
+    "focal_decay:throne_block"
   ]
 }

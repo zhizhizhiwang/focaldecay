@@ -3,7 +3,7 @@
 > 最后更新：2026-08-20
 > 环境：NeoForge 21.1.248 / Minecraft 1.21.1 / Parchment 2024.11.17 / Java 21
 > Mod ID：`focal_decay`，包：`com.zhizhiwang.focal_decay`
-> 当前状态（2026-08-20）：`compileJava` 通过；`build/libs/focal_decay-1.0.0.jar` 构建于 2026-08-20 08:28。§9 重构整批改动尚未提交（含根目录误提交的 `net/minecraft/*.class` 删除），本地领先 origin/main 4 个提交。
+> 当前状态（2026-08-20）：`compileJava` 通过；`build/libs/focal_decay-1.0.0.jar` 构建于 2026-08-20 09:02。§9 重构整批改动尚未提交（含根目录误提交的 `net/minecraft/*.class` 删除），本地领先 origin/main 4 个提交。
 
 ## 已完成
 
@@ -112,7 +112,11 @@
   - 打磨（2026-08-19）：两个 GUI 换成自定义占位贴图（`assets/focal_decay/textures/gui/*.png`，替换贴图即换外观）；模型 tooltip 收纳袋风格（默认折叠数量、Shift 展开本地化目标列表）；训练右键改为记录"可见目标"方块（与客户端预览同公式）；训练提示改用本地化名称而非注册键。
   3. 原型机效果应用——**已完成（2026-08-19）**：`MutationPoolManager` 改为"有效原型机效果"列表（位置/半径/模型数据，瞬态、由方块实体在放置/加载/换模时重建）；"无模型无效果"门控打开（移除旧的全范围保护）；`isProtected(pos, state)` 按模型判定（生物稳定/完全稳定范围内全部，语义锁定命中 trainedTargets）；`getEffectivePool` 由引导模型限制突变目标池（多原型机交集，空回退全局池）；插入首个有效模型时固化范围失焦状态；`SyncRegionDataPacket` 携带原型机效果同步客户端，客户端 `isProtected`/引导池接入渲染缓存；`DoomsdayHandler` 实体突变跳过稳定范围内的生物；旧 `RegionOverride`/突变控制器覆盖逻辑已删除。
   4. 生物稳定模型：周围生物生命值消耗、能量换算/衰减、范围内方块/实体稳定、阶段3双倍消耗——**已完成（2026-08-20）**：`BioStabilizerHandler` 每 20 tick 结算——范围内非玩家生物每只损失 1 HP，按 `bio_conversion_per_hp` 补充 bioEnergy（上限 `bio_energy_capacity`）；效果按 `bio_drain_per_second` 消耗能量，阶段 3 双倍（`bio_stage3_double_drain`）；能量耗尽后方块保护与实体跳过失效（`isProtected`/`isEntityProtected` 按 `bioEnergy>0` 判定，实体跳过受 `bio_stabilize_entities` 开关控制）；`SyncRegionDataPacket` 携带 bioEnergy，客户端仅在"活跃↔耗尽"翻转时刷新；原型机 GUI 显示能量/容量，物品 tooltip 显示剩余能量；生物稳定模型物品自带 TYPE_BIO 数据（初始能量 0，无需训练）
-  5. 末地王座结构（种子决定、主岛与外岛间虚空环带、规避末影龙机制）与仪式（触发/计时默认 3~5 分钟/波次、`ThroneRitualPacket`）——**未开始（2026-08-20）**：仅有语义碎片物品与 lore
+  5. 末地王座结构（种子决定、主岛与外岛间虚空环带、规避末影龙机制）与仪式（触发/计时默认 3~5 分钟/波次、`ThroneRitualPacket`）——**已完成（2026-08-20，待实机验证）**：
+     - 结构：`structure/ThroneStructure` + `ThronePiece`（**不可破坏王座方块** `throne_block` 构成的基座/四角四边水晶柱/中央空基座/北侧王座），`thronePos(worldSeed)` 由种子决定方向与距离（**650~905 块，主岛 1000 格内的虚空带**，远离外岛与末影龙战斗半径）；**放置修复（2026-08-20）**：原 random_spread 候选区块与"仅王座区块"判定永不重合导致结构不生成/locate 失败，新增 `ThroneStructurePlacement extends RandomSpreadStructurePlacement`（自定义放置类型 `focal_decay:end_throne_spread`，`getPotentialStructureChunk` 恒返回王座区块、`isPlacementChunk` 仅匹配王座区块），生成与 locate 均命中；`worldgen/structure/end_throne.json` + `worldgen/structure_set/end_throne.json` + 生物群系标签由 `ModWorldGenProvider`/`ModBiomeTagsProvider` 数据生成产出；王座区域经 `conversion_blacklist` 注册不会失焦（不再用包围盒 BreakEvent 保护）；调试：结构生成时 INFO 日志输出位置 + `/focaldecay throne` 命令查询坐标。
+     - 视觉（2026-08-20）：四根角柱绘制折跃门式信标光束（`ThroneBeamRenderer` 客户端渲染，end_gateway_beam 贴图，结构生成后显示）；常驻粒子（每 2 秒末地棒/传送门漂浮）、仪式开始（传送门+末地棒爆发 + 末地传送门/潮涌核心音效）、进行中（每秒粒子 + 波次龙息粒子与远古守卫者诅咒音效）、完成（末地棒+传送门大爆发 + 信标激活/末地传送门音效）。
+     - 仪式：右键基座触发（携带原型机物品或附近已放置 + 未激活完全稳定模型）；`ThroneRitualData`（维度级 SavedData）持久化进度，离开半径按 `throne_ritual_pause_on_leave` 暂停（同玩家返回续仪）或失败；按配置波次生成敌人（`throne_ritual_wave_entities/size/interval`）；完成时只升级"槽内本来就是未激活完全稳定模型"的原型机，其他情况激活模型交还玩家背包（不再覆盖原型机原有内容），广播 `ThroneRitualPacket`（开始/进度/波次/暂停/完成/失败）。
+     - 模型接入修正（2026-08-20）：插入有效模型时**先按模型实际半径（完全稳定=32）固化范围失焦状态、再登记保护**（此前先登记保护导致 `getEffectivePool` 返回空、固化无效）；`convertPrototypeRange` 增加 `isLoaded` 防护避免大半径触发未加载区块加载；激活的完全稳定模型 tooltip 不再显示训练目标/Shift 提示。
   6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制——**部分完成（2026-08-20）**：`total_stability_model`/`total_stability_model_activated` 物品与复制配方（`CopyTrainedModelRecipe`）已有；仪式升级、完美稳定视觉、掉落流程待实现
   7. 与末日阶段/渲染/网络整合（阶段3模型效果衰减等）
   8. 彩蛋与打磨（粒子/音效/专属贴图/测试）

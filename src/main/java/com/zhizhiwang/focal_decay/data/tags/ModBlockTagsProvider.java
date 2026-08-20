@@ -21,10 +21,12 @@ public class ModBlockTagsProvider extends BlockTagsProvider {
     protected void addTags(HolderLookup.Provider lookupProvider) {
         // 稳定锚免疫：观测者核心不可被转换
         tag(ModTags.Blocks.ANCHOR_PROTOTYPE_IMMUNE)
-                .add(ModBlocks.OBSERVER_CORE.get());
+                .add(ModBlocks.OBSERVER_CORE.get())
+                .add(ModBlocks.THRONE_BLOCK.get());
         // 转换黑名单：同样排除核心块
         tag(ModTags.Blocks.CONVERSION_BLACKLIST)
-                .add(ModBlocks.OBSERVER_CORE.get());
+                .add(ModBlocks.OBSERVER_CORE.get())
+                .add(ModBlocks.THRONE_BLOCK.get());
         // 全局突变池：石头系 + 自然/建筑/下界/末地等多样方块，
         // 让"失焦"转换看起来明显而不是只有石头变体
         tag(ModTags.Blocks.GLOBAL_MUTATION_POOL)

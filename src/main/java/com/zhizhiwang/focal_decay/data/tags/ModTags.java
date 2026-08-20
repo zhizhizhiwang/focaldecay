@@ -6,6 +6,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
 
 /**
@@ -32,5 +33,10 @@ public final class ModTags {
                 TagKey.create(Registries.ENTITY_TYPE, ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "entity_mutation_pool_neutral"));
         public static final TagKey<EntityType<?>> ENTITY_MUTATION_POOL_HOSTILE =
                 TagKey.create(Registries.ENTITY_TYPE, ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "entity_mutation_pool_hostile"));
+    }
+
+    public static class Biomes {
+        public static final TagKey<Biome> HAS_END_THRONE =
+                TagKey.create(Registries.BIOME, ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "has_structure/end_throne"));
     }
 }

@@ -1,0 +1,14 @@
+{
+  "placement": {
+    "type": "focal_decay:end_throne_spread",
+    "salt": 19851206,
+    "separation": 10,
+    "spacing": 20
+  },
+  "structures": [
+    {
+      "structure": "focal_decay:end_throne",
+      "weight": 1
+    }
+  ]
+}

@@ -4,6 +4,7 @@
   "block.focal_decay.anchor_prototype": "稳定锚原型机",
   "block.focal_decay.training_terminal": "训练终端",
   "block.focal_decay.observer_core": "观测者核心",
+  "block.focal_decay.throne_block": "末地王座方块",
 
   "item.focal_decay.observer_model_blank": "观测模型·空白",
   "item.focal_decay.semantic_lock_model": "观测模型·语义锁定",
@@ -25,6 +26,7 @@
   "tooltip.focal_decay.model_shift_hint": "按住 Shift 展开",
   "tooltip.focal_decay.bio_stabilizer": "无需训练。消耗周围生物的生命值维持稳定效果。",
   "tooltip.focal_decay.bio_energy": "生物能量：%s",
+  "tooltip.focal_decay.total_stabilizer": "完全稳定：范围内方块与生物完全不受失焦影响。",
 
   "container.focal_decay.anchor_prototype": "观测者原型机",
   "container.focal_decay.training_terminal": "训练终端",
@@ -43,6 +45,15 @@
   "message.focal_decay.training_limit": "已达到目标记录上限",
   "message.focal_decay.training_target_block": "已训练目标：%s",
   "message.focal_decay.training_target_entity": "已训练实体：%s",
+  "message.focal_decay.ritual_started": "仪式开始——保持留在王座范围内！",
+  "message.focal_decay.ritual_progress": "仪式进度：剩余 %s 秒",
+  "message.focal_decay.ritual_wave": "第 %s 波来袭！",
+  "message.focal_decay.ritual_paused": "你离开了王座，仪式已暂停",
+  "message.focal_decay.ritual_complete": "仪式完成！原型机已升级为完全稳定锚",
+  "message.focal_decay.ritual_failed": "仪式失败",
+  "message.focal_decay.ritual_active": "仪式正在进行中",
+  "message.focal_decay.ritual_need_model": "需要携带未激活的完全稳定模型",
+  "message.focal_decay.ritual_need_prototype": "需要携带稳定锚原型机（或已在王座附近放置）",
 
   "lore.focal_decay.fragment_rose": "“玫瑰，是玫瑰，是玫瑰……”",
   "lore.focal_decay.fragment_throne": "“它不是能用语言描述的事物。”",

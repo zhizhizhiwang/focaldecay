@@ -55,6 +55,11 @@ public class ObserverModelItem extends Item {
                     Math.max(0, data.bioEnergy())));
             return; // 生物稳定无需训练，不显示目标列表
         }
+        if (ObserverModelData.TYPE_TOTAL.equals(data.type())) {
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.total_stabilizer")
+                    .withStyle(ChatFormatting.DARK_PURPLE));
+            return; // 完全稳定无需训练，不显示目标列表/Shift 提示
+        }
         if (Screen.hasShiftDown()) {
             for (String target : data.trainedTargets()) {
                 tooltipComponents.add(Component.literal("  ").append(blockName(target)));

@@ -2,6 +2,8 @@ package com.zhizhiwang.focal_decay.config;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
 
+import java.util.List;
+
 /**
  * 模组配置，对应 config/focal_decay.toml。
  * 分类与设计大纲 §9.1 一致：
@@ -35,6 +37,12 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.IntValue BIO_DRAIN_PER_SECOND;
     public static final ModConfigSpec.BooleanValue BIO_STAGE3_DOUBLE_DRAIN;
     public static final ModConfigSpec.BooleanValue BIO_STABILIZE_ENTITIES;
+    public static final ModConfigSpec.IntValue THRONE_RITUAL_SECONDS;
+    public static final ModConfigSpec.IntValue THRONE_RITUAL_WAVE_INTERVAL_SECONDS;
+    public static final ModConfigSpec.IntValue THRONE_RITUAL_WAVE_SIZE;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> THRONE_RITUAL_WAVE_ENTITIES;
+    public static final ModConfigSpec.IntValue THRONE_RITUAL_RADIUS;
+    public static final ModConfigSpec.BooleanValue THRONE_RITUAL_PAUSE_ON_LEAVE;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -102,6 +110,26 @@ public final class FocalDecayConfig {
         BIO_STABILIZE_ENTITIES = builder
                 .comment("Whether creatures inside a Bio Stabilizer range are kept from entity mutation.")
                 .define("bio_stabilize_entities", true);
+        THRONE_RITUAL_SECONDS = builder
+                .comment("Duration of the End Throne ritual in seconds (33 minutes is the optional homage cap).")
+                .defineInRange("throne_ritual_seconds", 240, 30, 1980);
+        THRONE_RITUAL_WAVE_INTERVAL_SECONDS = builder
+                .comment("Interval between ritual waves in seconds.")
+                .defineInRange("throne_ritual_wave_interval_seconds", 30, 10, 600);
+        THRONE_RITUAL_WAVE_SIZE = builder
+                .comment("How many enemies spawn per ritual wave.")
+                .defineInRange("throne_ritual_wave_size", 3, 1, 20);
+        THRONE_RITUAL_WAVE_ENTITIES = builder
+                .comment("Entity ids that can spawn during ritual waves.")
+                .defineList("throne_ritual_wave_entities",
+                        List.of("minecraft:enderman", "minecraft:shulker", "minecraft:phantom"),
+                        obj -> obj instanceof String);
+        THRONE_RITUAL_RADIUS = builder
+                .comment("Distance (blocks) a player may stray from the throne while the ritual is active.")
+                .defineInRange("throne_ritual_radius", 16, 4, 64);
+        THRONE_RITUAL_PAUSE_ON_LEAVE = builder
+                .comment("Pause the ritual when the player leaves the radius; otherwise it fails.")
+                .define("throne_ritual_pause_on_leave", true);
 
         builder.pop();
         SERVER_SPEC = builder.build();

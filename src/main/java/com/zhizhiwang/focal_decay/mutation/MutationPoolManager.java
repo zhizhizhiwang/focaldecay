@@ -108,7 +108,8 @@ public class MutationPoolManager extends SavedData {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
     }
 
-    private static int radiusFor(ObserverModelData data) {
+    /** 模型效果半径（供放置固化与效果注册共用）：生物稳定 +4，完全稳定固定 32。 */
+    public static int radiusFor(ObserverModelData data) {
         return switch (data.type()) {
             case ObserverModelData.TYPE_BIO -> FocalDecayConfig.PROTOTYPE_RADIUS.get() + 4;
             case ObserverModelData.TYPE_TOTAL -> 32;

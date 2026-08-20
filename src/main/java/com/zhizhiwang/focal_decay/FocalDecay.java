@@ -11,11 +11,13 @@ import com.zhizhiwang.focal_decay.item.ModCreativeTabs;
 import com.zhizhiwang.focal_decay.item.ModItems;
 import com.zhizhiwang.focal_decay.menu.ModMenus;
 import com.zhizhiwang.focal_decay.network.ModNetwork;
+import com.zhizhiwang.focal_decay.structure.ModStructures;
 import com.zhizhiwang.focal_decay.attachment.ModAttachments;
 import com.zhizhiwang.focal_decay.command.ModCommands;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.ModelTrainingHandler;
 import com.zhizhiwang.focal_decay.mutation.BioStabilizerHandler;
+import com.zhizhiwang.focal_decay.mutation.ThroneRitualHandler;
 import com.zhizhiwang.focal_decay.mutation.DoomsdayHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import net.neoforged.bus.api.IEventBus;
@@ -45,6 +47,9 @@ public final class FocalDecay {
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
         ModMenus.MENUS.register(modEventBus);
         ModDataComponents.DATA_COMPONENT_TYPES.register(modEventBus);
+        ModStructures.STRUCTURE_TYPES.register(modEventBus);
+        ModStructures.PIECE_TYPES.register(modEventBus);
+        ModStructures.PLACEMENT_TYPES.register(modEventBus);
 
         // Register data generators (runData)
         ModDataGenerator.register(modEventBus);
@@ -59,6 +64,7 @@ public final class FocalDecay {
         NeoForge.EVENT_BUS.register(ModCommands.class);
         NeoForge.EVENT_BUS.register(ModelTrainingHandler.class);
         NeoForge.EVENT_BUS.register(BioStabilizerHandler.class);
+        NeoForge.EVENT_BUS.register(ThroneRitualHandler.class);
 
         // Register config specs
         modContainer.registerConfig(ModConfig.Type.SERVER, FocalDecayConfig.SERVER_SPEC);

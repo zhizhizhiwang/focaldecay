@@ -3,6 +3,7 @@ package com.zhizhiwang.focal_decay.data;
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.data.recipe.ModRecipeProvider;
 import com.zhizhiwang.focal_decay.data.tags.ModBlockTagsProvider;
+import com.zhizhiwang.focal_decay.data.tags.ModBiomeTagsProvider;
 import com.zhizhiwang.focal_decay.data.tags.ModEntityTypeTagsProvider;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.data.DataGenerator;
@@ -32,7 +33,9 @@ public final class ModDataGenerator {
         ExistingFileHelper existingFileHelper = event.getExistingFileHelper();
 
         generator.addProvider(true, new ModBlockTagsProvider(packOutput, lookupProvider, existingFileHelper));
+        generator.addProvider(true, new ModBiomeTagsProvider(packOutput, lookupProvider, existingFileHelper));
         generator.addProvider(true, new ModEntityTypeTagsProvider(packOutput, lookupProvider, existingFileHelper));
         generator.addProvider(true, new ModRecipeProvider(packOutput, lookupProvider));
+        generator.addProvider(true, new ModWorldGenProvider(packOutput, lookupProvider));
     }
 }
