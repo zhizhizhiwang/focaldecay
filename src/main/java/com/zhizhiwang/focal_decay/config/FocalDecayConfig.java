@@ -30,6 +30,9 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE1;
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE2;
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE3;
+    public static final ModConfigSpec.DoubleValue WEATHER_MUTATION_CHANCE_STAGE1;
+    public static final ModConfigSpec.DoubleValue WEATHER_MUTATION_CHANCE_STAGE2;
+    public static final ModConfigSpec.DoubleValue WEATHER_MUTATION_CHANCE_STAGE3;
     public static final ModConfigSpec.BooleanValue ENABLE_STAGE_SYSTEM;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_CAPACITY;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_COST;
@@ -90,6 +93,15 @@ public final class FocalDecayConfig {
         BLOCK_MUTATION_CHANCE_STAGE3 = builder
                 .comment("Per-cycle chance (0-1) for a block to mutate in stage 3.")
                 .defineInRange("block_mutation_chance_stage3", 0.9, 0.0, 1.0);
+        WEATHER_MUTATION_CHANCE_STAGE1 = builder
+                .comment("Per-cycle chance (0-1) for the weather to mutate (switch to a different state) in stage 1.")
+                .defineInRange("weather_mutation_chance_stage1", 0.0, 0.0, 1.0);
+        WEATHER_MUTATION_CHANCE_STAGE2 = builder
+                .comment("Per-cycle chance (0-1) for the weather to mutate (switch to a different state) in stage 2.")
+                .defineInRange("weather_mutation_chance_stage2", 0.05, 0.0, 1.0);
+        WEATHER_MUTATION_CHANCE_STAGE3 = builder
+                .comment("Per-cycle chance (0-1) for the weather to mutate (switch to a different state) in stage 3.")
+                .defineInRange("weather_mutation_chance_stage3", 0.15, 0.0, 1.0);
         ENABLE_STAGE_SYSTEM = builder
                 .comment("Whether the doomsday stage system is enabled. When false the world stays in stage 1.")
                 .define("enable_stage_system", true);

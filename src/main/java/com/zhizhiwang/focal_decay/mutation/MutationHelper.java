@@ -183,18 +183,17 @@ public final class MutationHelper {
 
     /**
      * 方块是否可作为当前阶段的"转换源"（设计大纲 §6.3）：
-     *  - 阶段1：仅完整方块（isCollisionShapeFullBlock）；
-     *  - 阶段2+：额外包含非完整但有碰撞箱的方块（栅栏、玻璃板、台阶等）；
-     *  - 空气、带方块实体、黑名单方块始终排除。
+     * 2026-08-21 修订：所有阶段仅允许"完整立方体碰撞"的方块（isCollisionShapeFullBlock），
+     * 剔除门/楼梯/栅栏/玻璃板等模型不完整的方块（此前阶段2+ 的
+     * "非完整但有碰撞箱"扩展会让它们进入转换源）；
+     * 空气、带方块实体、黑名单方块始终排除。
+     * {@code stage} 参数保留（供后续规则扩展），当前不影响判定。
      */
     public static boolean isConversionSource(BlockState state, BlockGetter level, BlockPos pos, int stage) {
         if (state.isAir() || state.hasBlockEntity() || state.is(ModTags.Blocks.CONVERSION_BLACKLIST)) {
             return false;
         }
-        if (state.isCollisionShapeFullBlock(level, pos)) {
-            return true;
-        }
-        return stage >= 2 && !state.getCollisionShape(level, pos).isEmpty();
+        return state.isCollisionShapeFullBlock(level, pos);
     }
 
     /** 计算种子（供外部复用的确定性随机源）。 */

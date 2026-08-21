@@ -96,8 +96,10 @@ public class InteractionHandler {
         // 清除原方块
         serverLevel.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
 
+        // 工具传入玩家主手物品：目标方块的"挖掘等级"（requiresCorrectToolForDrops）
+        // 由当前可见目标决定——拿对工具才有对应掉落，拿错则无掉落（与原版一致）
         List<ItemStack> drops = net.minecraft.world.level.block.Block.getDrops(
-                targetState, serverLevel, pos, null, player, ItemStack.EMPTY);
+                targetState, serverLevel, pos, null, player, player.getMainHandItem());
 
         // 生存模式：生成目标方块的掉落物实体与经验
         for (ItemStack drop : drops) {
@@ -106,7 +108,7 @@ public class InteractionHandler {
             item.setDefaultPickUpDelay();
             serverLevel.addFreshEntity(item);
         }
-        int exp = targetState.getExpDrop(serverLevel, pos, null, player, ItemStack.EMPTY);
+        int exp = targetState.getExpDrop(serverLevel, pos, null, player, player.getMainHandItem());
         if (exp > 0) {
             targetState.getBlock().popExperience(serverLevel, pos, exp);
         }

@@ -6,6 +6,7 @@
     "client.LevelRendererAccessor",
     "client.GameRendererMixin",
     "client.MinecraftPickBlockMixin",
+    "client.MultiPlayerGameModeMixin",
     "client.RenderChunkRegionAccessor",
     "client.SectionCompilerMixin"
   ],

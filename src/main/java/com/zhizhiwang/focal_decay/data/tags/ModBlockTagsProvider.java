@@ -27,47 +27,127 @@ public class ModBlockTagsProvider extends BlockTagsProvider {
         tag(ModTags.Blocks.CONVERSION_BLACKLIST)
                 .add(ModBlocks.OBSERVER_CORE.get())
                 .add(ModBlocks.THRONE_BLOCK.get());
-        // 全局突变池：石头系 + 自然/建筑/下界/末地等多样方块，
-        // 让"失焦"转换看起来明显而不是只有石头变体
+        // 主世界全局突变池：自然 + 建筑类完整方块（画风统一，下界/末地内容移到专属池）
         tag(ModTags.Blocks.GLOBAL_MUTATION_POOL)
                 .addTag(BlockTags.STONE_ORE_REPLACEABLES)
                 .add(
                         // 石头衍生
                         Blocks.COBBLESTONE, Blocks.MOSSY_COBBLESTONE,
                         Blocks.STONE_BRICKS, Blocks.MOSSY_STONE_BRICKS, Blocks.CRACKED_STONE_BRICKS,
-                        Blocks.CHISELED_STONE_BRICKS,
+                        Blocks.CHISELED_STONE_BRICKS, Blocks.SMOOTH_STONE, Blocks.BRICKS,
                         Blocks.COBBLED_DEEPSLATE, Blocks.DEEPSLATE_BRICKS, Blocks.CRACKED_DEEPSLATE_BRICKS,
                         Blocks.POLISHED_DEEPSLATE, Blocks.DEEPSLATE_TILES,
                         Blocks.TUFF_BRICKS, Blocks.POLISHED_TUFF, Blocks.CHISELED_TUFF,
+                        Blocks.POLISHED_GRANITE, Blocks.POLISHED_DIORITE, Blocks.POLISHED_ANDESITE,
                         Blocks.SANDSTONE, Blocks.RED_SANDSTONE, Blocks.SMOOTH_SANDSTONE, Blocks.CUT_SANDSTONE,
+                        Blocks.CHISELED_SANDSTONE,
+                        Blocks.SMOOTH_RED_SANDSTONE, Blocks.CUT_RED_SANDSTONE, Blocks.CHISELED_RED_SANDSTONE,
+                        Blocks.SMOOTH_BASALT,
                         // 泥土/地表
-                        Blocks.DIRT, Blocks.COARSE_DIRT, Blocks.GRASS_BLOCK, Blocks.PODZOL, Blocks.MYCELIUM,
+                        Blocks.DIRT, Blocks.COARSE_DIRT, Blocks.ROOTED_DIRT, Blocks.GRASS_BLOCK,
+                        Blocks.PODZOL, Blocks.MYCELIUM,
                         Blocks.GRAVEL, Blocks.SAND, Blocks.RED_SAND, Blocks.CLAY, Blocks.MUD,
                         Blocks.PACKED_MUD, Blocks.MUD_BRICKS, Blocks.MOSS_BLOCK,
                         Blocks.CALCITE, Blocks.DRIPSTONE_BLOCK,
                         // 雪/冰
                         Blocks.SNOW_BLOCK, Blocks.ICE, Blocks.PACKED_ICE, Blocks.BLUE_ICE,
-                        // 木材
+                        // 木材与木制品
                         Blocks.OAK_LOG, Blocks.SPRUCE_LOG, Blocks.BIRCH_LOG, Blocks.JUNGLE_LOG,
                         Blocks.ACACIA_LOG, Blocks.DARK_OAK_LOG, Blocks.CHERRY_LOG, Blocks.MANGROVE_LOG,
+                        Blocks.STRIPPED_OAK_LOG, Blocks.STRIPPED_SPRUCE_LOG, Blocks.STRIPPED_BIRCH_LOG,
+                        Blocks.STRIPPED_JUNGLE_LOG, Blocks.STRIPPED_ACACIA_LOG, Blocks.STRIPPED_DARK_OAK_LOG,
+                        Blocks.STRIPPED_CHERRY_LOG, Blocks.STRIPPED_MANGROVE_LOG,
+                        Blocks.OAK_WOOD, Blocks.SPRUCE_WOOD, Blocks.BIRCH_WOOD, Blocks.JUNGLE_WOOD,
+                        Blocks.ACACIA_WOOD, Blocks.DARK_OAK_WOOD, Blocks.CHERRY_WOOD, Blocks.MANGROVE_WOOD,
+                        Blocks.STRIPPED_OAK_WOOD, Blocks.STRIPPED_SPRUCE_WOOD, Blocks.STRIPPED_BIRCH_WOOD,
+                        Blocks.STRIPPED_JUNGLE_WOOD, Blocks.STRIPPED_ACACIA_WOOD, Blocks.STRIPPED_DARK_OAK_WOOD,
+                        Blocks.STRIPPED_CHERRY_WOOD, Blocks.STRIPPED_MANGROVE_WOOD,
+                        Blocks.BAMBOO_BLOCK, Blocks.STRIPPED_BAMBOO_BLOCK,
                         Blocks.OAK_PLANKS, Blocks.SPRUCE_PLANKS, Blocks.BIRCH_PLANKS, Blocks.JUNGLE_PLANKS,
                         Blocks.ACACIA_PLANKS, Blocks.DARK_OAK_PLANKS, Blocks.CHERRY_PLANKS, Blocks.MANGROVE_PLANKS,
                         Blocks.BOOKSHELF, Blocks.HAY_BLOCK, Blocks.MELON, Blocks.PUMPKIN,
+                        Blocks.MUSHROOM_STEM, Blocks.BROWN_MUSHROOM_BLOCK, Blocks.RED_MUSHROOM_BLOCK,
                         // 矿物与水晶
                         Blocks.COAL_ORE, Blocks.IRON_ORE, Blocks.COPPER_ORE, Blocks.GOLD_ORE,
                         Blocks.LAPIS_ORE, Blocks.REDSTONE_ORE, Blocks.EMERALD_ORE, Blocks.DIAMOND_ORE,
-                        Blocks.QUARTZ_BLOCK, Blocks.SMOOTH_QUARTZ, Blocks.QUARTZ_BRICKS,
+                        Blocks.DEEPSLATE_COAL_ORE, Blocks.DEEPSLATE_IRON_ORE, Blocks.DEEPSLATE_COPPER_ORE,
+                        Blocks.DEEPSLATE_GOLD_ORE, Blocks.DEEPSLATE_LAPIS_ORE, Blocks.DEEPSLATE_REDSTONE_ORE,
+                        Blocks.DEEPSLATE_EMERALD_ORE, Blocks.DEEPSLATE_DIAMOND_ORE,
+                        Blocks.COAL_BLOCK, Blocks.IRON_BLOCK, Blocks.COPPER_BLOCK, Blocks.GOLD_BLOCK,
+                        Blocks.LAPIS_BLOCK, Blocks.REDSTONE_BLOCK, Blocks.EMERALD_BLOCK, Blocks.DIAMOND_BLOCK,
+                        Blocks.RAW_IRON_BLOCK, Blocks.RAW_COPPER_BLOCK, Blocks.RAW_GOLD_BLOCK,
+                        Blocks.QUARTZ_BLOCK, Blocks.SMOOTH_QUARTZ, Blocks.QUARTZ_BRICKS, Blocks.QUARTZ_PILLAR,
+                        Blocks.CHISELED_QUARTZ_BLOCK,
                         Blocks.AMETHYST_BLOCK,
-                        // 下界
-                        Blocks.NETHERRACK, Blocks.BLACKSTONE, Blocks.BASALT, Blocks.POLISHED_BASALT,
-                        Blocks.NETHER_BRICKS, Blocks.RED_NETHER_BRICKS,
-                        Blocks.SOUL_SAND, Blocks.SOUL_SOIL, Blocks.MAGMA_BLOCK, Blocks.GLOWSTONE,
-                        Blocks.OBSIDIAN, Blocks.CRYING_OBSIDIAN,
-                        // 末地与海洋
-                        Blocks.END_STONE, Blocks.END_STONE_BRICKS,
+                        // 陶瓦/混凝土/羊毛（建筑色块）
+                        Blocks.TERRACOTTA,
+                        Blocks.WHITE_TERRACOTTA, Blocks.ORANGE_TERRACOTTA, Blocks.MAGENTA_TERRACOTTA,
+                        Blocks.LIGHT_BLUE_TERRACOTTA, Blocks.YELLOW_TERRACOTTA, Blocks.LIME_TERRACOTTA,
+                        Blocks.PINK_TERRACOTTA, Blocks.GRAY_TERRACOTTA, Blocks.LIGHT_GRAY_TERRACOTTA,
+                        Blocks.CYAN_TERRACOTTA, Blocks.PURPLE_TERRACOTTA, Blocks.BLUE_TERRACOTTA,
+                        Blocks.BROWN_TERRACOTTA, Blocks.GREEN_TERRACOTTA, Blocks.RED_TERRACOTTA,
+                        Blocks.BLACK_TERRACOTTA,
+                        Blocks.WHITE_GLAZED_TERRACOTTA, Blocks.ORANGE_GLAZED_TERRACOTTA, Blocks.MAGENTA_GLAZED_TERRACOTTA,
+                        Blocks.LIGHT_BLUE_GLAZED_TERRACOTTA, Blocks.YELLOW_GLAZED_TERRACOTTA, Blocks.LIME_GLAZED_TERRACOTTA,
+                        Blocks.PINK_GLAZED_TERRACOTTA, Blocks.GRAY_GLAZED_TERRACOTTA, Blocks.LIGHT_GRAY_GLAZED_TERRACOTTA,
+                        Blocks.CYAN_GLAZED_TERRACOTTA, Blocks.PURPLE_GLAZED_TERRACOTTA, Blocks.BLUE_GLAZED_TERRACOTTA,
+                        Blocks.BROWN_GLAZED_TERRACOTTA, Blocks.GREEN_GLAZED_TERRACOTTA, Blocks.RED_GLAZED_TERRACOTTA,
+                        Blocks.BLACK_GLAZED_TERRACOTTA,
+                        Blocks.WHITE_CONCRETE, Blocks.ORANGE_CONCRETE, Blocks.MAGENTA_CONCRETE,
+                        Blocks.LIGHT_BLUE_CONCRETE, Blocks.YELLOW_CONCRETE, Blocks.LIME_CONCRETE,
+                        Blocks.PINK_CONCRETE, Blocks.GRAY_CONCRETE, Blocks.LIGHT_GRAY_CONCRETE,
+                        Blocks.CYAN_CONCRETE, Blocks.PURPLE_CONCRETE, Blocks.BLUE_CONCRETE,
+                        Blocks.BROWN_CONCRETE, Blocks.GREEN_CONCRETE, Blocks.RED_CONCRETE,
+                        Blocks.BLACK_CONCRETE,
+                        Blocks.WHITE_WOOL, Blocks.ORANGE_WOOL, Blocks.MAGENTA_WOOL,
+                        Blocks.LIGHT_BLUE_WOOL, Blocks.YELLOW_WOOL, Blocks.LIME_WOOL,
+                        Blocks.PINK_WOOL, Blocks.GRAY_WOOL, Blocks.LIGHT_GRAY_WOOL,
+                        Blocks.CYAN_WOOL, Blocks.PURPLE_WOOL, Blocks.BLUE_WOOL,
+                        Blocks.BROWN_WOOL, Blocks.GREEN_WOOL, Blocks.RED_WOOL,
+                        Blocks.BLACK_WOOL,
+                        // 海洋
                         Blocks.PRISMARINE, Blocks.PRISMARINE_BRICKS, Blocks.DARK_PRISMARINE, Blocks.SEA_LANTERN,
+                        Blocks.TUBE_CORAL_BLOCK, Blocks.BRAIN_CORAL_BLOCK, Blocks.BUBBLE_CORAL_BLOCK,
+                        Blocks.FIRE_CORAL_BLOCK, Blocks.HORN_CORAL_BLOCK,
+                        Blocks.DEAD_TUBE_CORAL_BLOCK, Blocks.DEAD_BRAIN_CORAL_BLOCK, Blocks.DEAD_BUBBLE_CORAL_BLOCK,
+                        Blocks.DEAD_FIRE_CORAL_BLOCK, Blocks.DEAD_HORN_CORAL_BLOCK,
+                        Blocks.SPONGE, Blocks.WET_SPONGE,
                         // 其他
-                        Blocks.BONE_BLOCK, Blocks.SCULK, Blocks.TERRACOTTA
+                        Blocks.BONE_BLOCK, Blocks.SCULK,
+                        Blocks.HONEY_BLOCK, Blocks.HONEYCOMB_BLOCK, Blocks.SLIME_BLOCK,
+                        Blocks.DRIED_KELP_BLOCK
+                );
+        // 下界专属突变池：黑石/玄武岩/下界砖/灵魂沙/岩浆/下界木/矿物，画风统一
+        tag(ModTags.Blocks.NETHER_MUTATION_POOL)
+                .add(
+                        Blocks.NETHERRACK, Blocks.CRIMSON_NYLIUM, Blocks.WARPED_NYLIUM,
+                        Blocks.BLACKSTONE, Blocks.GILDED_BLACKSTONE,
+                        Blocks.POLISHED_BLACKSTONE, Blocks.POLISHED_BLACKSTONE_BRICKS,
+                        Blocks.CRACKED_POLISHED_BLACKSTONE_BRICKS, Blocks.CHISELED_POLISHED_BLACKSTONE,
+                        Blocks.BASALT, Blocks.POLISHED_BASALT, Blocks.SMOOTH_BASALT,
+                        Blocks.NETHER_BRICKS, Blocks.CRACKED_NETHER_BRICKS, Blocks.CHISELED_NETHER_BRICKS,
+                        Blocks.RED_NETHER_BRICKS,
+                        Blocks.SOUL_SAND, Blocks.SOUL_SOIL, Blocks.MAGMA_BLOCK, Blocks.GLOWSTONE,
+                        Blocks.SHROOMLIGHT,
+                        Blocks.CRIMSON_STEM, Blocks.WARPED_STEM,
+                        Blocks.STRIPPED_CRIMSON_STEM, Blocks.STRIPPED_WARPED_STEM,
+                        Blocks.CRIMSON_HYPHAE, Blocks.WARPED_HYPHAE,
+                        Blocks.STRIPPED_CRIMSON_HYPHAE, Blocks.STRIPPED_WARPED_HYPHAE,
+                        Blocks.CRIMSON_PLANKS, Blocks.WARPED_PLANKS,
+                        Blocks.NETHER_WART_BLOCK, Blocks.WARPED_WART_BLOCK,
+                        Blocks.NETHER_GOLD_ORE, Blocks.NETHER_QUARTZ_ORE, Blocks.ANCIENT_DEBRIS,
+                        Blocks.NETHERITE_BLOCK,
+                        Blocks.QUARTZ_BLOCK, Blocks.SMOOTH_QUARTZ, Blocks.QUARTZ_BRICKS,
+                        Blocks.QUARTZ_PILLAR, Blocks.CHISELED_QUARTZ_BLOCK,
+                        Blocks.OBSIDIAN, Blocks.CRYING_OBSIDIAN,
+                        Blocks.BONE_BLOCK
+                );
+        // 末地专属突变池：末地石/紫珀/黑曜石，画风统一
+        tag(ModTags.Blocks.END_MUTATION_POOL)
+                .add(
+                        Blocks.END_STONE, Blocks.END_STONE_BRICKS,
+                        Blocks.PURPUR_BLOCK, Blocks.PURPUR_PILLAR,
+                        Blocks.OBSIDIAN, Blocks.CRYING_OBSIDIAN
                 );
         // 引导模型概念标签（方案 A，2026-08-21）：训练目标按覆盖率指认概念，概念邻域=标签成员
         tag(ModTags.Blocks.CONCEPT_WOOD)

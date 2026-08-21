@@ -160,7 +160,7 @@
 
 ### 4.1 全局池
 #### 4.1.1 方块全局池
-- 通过方块标签 `focal_decay:global_mutation_pool` 定义。
+- **维度专属池（2026-08-21）**：主世界用 `focal_decay:global_mutation_pool`，下界用 `focal_decay:nether_mutation_pool`，末地用 `focal_decay:end_mutation_pool`（`ModTags.Blocks.poolForDimension` 选择，专属池为空时回退主世界池），避免不同维度画风割裂。
 - 数据生成时默认包含所有符合以下条件的方块：
   - `minecraft:block` 中 `isCollisionShapeFullBlock()` == true
   - 无方块实体（`!hasBlockEntity()`）
@@ -246,11 +246,11 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
   - 目标方块状态 `targetState`（此时计算）
   - 周期索引 `periodIndex`(锁定方块)
   - 存储在玩家能力 `Capability<BreakData>` 中。
-- **挖掘速度**：原方块硬度决定（默认）。
+- **挖掘速度与工具要求（2026-08-21）**：由**当前可见的失焦目标**决定——客户端 `MultiPlayerGameModeMixin` 把挖掘进度计算改为读可见目标（走 `ClientRenderCache.miningState` 缓存，O(1)）；服务端掉落/经验传入玩家主手工具，目标方块的 `requiresCorrectToolForDrops` 生效（拿对工具才有掉落）。
 - **方块破坏**：`BlockEvent.BreakEvent` 中，如果玩家有 `BreakData` ，则取消默认掉落，执行：
   - 服务端将方块直接设置为 `targetState`（无掉落）。
-  - 然后调用 `targetState.getDrops()` 生成物品掉落。
-  - 给予目标方块的挖掘经验值（`targetState.getExpDrop()`）。
+  - 然后调用 `targetState.getDrops()` 生成物品掉落（传入玩家主手工具，遵循挖掘等级）。
+  - 给予目标方块的挖掘经验值（`targetState.getExpDrop()`，同样传入工具）。
   - 移除 `BreakData`。
 - **创造模式支持（2026-08-10 新增，破坏行为最终修正）**：创造模式**破坏保持原版行为**——无掉落、不收入背包、不执行转换（仅生存模式破坏触发转换掉落）；中键选取（pick block）通过 Mixin `Minecraft#pickBlock` 返回可见的"失焦目标"方块。
 
@@ -282,12 +282,12 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
   - `postIntensity`：后处理强度乘数
 - 配置值通过 `FocalDecayConfig` 读取。
 - **实现（2026-08-10）**：周期 `base_interval/stage2_interval/stage3_interval`（100/60/40）、方块概率 `block_mutation_chance_stage1/2/3`（0.1/0.6/1.0）、实体概率 `entity_mutation_chance_stage2/3`、阶段开关 `enable_stage_system`。
+- **天气突变（2026-08-21 新增）**：与实体突变同周期同风格——每阶段周期按 `weather_mutation_chance_stage1/2/3`（默认 0.0 / 0.05 / 0.15）掷确定性骰子，命中把主世界天气随机转为与当前不同的状态（晴/雨/雷暴），持续 60~360 秒；观测者在线（失焦终止）时不触发。
 
 ### 6.3 方块影响范围扩展
-- 阶段1：仅 `isCollisionShapeFullBlock()` 方块。
-- 阶段2：增加 `BlockBehaviour.Properties.dynamicShape()` 为非完整但有碰撞箱的方块（如栅栏、玻璃板）。但需在渲染时处理模型替换，可能需特殊处理。
-- 阶段3：影响范围与阶段2一致（完整 + 非完整有碰撞箱方块）。
-- **实现（2026-08-10 / 2026-08-13 修订 / 2026-08-19 移除空气转换）**：`MutationHelper.isConversionSource(state, level, pos, stage)` 统一判定（含"不完整方块排除转换源"）：阶段1 仅完整方块；阶段2+ 增加非完整但有碰撞箱方块；空气/方块实体/黑名单始终排除。客户端 `isCandidate` 与服务器交互共用该函数。
+- **2026-08-21 修订：所有阶段仅允许"完整立方体碰撞"方块作为转换源。** 门/楼梯/栅栏/玻璃板等模型不完整方块不再参与失焦（旧设计阶段2+ 的"非完整但有碰撞箱"扩展已移除）；判定统一用 `isCollisionShapeFullBlock()`（碰撞形状 === 完整 16³ 立方体，MC 标准方法）。
+- 空气、带方块实体、黑名单方块始终排除。
+- **实现**：`MutationHelper.isConversionSource(state, level, pos, stage)` 统一判定（`stage` 参数保留供未来扩展）；客户端 `isCandidate` 与服务器交互共用该函数。
 
 ### 6.4 实体转换
 - 根据不同阶段决定池, 源池和目标池始终应该一致
@@ -389,6 +389,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 
 ### 9.2 数据生成
 - 方块标签：`focal_decay:global_mutation_pool` 自动生成，通过 `TagsProvider<Block>` 添加所有符合条件的原版方块。
+- 维度专属池：`nether_mutation_pool` / `end_mutation_pool` 同数据生成（2026-08-21）；主世界池扩充到约 218 种（新增去皮原木/树皮/矿物块/陶瓦/混凝土/羊毛/珊瑚块/菌类等），下界 45 种、末地 6 种。
 - 实体类型标签：`focal_decay:entity_mutation_pool_passive` 包含如 `minecraft:sheep`, `minecraft:cow` 等。
 - 战利品表：语义碎片添加到相应原版战利品表，使用 `GlobalLootModifier` 或直接修改 `LootTableLoadEvent`。
 - 配方：稳定锚、突变控制器使用标准 `ShapedRecipeBuilder`。

@@ -30,6 +30,7 @@
 - `data/recipe/ModRecipeProvider.java`（原型机形状合成、空白模型无序合成、重建协议/复制模型特殊配方）
 - `data/recipe/ModRecipeSerializers.java`：`RebuildObserverProtocolRecipe`（7 碎片无序合成，`crafting_special_rebuildobserver`）+ `CopyTrainedModelRecipe`（训练模型复制，`crafting_special_copytrainedmodel`）
 - `data/ModDataGenerator.java`：`runData` 已成功生成 JSON 到 `src/generated/resources`
+- **维度专属突变池（2026-08-21）**：新增 `nether_mutation_pool` / `end_mutation_pool`，`ModTags.Blocks.poolForDimension` 按维度选池（专属池为空回退主世界池）；主世界池扩充至约 218 种（去皮原木/树皮/矿物块/陶瓦/混凝土/羊毛/珊瑚块/菌类等），下界 45 种（黑石系/玄武岩/下界砖/灵魂沙/岩浆/下界木/矿物），末地 6 种（末地石/紫珀/黑曜石）
 
 ### 5. 全局池与确定性随机（完成）
 - `mutation/MutationPool.java`：按 BuiltInRegistries.BLOCK id 升序的不可变列表，带 version
@@ -42,6 +43,7 @@
 ### 6. 交互与转换（完成）
 - `attachment/BreakData.java` + `ModAttachments.java`：玩家挖掘锁定数据（用 NeoForge 21.1 attachment 替代旧 Capability）
 - `mutation/InteractionHandler.java`：LeftClickBlock 锁定目标 + BreakEvent setCanceled(true) 后按目标方块生成掉落/经验；创造模式跳过
+- 挖掘速度/工具要求由目标决定（2026-08-21）：`MultiPlayerGameModeMixin` 把挖掘进度改为读可见目标（`ClientRenderCache.miningState` 走缓存，O(1)）；掉落/经验传入玩家主手工具，`requiresCorrectToolForDrops` 生效
 
 ### 7. 客户端渲染缓存系统（完成）
 - `client/ClientRenderCache.java`：`Map<Long, Entry> targetCache`（带周期号防跨周期旧值）+ `Set<Long> visibleSurfaces` + `Set<Long> activeSections`（按节计数精确回收）
@@ -98,8 +100,9 @@
 ### 8. 末日阶段系统（完成）
 - `mutation/FocalDecayWorldData.java`：全局天数 SavedData（`days` + 部分 tick），每 20 分钟游戏日（24000 tick）+1，玩家数为 0 暂停，`ServerTickEvent.Post` 驱动；天数变化经 `SyncWorldDataPacket` 广播，登录/换维时补发
 - 阶段判定与周期：`MutationHelper.currentStage(days)`（对照 `stage2_day/stage3_day`，`enable_stage_system=false` 恒为阶段 1）、`intervalForStage`（100/60/40 tick）；服务端与客户端（同步天数）共用
-- 阶段影响范围（§6.3，含"不完整方块排除转换源"修复）：`MutationHelper.isConversionSource` —— 阶段1 仅完整方块（`isCollisionShapeFullBlock`）；阶段2+ 增加非完整但有碰撞箱方块（栅栏/玻璃板/台阶）；空气/方块实体/黑名单始终排除；阶段3 影响范围与阶段2 一致
+- 阶段影响范围（§6.3，2026-08-21 修订）：`MutationHelper.isConversionSource` —— **所有阶段仅"完整立方体碰撞"方块**（`isCollisionShapeFullBlock`，剔除门/楼梯/栅栏/玻璃板等模型不完整方块，移除原阶段2+ 非完整碰撞箱扩展）；空气/方块实体/黑名单始终排除
 - 实体突变（§6.4）：`mutation/DoomsdayHandler.java` 每阶段周期掷确定性骰子（`mix64(worldSeed ^ pos.asLong() ^ tick)`），`Mob`（排除玩家）从三阶段实体池转换（阶段1 被动 / 阶段2 +中立 / 阶段3 +敌对，源池=目标池），NBT 复制（去 UUID）替换实体；`ItemEntity` 掉落物目标物品改为方块池随机方块物品
+- 天气突变（2026-08-21）：`DoomsdayHandler.mutateWeather` 与实体突变同周期——按 `weather_mutation_chance_stage1/2/3`（默认 0.0/0.05/0.15）掷确定性骰子，命中把主世界天气随机转为不同状态（晴/雨/雷暴，持续 60~360 秒）；观测者在线时不触发
 - 客户端 `ClientRenderCache` 接入阶段：同步 `worldDays`，`isCandidate`/`computeTarget`/`resolve`/扫描全部按阶段走源范围，阶段变化自动清缓存重算
 - 测试命令（2026-08-13）：`/focaldecay days [<n>]` 查询/设定末日天数（设定需权限 2），经 `SyncWorldDataPacket` 广播后客户端即时重算阶段
 - 实体突变不生效修复（2026-08-13）：`lastEntityMutationTick` 曾初始化为 `Long.MIN_VALUE`，`serverTick - MIN_VALUE` 溢出恒为负、周期判断永假导致实体转换从不触发；已改为初始 0 并加防回归注释

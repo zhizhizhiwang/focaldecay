@@ -28,6 +28,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.TagKey;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -215,6 +216,41 @@ public final class ClientRenderCache {
             return target;
         }
         return original;
+    }
+
+    /**
+     * 挖掘进度用"可见目标"（2026-08-21）：与渲染预览同一公式；
+     * 优先读缓存，未命中时计算并写回——保证挖掘每 tick 只是 O(1) 缓存查询，
+     * 累积回退扫描只发生在周期边界。
+     */
+    public BlockState miningState(ClientLevel level, BlockPos pos) {
+        BlockState original = level.getBlockState(pos);
+        if (isProtected(pos, original, currentStage()) || observerOnline) {
+            return original;
+        }
+        if (original.isAir()) {
+            return original;
+        }
+        int stage = currentStage();
+        if (!isCandidate(original, level, pos, stage)) {
+            return original;
+        }
+        long key = pos.asLong();
+        long period = currentPeriod(level);
+        Entry entry = targetCache.get(key);
+        if (entry != null) {
+            if (entry.period == period) {
+                return entry.state;
+            }
+            targetCache.remove(key, entry);
+            decrSection(pos);
+        }
+        BlockState target = computeTarget(level, pos, original);
+        if (target == original || !isRenderableTarget(target) || !isExposed(level, pos)) {
+            return original;
+        }
+        putEntry(pos, target, period);
+        return target;
     }
 
     // ------------------------------------------------------------------
@@ -782,9 +818,16 @@ public final class ClientRenderCache {
     /** 从已同步的方块标签重建全局池（与服务器排序一致：按注册表 id 升序）。 */
     private void rebuildPool(ClientLevel level) {
         List<Block> blocks = new ArrayList<>();
+        TagKey<Block> tag = ModTags.Blocks.poolForDimension(level.dimension());
         level.registryAccess().lookupOrThrow(Registries.BLOCK)
-                .get(ModTags.Blocks.GLOBAL_MUTATION_POOL)
+                .get(tag)
                 .ifPresent(holders -> holders.forEach(holder -> blocks.add(holder.value())));
+        if (blocks.isEmpty() && tag != ModTags.Blocks.GLOBAL_MUTATION_POOL) {
+            // 专属池为空时回退主世界全局池
+            level.registryAccess().lookupOrThrow(Registries.BLOCK)
+                    .get(ModTags.Blocks.GLOBAL_MUTATION_POOL)
+                    .ifPresent(holders -> holders.forEach(holder -> blocks.add(holder.value())));
+        }
         this.pool = MutationPool.of(blocks, 0);
     }
 

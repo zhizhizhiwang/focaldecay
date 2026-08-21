@@ -86,6 +86,8 @@
   "lore.focal_decay.fragment_cheng": "\"Then it is decided.\"",
 
   "tag.block.focal_decay.global_mutation_pool": "Global Mutation Pool (Blocks)",
+  "tag.block.focal_decay.nether_mutation_pool": "Nether Mutation Pool (Blocks)",
+  "tag.block.focal_decay.end_mutation_pool": "End Mutation Pool (Blocks)",
   "tag.block.focal_decay.conversion_blacklist": "Conversion Blacklist",
   "tag.block.focal_decay.anchor_prototype_immune": "Anchor Prototype Immune",
   "tag.block.focal_decay.concept.wood": "Concept · Wood",

@@ -2,10 +2,12 @@ package com.zhizhiwang.focal_decay.data.tags;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
 
@@ -22,6 +24,10 @@ public final class ModTags {
     public static class Blocks {
         public static final TagKey<Block> GLOBAL_MUTATION_POOL =
                 BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "global_mutation_pool"));
+        public static final TagKey<Block> NETHER_MUTATION_POOL =
+                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "nether_mutation_pool"));
+        public static final TagKey<Block> END_MUTATION_POOL =
+                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "end_mutation_pool"));
         public static final TagKey<Block> CONVERSION_BLACKLIST =
                 BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "conversion_blacklist"));
         public static final TagKey<Block> ANCHOR_PROTOTYPE_IMMUNE =
@@ -52,6 +58,17 @@ public final class ModTags {
         /** 该标签是否为策展概念标签。 */
         public static boolean isCurated(TagKey<Block> tag) {
             return CURATED_CONCEPTS.contains(tag);
+        }
+
+        /** 维度对应的突变池：下界/末地用专属池，其余维度（含未知模组维度）回退主世界全局池。 */
+        public static TagKey<Block> poolForDimension(ResourceKey<Level> dimension) {
+            if (dimension == Level.NETHER) {
+                return NETHER_MUTATION_POOL;
+            }
+            if (dimension == Level.END) {
+                return END_MUTATION_POOL;
+            }
+            return GLOBAL_MUTATION_POOL;
         }
     }
 

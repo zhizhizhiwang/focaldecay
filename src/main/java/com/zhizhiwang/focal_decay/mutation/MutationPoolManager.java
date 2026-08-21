@@ -13,6 +13,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -244,9 +245,16 @@ public class MutationPoolManager extends SavedData {
     /** 从标签加载全局池（服务端启动/维度加载时调用）。 */
     public void reloadGlobalPool(ServerLevel level) {
         List<Block> blocks = new ArrayList<>();
+        TagKey<Block> tag = ModTags.Blocks.poolForDimension(level.dimension());
         level.registryAccess().lookupOrThrow(Registries.BLOCK)
-                .get(ModTags.Blocks.GLOBAL_MUTATION_POOL)
+                .get(tag)
                 .ifPresent(holders -> holders.forEach(holder -> blocks.add(holder.value())));
+        if (blocks.isEmpty() && tag != ModTags.Blocks.GLOBAL_MUTATION_POOL) {
+            // 专属池为空时回退主世界全局池
+            level.registryAccess().lookupOrThrow(Registries.BLOCK)
+                    .get(ModTags.Blocks.GLOBAL_MUTATION_POOL)
+                    .ifPresent(holders -> holders.forEach(holder -> blocks.add(holder.value())));
+        }
         this.globalPool = MutationPool.of(blocks, globalPool.version() + 1);
         setDirty();
     }

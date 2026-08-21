@@ -86,6 +86,8 @@
   "lore.focal_decay.fragment_cheng": "“那就这么决定了。”",
 
   "tag.block.focal_decay.global_mutation_pool": "全局突变池（方块）",
+  "tag.block.focal_decay.nether_mutation_pool": "下界突变池（方块）",
+  "tag.block.focal_decay.end_mutation_pool": "末地突变池（方块）",
   "tag.block.focal_decay.conversion_blacklist": "转换黑名单",
   "tag.block.focal_decay.anchor_prototype_immune": "原型机免疫",
   "tag.block.focal_decay.concept.wood": "概念·木材",

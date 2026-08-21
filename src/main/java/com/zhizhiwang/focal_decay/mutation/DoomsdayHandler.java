@@ -31,6 +31,7 @@ public final class DoomsdayHandler {
     // 服务器 tick 从 0 开始。不要用 Long.MIN_VALUE 做"未初始化"标记：
     // serverTick - MIN_VALUE 会溢出成负数，周期判断恒为假，实体突变永远不会执行。
     private static long lastEntityMutationTick = 0;
+    private static long lastWeatherMutationTick = 0;
 
     private DoomsdayHandler() {
     }
@@ -53,6 +54,46 @@ public final class DoomsdayHandler {
             for (ServerLevel level : server.getAllLevels()) {
                 mutateEntities(level, serverTick, stage);
             }
+        }
+        if (serverTick - lastWeatherMutationTick >= interval) {
+            lastWeatherMutationTick = serverTick;
+            for (ServerLevel level : server.getAllLevels()) {
+                mutateWeather(level, serverTick, stage);
+            }
+        }
+    }
+
+    /**
+     * 天气突变（2026-08-21）：按阶段概率掷确定性骰子，命中把主世界天气随机转为
+     * 与当前不同的状态（晴 / 雨 / 雷暴），持续一段随机时长——与实体突变同周期、同风格。
+     */
+    private static void mutateWeather(ServerLevel level, long tick, int stage) {
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            return;
+        }
+        double chance = switch (stage) {
+            case 2 -> FocalDecayConfig.WEATHER_MUTATION_CHANCE_STAGE2.get();
+            case 3 -> FocalDecayConfig.WEATHER_MUTATION_CHANCE_STAGE3.get();
+            default -> FocalDecayConfig.WEATHER_MUTATION_CHANCE_STAGE1.get();
+        };
+        if (chance <= 0.0) {
+            return;
+        }
+        long seed = MutationHelper.mix64(level.getSeed() ^ tick);
+        RandomSource random = RandomSource.create(seed);
+        if (random.nextDouble() >= chance) {
+            return;
+        }
+        int current = level.isThundering() ? 2 : (level.isRaining() ? 1 : 0);
+        int target;
+        do {
+            target = random.nextInt(3);
+        } while (target == current);
+        int duration = 1200 + random.nextInt(6000); // 60 ~ 360 秒
+        switch (target) {
+            case 1 -> level.setWeatherParameters(0, duration, true, false);
+            case 2 -> level.setWeatherParameters(0, duration, true, true);
+            default -> level.setWeatherParameters(duration, 0, false, false);
         }
     }
 
