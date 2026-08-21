@@ -119,7 +119,7 @@ public class AnchorPrototypeBlockEntity extends BlockEntity implements MenuProvi
                 MutationPoolManager manager = MutationPoolManager.get(serverLevel);
                 // 首次插入有效模型：固化当前范围失焦状态并广播
                 if (!wasActive && hasActiveModel()) {
-                    // 先固化（此时新效果尚未登记，getEffectivePool 仍走全局池），再登记保护
+                    // 先固化（此时新效果尚未登记，getGuidedBias 仍无引导），再登记保护
                     MutationEventHandler.convertPrototypeRange(serverLevel, worldPosition, manager,
                             MutationPoolManager.radiusFor(ObserverModelItem.getData(modelStack)));
                 }

@@ -5,6 +5,7 @@ import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.item.ModItems;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.menu.TrainingTerminalMenu;
+import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -62,7 +63,7 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
         ItemStack training = model.copy();
         training.setCount(1);
         ObserverModelItem.setData(training, new ObserverModelData(
-                ObserverModelData.TYPE_TRAINING, List.of(), List.of(), 0.0, 0, false));
+                ObserverModelData.TYPE_TRAINING, List.of(), List.of(), 0.0, "", 0, false));
         setItem(0, training);
         return true;
     }
@@ -84,8 +85,24 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
         ItemStack finished = new ItemStack(
                 finalType == TYPE_GUIDED ? ModItems.GUIDED_MUTATION_MODEL.get() : ModItems.SEMANTIC_LOCK_MODEL.get());
         finished.setCount(1);
+        double q = 1.0;
+        String concept = "";
+        if (finalType == TYPE_GUIDED) {
+            GuidedConcept.Concept resolved = GuidedConcept.resolve(data.trainedTargets());
+            concept = resolved.tagId();
+            q = resolved.q();
+            if (resolved.valid()) {
+                player.displayClientMessage(Component.translatable(
+                        "message.focal_decay.training_concept_result",
+                        GuidedConcept.displayName(concept), Math.round(q * 100)), true);
+            } else {
+                player.displayClientMessage(Component.translatable(
+                        "message.focal_decay.training_concept_invalid",
+                        FocalDecayConfig.GUIDED_MIN_TRAINED.get()), true);
+            }
+        }
         ObserverModelItem.setData(finished, new ObserverModelData(
-                finalTypeName, data.trainedTargets(), data.trainedEntities(), 1.0, 0, false));
+                finalTypeName, data.trainedTargets(), data.trainedEntities(), q, concept, 0, false));
         setItem(0, finished);
         this.finalType = TYPE_SEMANTIC_LOCK;
         return true;

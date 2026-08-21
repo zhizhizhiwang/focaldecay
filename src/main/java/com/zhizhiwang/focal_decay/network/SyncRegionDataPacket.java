@@ -23,17 +23,30 @@ public record SyncRegionDataPacket(ResourceKey<Level> dimension, List<PrototypeD
                                    long[] birthPositions, long[] birthPeriods)
         implements CustomPacketPayload {
 
-    /** 单个原型机的效果摘要（位置 + 半径 + 模型类型与训练目标 + 生物稳定能量）。 */
+    /** 单个原型机的效果摘要（位置 + 半径 + 模型类型与训练目标 + 生物稳定能量 + 引导概念/完备度）。 */
     public record PrototypeData(long pos, int radius, String type,
-                                List<String> trainedTargets, List<String> trainedEntities, int bioEnergy) {
-        public static final StreamCodec<ByteBuf, PrototypeData> STREAM_CODEC = StreamCodec.composite(
-                ByteBufCodecs.VAR_LONG, PrototypeData::pos,
-                ByteBufCodecs.VAR_INT, PrototypeData::radius,
-                ByteBufCodecs.STRING_UTF8, PrototypeData::type,
-                ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), PrototypeData::trainedTargets,
-                ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), PrototypeData::trainedEntities,
-                ByteBufCodecs.VAR_INT, PrototypeData::bioEnergy,
-                PrototypeData::new);
+                                List<String> trainedTargets, List<String> trainedEntities,
+                                int bioEnergy, String concept, double q) {
+        // 分量超过 composite 上限（6），手写编码
+        public static final StreamCodec<ByteBuf, PrototypeData> STREAM_CODEC = StreamCodec.of(
+                (buf, p) -> {
+                    buf.writeLong(p.pos());
+                    buf.writeInt(p.radius());
+                    ByteBufCodecs.STRING_UTF8.encode(buf, p.type());
+                    ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()).encode(buf, p.trainedTargets());
+                    ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()).encode(buf, p.trainedEntities());
+                    buf.writeInt(p.bioEnergy());
+                    ByteBufCodecs.STRING_UTF8.encode(buf, p.concept());
+                    buf.writeDouble(p.q());
+                },
+                buf -> new PrototypeData(
+                        buf.readLong(), buf.readInt(),
+                        ByteBufCodecs.STRING_UTF8.decode(buf),
+                        ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()).decode(buf),
+                        ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()).decode(buf),
+                        buf.readInt(),
+                        ByteBufCodecs.STRING_UTF8.decode(buf),
+                        buf.readDouble()));
     }
 
     public static final Type<SyncRegionDataPacket> TYPE = new Type<>(

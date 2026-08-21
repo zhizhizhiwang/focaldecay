@@ -3,7 +3,7 @@
 > 最后更新：2026-08-20
 > 环境：NeoForge 21.1.248 / Minecraft 1.21.1 / Parchment 2024.11.17 / Java 21
 > Mod ID：`focal_decay`，包：`com.zhizhiwang.focal_decay`
-> 当前状态（2026-08-20）：`compileJava` 通过；`build/libs/focal_decay-1.0.0.jar` 构建于 2026-08-20 09:02。§9 重构整批改动尚未提交（含根目录误提交的 `net/minecraft/*.class` 删除），本地领先 origin/main 4 个提交。
+> 当前状态（2026-08-21）：`compileJava` / `runData` / `build -x test` 通过。§9 重构整批改动尚未提交（含根目录误提交的 `net/minecraft/*.class` 删除），本地领先 origin/main 4 个提交。引导模型重设计（方案 A，§9.2）**已实施**（2026-08-21）。
 
 ## 已完成
 
@@ -130,6 +130,24 @@
   6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制——**已完成（2026-08-20）**：仪式升级（原型机插槽升级为 `total_stability_model_activated`，不覆盖原有模型）、半径 32 完美稳定（`radiusFor(TYPE_TOTAL)=32` + `isProtected`）、复制配方（`CopyTrainedModelRecipe`）、末影龙掉落（`DragonDropHandler`，配置 `ender_dragon_total_stability_drop_chance`，默认 1.0 必掉、可调成设计文档的稀有掉落）、特殊视觉（`TotalStabilityFieldHandler` 旋转光环粒子 + 锚上方漂浮粒子）
   7. 与末日阶段/渲染/网络整合（阶段3模型效果衰减等）
   8. 彩蛋与打磨（粒子/音效/专属贴图/测试）
+
+### 9.2 引导模型重设计（方案 A，2026-08-20 定稿，待用户确认后开工）
+- **问题**：现行引导模型把半径内突变目标池硬限制为训练列表，阶段3（概率 1.0、40 tick/周期）下可把任意方块稳定刷成训练目标，过度 OP，且不符合 SCP-CN-2999 苹果实验的"概念一致性"（分类器稳定的不是具体物体，而是与概念相关的一切；概念外物体失焦概率不受影响；单一/残缺分类几乎无效；"变了的就变了"）。
+- **定稿设计**（已同步到 PROXYAI.md §3.1 / §3.3 / §4.2 / §4.3 / §5.1 / §6.5 / §9.1 / §13）：
+  1. **概念**：训练列表不再直接作为目标池，而是用于**指认概念**；训练完成时解析并固化 `concept` 标签 + 完备度 q 到模型数据。概念标签来源 = 策展 `focal_decay:concept/*`（数据生成）+ 原版标签兜底 + 通用标签黑名单；概念邻域 = 标签下全部方块（过滤空气/带方块实体/`conversion_blacklist`）；无法指认有效概念 → q=0，模型无效。
+  2. **源门控**：仅概念内成员突变时被引导；概念外方块照常全局随机。
+  3. **目标偏向**：概念内成员抽中突变时以 q 从概念邻域选目标、1−q 回退全局池；q 只作用于目标选择，不改突变骰子（概率/周期/种子）。
+  4. **完备度**：`q = clamp(|trainedTargets ∩ 概念邻域| / |概念邻域|, 0, 1)`；少于 `guided_min_trained`（默认 2）视为残缺分类 q=0；可配倍率/上限；阶段3 q 减半（`guided_stage3_halve`，默认开）。
+  5. 累积语义不变：引导后的目标同样参与 `cumulativeTarget` 回退扫描。
+- **实施清单**：
+  1. 数据生成：策展概念标签 `focal_decay:concept/*`（wood/ore/stone/glass/terracotta/wool）——**已完成**（`ModBlockTagsProvider` + `runData` 产出 6 个 tag JSON）
+  2. `ObserverModelData` 新增 `concept` 字段，`stabilityStrength` 存 q——**已完成**（Codec/StreamCodec 手写编码，超 `composite` 6 分量上限；复制配方随物品组件自动保留；`SyncRegionDataPacket.PrototypeData` 新增 concept+q）
+  3. 训练终端"完成训练"：解析概念（覆盖率最高标签）、算 q、写入模型——**已完成**（`TrainingTerminalBlockEntity.finishTraining` + `GuidedConcept.resolve`，含"无有效概念"提示）
+  4. `MutationPoolManager.getGuidedBias` 与 `ClientRenderCache.guidedBias` 概念判定（源门控 + q 偏向），服务端/客户端共用公式——**已完成**（旧 `getEffectivePool`/`resolveTrainedBlocks` 已删除；`MutationHelper.getVisibleTarget/cumulativeTarget` 增加 `GuidedBias` 参数，q 分支用同一确定性随机源）
+  5. 原型机 GUI / 模型 tooltip：显示概念名与完备度 q——**已完成**
+  6. 配置项：`guided_min_trained` / `guided_q_multiplier` / `guided_q_cap` / `guided_stage3_halve`——**已完成**
+  7. `compileJava` / `runData` / `build -x test`——**全部通过（2026-08-21）**；平衡测试待实机
+- **状态**：**已实施（2026-08-21）**。改动未提交；待实机平衡测试。
 
 ### 10. 网络通信（承接现有实现）
 - `SyncRegionDataPacket`（S→C）：**已完成扩展**——携带有效原型机效果（位置/半径/模型数据）+ 方块诞生周期；登录/换维/原型机变化/方块放置破坏时发送

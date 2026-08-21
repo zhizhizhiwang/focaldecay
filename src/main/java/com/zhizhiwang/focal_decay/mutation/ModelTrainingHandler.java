@@ -92,9 +92,9 @@ public final class ModelTrainingHandler {
         updated.add(id);
         ObserverModelData newData = block
                 ? new ObserverModelData(data.type(), updated, data.trainedEntities(),
-                data.stabilityStrength(), data.bioEnergy(), data.totalStability())
+                data.stabilityStrength(), data.concept(), data.bioEnergy(), data.totalStability())
                 : new ObserverModelData(data.type(), data.trainedTargets(), updated,
-                data.stabilityStrength(), data.bioEnergy(), data.totalStability());
+                data.stabilityStrength(), data.concept(), data.bioEnergy(), data.totalStability());
         ObserverModelItem.setData(held, newData);
         // 立即同步手持物品到客户端（组件变化默认不会即时同步）
         if (player instanceof ServerPlayer serverPlayer) {
@@ -113,10 +113,12 @@ public final class ModelTrainingHandler {
         long days = FocalDecayWorldData.get(level.getServer()).getDays();
         int stage = MutationHelper.currentStage(days);
         long period = MutationHelper.blockPeriod(level.getGameTime());
-        List<Block> pool = manager.getEffectivePool(pos, real);
+        List<Block> pool = manager.getGlobalPool().snapshot();
         double chance = MutationHelper.mutationChance(stage);
         boolean protectedPos = manager.isProtected(pos, real);
         long birth = manager.getBlockBirthPeriod(pos);
-        return MutationHelper.getVisibleTarget(real, pos, level.getSeed(), period, pool, chance, protectedPos, birth);
+        GuidedBias bias = manager.getGuidedBias(pos, real, stage);
+        return MutationHelper.getVisibleTarget(real, pos, level.getSeed(), period, pool, chance,
+                bias, protectedPos, birth);
     }
 }

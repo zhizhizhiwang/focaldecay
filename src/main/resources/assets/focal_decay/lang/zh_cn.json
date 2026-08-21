@@ -27,6 +27,8 @@
   "tooltip.focal_decay.bio_stabilizer": "无需训练。消耗周围生物的生命值维持稳定效果。",
   "tooltip.focal_decay.bio_energy": "生物能量：%s",
   "tooltip.focal_decay.total_stabilizer": "完全稳定：范围内方块与生物完全不受失焦影响。",
+  "tooltip.focal_decay.guided_concept": "概念：%s，完备度：%s%%",
+  "tooltip.focal_decay.guided_invalid": "无法指认有效概念——模型无效",
 
   "container.focal_decay.anchor_prototype": "观测者原型机",
   "container.focal_decay.training_terminal": "训练终端",
@@ -37,6 +39,8 @@
   "gui.focal_decay.energy": "能量：%s",
   "gui.focal_decay.bio_energy": "生物能量：%s / %s",
   "gui.focal_decay.bio_energy_empty": "（能量耗尽，稳定效果失效）",
+  "gui.focal_decay.guided_concept": "概念：%s，完备度：%s%%",
+  "gui.focal_decay.guided_invalid": "（无法指认有效概念，模型无效）",
 
   "message.focal_decay.training_need_blank": "请先放入空白观测模型",
   "message.focal_decay.training_no_energy": "能量不足",
@@ -45,6 +49,8 @@
   "message.focal_decay.training_limit": "已达到目标记录上限",
   "message.focal_decay.training_target_block": "已训练目标：%s",
   "message.focal_decay.training_target_entity": "已训练实体：%s",
+  "message.focal_decay.training_concept_result": "概念：%s，完备度：%s%%",
+  "message.focal_decay.training_concept_invalid": "无法指认有效概念——模型无效（需要至少 %s 个同概念目标）",
   "message.focal_decay.ritual_started": "仪式开始——保持留在王座范围内！",
   "message.focal_decay.ritual_progress": "仪式进度：剩余 %s 秒",
   "message.focal_decay.ritual_wave": "第 %s 波来袭！",
@@ -66,5 +72,11 @@
   "tag.block.focal_decay.global_mutation_pool": "全局突变池（方块）",
   "tag.block.focal_decay.conversion_blacklist": "转换黑名单",
   "tag.block.focal_decay.anchor_prototype_immune": "原型机免疫",
+  "tag.block.focal_decay.concept.wood": "概念·木材",
+  "tag.block.focal_decay.concept.ore": "概念·矿石",
+  "tag.block.focal_decay.concept.stone": "概念·石材",
+  "tag.block.focal_decay.concept.glass": "概念·玻璃",
+  "tag.block.focal_decay.concept.terracotta": "概念·陶瓦",
+  "tag.block.focal_decay.concept.wool": "概念·羊毛",
   "tag.entity_type.focal_decay.entity_mutation_pool_passive": "实体突变池（被动）"
 }

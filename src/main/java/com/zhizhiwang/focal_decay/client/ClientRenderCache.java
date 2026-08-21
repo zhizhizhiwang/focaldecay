@@ -9,6 +9,8 @@ import com.zhizhiwang.focal_decay.mixin.client.RenderChunkRegionAccessor;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationPool;
+import com.zhizhiwang.focal_decay.mutation.GuidedBias;
+import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.PostChain;
@@ -96,7 +98,8 @@ public final class ClientRenderCache {
 
     /** 客户端侧原型机效果镜像。 */
     private record ClientPrototype(BlockPos center, int radius, String type,
-                                   Set<String> trainedTargets, Set<String> trainedEntities, int bioEnergy) {
+                                   Set<String> trainedTargets, Set<String> trainedEntities,
+                                   int bioEnergy, String concept, double q) {
     }
 
     /** pos.asLong() -> 突变目标（含所属周期，防止跨周期读到旧值）。 */
@@ -326,7 +329,8 @@ public final class ClientRenderCache {
         for (SyncRegionDataPacket.PrototypeData p : prototypes) {
             prototypeList.add(new ClientPrototype(
                     BlockPos.of(p.pos()), p.radius(), p.type(),
-                    Set.copyOf(p.trainedTargets()), Set.copyOf(p.trainedEntities()), p.bioEnergy()));
+                    Set.copyOf(p.trainedTargets()), Set.copyOf(p.trainedEntities()), p.bioEnergy(),
+                    p.concept(), p.q()));
         }
 
         Map<BlockPos, Long> newBirths = new HashMap<>();
@@ -553,56 +557,46 @@ public final class ClientRenderCache {
         long period = currentPeriod(level);
         double chance = MutationHelper.mutationChance(stage);
         long birthPeriod = getBlockBirthPeriod(pos);
-        List<Block> effective = effectivePool(level, pos, original);
-        return MutationHelper.getVisibleTarget(original, pos, worldSeed(level), period, effective,
-                chance, isProtected(pos, original), birthPeriod);
+        List<Block> global = pool.snapshot();
+        GuidedBias bias = guidedBias(pos, original, stage);
+        return MutationHelper.getVisibleTarget(original, pos, worldSeed(level), period, global,
+                chance, bias, isProtected(pos, original), birthPeriod);
     }
 
-    /** 客户端有效池：受保护返回空；引导模型范围内把池限制为训练方块列表（交集，空则回退全局池）。 */
-    private List<Block> effectivePool(ClientLevel level, BlockPos pos, BlockState original) {
-        if (isProtected(pos, original)) {
-            return List.of();
-        }
-        List<Block> guided = null;
+    /**
+     * 客户端引导偏向（与服务端 {@code MutationPoolManager#getGuidedBias} 同一公式）：
+     * 取"源方块是概念成员且 q 最大"的引导模型生效，否则不引导。
+     */
+    private GuidedBias guidedBias(BlockPos pos, BlockState original, int stage) {
         RegionData data = currentRegionData();
-        if (data != null) {
-            for (ClientPrototype prototype : data.prototypes) {
-                if (!withinRadius(pos, prototype) || !ObserverModelData.TYPE_GUIDED.equals(prototype.type())) {
-                    continue;
-                }
-                List<Block> sub = resolveTrainedBlocks(prototype.trainedTargets());
-                if (sub.isEmpty()) {
-                    continue;
-                }
-                if (guided == null) {
-                    guided = new ArrayList<>(sub);
-                } else {
-                    guided.retainAll(sub);
-                }
-                if (guided.isEmpty()) {
-                    break;
-                }
+        if (data == null) {
+            return GuidedBias.NONE;
+        }
+        GuidedBias best = null;
+        for (ClientPrototype prototype : data.prototypes) {
+            if (!withinRadius(pos, prototype) || !ObserverModelData.TYPE_GUIDED.equals(prototype.type())) {
+                continue;
+            }
+            String concept = prototype.concept();
+            if (concept.isEmpty()) {
+                continue;
+            }
+            if (!GuidedConcept.isMember(original.getBlock(), concept)) {
+                continue;
+            }
+            double q = GuidedConcept.effectiveQ(prototype.q(), stage);
+            if (q <= 0.0) {
+                continue;
+            }
+            List<Block> conceptPool = GuidedConcept.neighborhood(concept);
+            if (conceptPool.isEmpty()) {
+                continue;
+            }
+            if (best == null || q > best.q()) {
+                best = new GuidedBias(conceptPool, q);
             }
         }
-        if (guided == null || guided.isEmpty()) {
-            return pool.snapshot();
-        }
-        return guided;
-    }
-
-    private static List<Block> resolveTrainedBlocks(Set<String> ids) {
-        List<Block> blocks = new ArrayList<>();
-        for (String id : ids) {
-            try {
-                Block block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse(id));
-                if (block != Blocks.AIR) {
-                    blocks.add(block);
-                }
-            } catch (Exception ignored) {
-                // 非法 ID 忽略
-            }
-        }
-        return blocks;
+        return best == null ? GuidedBias.NONE : best;
     }
 
     private long currentPeriod(ClientLevel level) {

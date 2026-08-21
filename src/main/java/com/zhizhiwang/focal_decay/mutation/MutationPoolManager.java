@@ -12,11 +12,9 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.storage.DimensionDataStorage;
@@ -29,7 +27,7 @@ import java.util.Map;
 /**
  * 维度级突变池管理器（设计大纲 §4.2 / §4.3）。
  * 存储：有效原型机效果（位置 + 半径 + 模型数据）、方块诞生周期、全局池缓存。
- * 提供 getEffectivePool(pos, state) 计算有效池；isProtected 由原型机模型效果决定。
+ * 提供 getGuidedBias(pos, state, stage, registries) 计算引导偏向；isProtected 由原型机模型效果决定。
  */
 public class MutationPoolManager extends SavedData {
     private static final String DATA_NAME = FocalDecay.MODID + "_mutation_pool";
@@ -146,58 +144,42 @@ public class MutationPoolManager extends SavedData {
     }
 
     /**
-     * 计算位置处的有效池（设计大纲 §4.3）：
-     * 受保护 → 空池（不转换）；引导模型 → 训练方块列表（多原型机取交集，为空回退全局池）；
-     * 否则全局池。
+     * 计算位置处的引导偏向（方案 A，2026-08-21，PROXYAI §4.2）：
+     * 遍历引导模型效果，取"源方块是概念成员且 q 最大"者生效；
+     * 无引导则返回 {@link GuidedBias#NONE}，目标完全走全局池。
      */
-    public List<Block> getEffectivePool(BlockPos pos, BlockState original) {
-        if (isProtected(pos, original)) {
-            return List.of();
-        }
-        List<Block> guided = null;
+    public GuidedBias getGuidedBias(BlockPos pos, BlockState original, int stage) {
+        GuidedBias best = null;
         for (PrototypeEffect effect : prototypeEffects) {
             if (!withinRadius(pos, effect) || !ObserverModelData.TYPE_GUIDED.equals(effect.data().type())) {
                 continue;
             }
-            List<Block> sub = resolveTrainedBlocks(effect.data().trainedTargets());
-            if (sub.isEmpty()) {
+            String concept = effect.data().concept();
+            if (concept.isEmpty()) {
                 continue;
             }
-            if (guided == null) {
-                guided = new ArrayList<>(sub);
-            } else {
-                guided.retainAll(sub);
+            if (!GuidedConcept.isMember(original.getBlock(), concept)) {
+                continue;
             }
-            if (guided.isEmpty()) {
-                break;
+            double q = GuidedConcept.effectiveQ(effect.data().stabilityStrength(), stage);
+            if (q <= 0.0) {
+                continue;
+            }
+            List<Block> conceptPool = GuidedConcept.neighborhood(concept);
+            if (conceptPool.isEmpty()) {
+                continue;
+            }
+            if (best == null || q > best.q()) {
+                best = new GuidedBias(conceptPool, q);
             }
         }
-        if (guided == null || guided.isEmpty()) {
-            return globalPool.snapshot();
-        }
-        return guided;
+        return best == null ? GuidedBias.NONE : best;
     }
 
     private static boolean withinRadius(BlockPos pos, PrototypeEffect effect) {
         return Math.max(Math.abs(pos.getX() - effect.center().getX()),
                 Math.max(Math.abs(pos.getY() - effect.center().getY()),
                         Math.abs(pos.getZ() - effect.center().getZ()))) <= effect.radius();
-    }
-
-    /** 把训练目标 ID 列表解析为方块列表（忽略空气/非法 ID）。 */
-    private static List<Block> resolveTrainedBlocks(List<String> ids) {
-        List<Block> blocks = new ArrayList<>();
-        for (String id : ids) {
-            try {
-                Block block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse(id));
-                if (block != Blocks.AIR) {
-                    blocks.add(block);
-                }
-            } catch (Exception ignored) {
-                // 非法 ID 忽略
-            }
-        }
-        return blocks;
     }
 
     // ---- 方块诞生周期 ----

@@ -41,10 +41,11 @@ public final class MutationHelper {
     /**
      * 统一的方块识别函数：生存破坏、创造中键选取、客户端预览共用。
      * 受稳定锚保护的方块一律返回原方块（不转换、不显示幽灵）。
+     * {@code bias} 为引导偏向（方案 A）：概念内成员抽中突变时，以 q 偏向概念邻域。
      */
     public static BlockState getVisibleTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
-                                              List<Block> pool, double probability, boolean isProtected,
-                                              long birthPeriod) {
+                                              List<Block> pool, double probability, GuidedBias bias,
+                                              boolean isProtected, long birthPeriod) {
         if (isProtected) {
             return original;
         }
@@ -53,7 +54,15 @@ public final class MutationHelper {
         if (periodIndex < fromPeriod) {
             return original;
         }
-        return cumulativeTarget(original, pos, worldSeed, periodIndex, pool, probability, fromPeriod);
+        return cumulativeTarget(original, pos, worldSeed, periodIndex, pool, probability, bias, fromPeriod);
+    }
+
+    /** 兼容旧调用（无引导偏向，等价于完全走全局池）。 */
+    public static BlockState getVisibleTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
+                                              List<Block> pool, double probability, boolean isProtected,
+                                              long birthPeriod) {
+        return getVisibleTarget(original, pos, worldSeed, periodIndex, pool, probability,
+                GuidedBias.NONE, isProtected, birthPeriod);
     }
 
     /**
@@ -67,7 +76,7 @@ public final class MutationHelper {
      * 服务端与客户端共用同一公式，保证预览与真实转换一致。
      */
     private static BlockState cumulativeTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
-                                               List<Block> pool, double probability, long fromPeriod) {
+                                               List<Block> pool, double probability, GuidedBias bias, long fromPeriod) {
         if (pool.isEmpty() || probability <= 0.0) {
             return original;
         }
@@ -80,7 +89,11 @@ public final class MutationHelper {
             if (random.nextDouble() >= probability) {
                 continue;
             }
-            return pool.get(random.nextInt(pool.size())).defaultBlockState();
+            List<Block> chosen = pool;
+            if (bias.active() && random.nextDouble() < bias.q() && !bias.conceptPool().isEmpty()) {
+                chosen = bias.conceptPool();
+            }
+            return chosen.get(random.nextInt(chosen.size())).defaultBlockState();
         }
         return original;
     }

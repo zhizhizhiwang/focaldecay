@@ -27,6 +27,8 @@
   "tooltip.focal_decay.bio_stabilizer": "No training required. Drains life from nearby creatures to sustain stability.",
   "tooltip.focal_decay.bio_energy": "Bio Energy: %s",
   "tooltip.focal_decay.total_stabilizer": "Total stability: blocks and creatures in range are fully immune to defocus.",
+  "tooltip.focal_decay.guided_concept": "Concept: %s, completeness: %s%%",
+  "tooltip.focal_decay.guided_invalid": "No valid concept identified — the model is inert",
 
   "container.focal_decay.anchor_prototype": "Observer Prototype",
   "container.focal_decay.training_terminal": "Training Terminal",
@@ -37,6 +39,8 @@
   "gui.focal_decay.energy": "Energy: %s",
   "gui.focal_decay.bio_energy": "Bio Energy: %s / %s",
   "gui.focal_decay.bio_energy_empty": "(Out of energy — stabilization disabled)",
+  "gui.focal_decay.guided_concept": "Concept: %s, completeness: %s%%",
+  "gui.focal_decay.guided_invalid": "(No valid concept identified — the model is inert)",
 
   "message.focal_decay.training_need_blank": "Place a blank Observer Model first",
   "message.focal_decay.training_no_energy": "Not enough energy",
@@ -45,6 +49,8 @@
   "message.focal_decay.training_limit": "Target record limit reached",
   "message.focal_decay.training_target_block": "Trained target: %s",
   "message.focal_decay.training_target_entity": "Trained entity: %s",
+  "message.focal_decay.training_concept_result": "Concept: %s, completeness: %s%%",
+  "message.focal_decay.training_concept_invalid": "No valid concept identified — model is inert (need at least %s targets of one concept)",
   "message.focal_decay.ritual_started": "Ritual started — stay within the throne's reach!",
   "message.focal_decay.ritual_progress": "Ritual progress: %s seconds remaining",
   "message.focal_decay.ritual_wave": "Wave %s incoming!",
@@ -66,5 +72,11 @@
   "tag.block.focal_decay.global_mutation_pool": "Global Mutation Pool (Blocks)",
   "tag.block.focal_decay.conversion_blacklist": "Conversion Blacklist",
   "tag.block.focal_decay.anchor_prototype_immune": "Anchor Prototype Immune",
+  "tag.block.focal_decay.concept.wood": "Concept · Wood",
+  "tag.block.focal_decay.concept.ore": "Concept · Ore",
+  "tag.block.focal_decay.concept.stone": "Concept · Stone",
+  "tag.block.focal_decay.concept.glass": "Concept · Glass",
+  "tag.block.focal_decay.concept.terracotta": "Concept · Terracotta",
+  "tag.block.focal_decay.concept.wool": "Concept · Wool",
   "tag.entity_type.focal_decay.entity_mutation_pool_passive": "Entity Mutation Pool (Passive)"
 }

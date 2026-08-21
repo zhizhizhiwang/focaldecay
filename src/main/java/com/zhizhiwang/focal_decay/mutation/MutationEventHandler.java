@@ -39,7 +39,7 @@ public class MutationEventHandler {
         if (state.is(ModBlocks.ANCHOR_PROTOTYPE.get())) {
             AnchorPrototypeBlockEntity be = serverLevel.getBlockEntity(pos) instanceof AnchorPrototypeBlockEntity b ? b : null;
             ItemStack model = be != null ? be.getModelStack() : ItemStack.EMPTY;
-            // 先按模型实际半径固化范围（此时效果尚未登记，getEffectivePool 仍走全局池），再登记保护
+            // 先按模型实际半径固化范围（此时效果尚未登记，getGuidedBias 仍无引导），再登记保护
             if (be != null && be.hasActiveModel()) {
                 convertPrototypeRange(serverLevel, pos, manager,
                         MutationPoolManager.radiusFor(ObserverModelItem.getData(model)));
@@ -116,10 +116,11 @@ public class MutationEventHandler {
                     if (!MutationHelper.isConversionSource(state, level, p, stage)) {
                         return;
                     }
-                    List<Block> pool = manager.getEffectivePool(p, state);
+                    List<Block> pool = manager.getGlobalPool().snapshot();
                     long birthPeriod = manager.getBlockBirthPeriod(p);
+                    GuidedBias bias = manager.getGuidedBias(p, state, stage);
                     BlockState target = MutationHelper.getVisibleTarget(
-                            state, p, worldSeed, periodIndex, pool, chance, false, birthPeriod);
+                            state, p, worldSeed, periodIndex, pool, chance, bias, false, birthPeriod);
                     if (target != state) {
                         level.setBlock(p, target, 3);
                     }

@@ -2,6 +2,7 @@ package com.zhizhiwang.focal_decay.item;
 
 import com.zhizhiwang.focal_decay.data.ModDataComponents;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
+import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -59,6 +60,17 @@ public class ObserverModelItem extends Item {
             tooltipComponents.add(Component.translatable("tooltip.focal_decay.total_stabilizer")
                     .withStyle(ChatFormatting.DARK_PURPLE));
             return; // 完全稳定无需训练，不显示目标列表/Shift 提示
+        }
+        if (ObserverModelData.TYPE_GUIDED.equals(data.type())) {
+            if (data.concept().isEmpty()) {
+                tooltipComponents.add(Component.translatable("tooltip.focal_decay.guided_invalid")
+                        .withStyle(ChatFormatting.DARK_RED));
+            } else {
+                tooltipComponents.add(Component.translatable("tooltip.focal_decay.guided_concept",
+                                GuidedConcept.displayName(data.concept()),
+                                Math.round(data.stabilityStrength() * 100))
+                        .withStyle(ChatFormatting.AQUA));
+            }
         }
         if (Screen.hasShiftDown()) {
             for (String target : data.trainedTargets()) {

@@ -37,6 +37,10 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.IntValue BIO_DRAIN_PER_SECOND;
     public static final ModConfigSpec.BooleanValue BIO_STAGE3_DOUBLE_DRAIN;
     public static final ModConfigSpec.BooleanValue BIO_STABILIZE_ENTITIES;
+    public static final ModConfigSpec.IntValue GUIDED_MIN_TRAINED;
+    public static final ModConfigSpec.DoubleValue GUIDED_Q_MULTIPLIER;
+    public static final ModConfigSpec.DoubleValue GUIDED_Q_CAP;
+    public static final ModConfigSpec.BooleanValue GUIDED_STAGE3_HALVE;
     public static final ModConfigSpec.IntValue THRONE_RITUAL_SECONDS;
     public static final ModConfigSpec.IntValue THRONE_RITUAL_WAVE_INTERVAL_SECONDS;
     public static final ModConfigSpec.IntValue THRONE_RITUAL_WAVE_SIZE;
@@ -111,6 +115,19 @@ public final class FocalDecayConfig {
         BIO_STABILIZE_ENTITIES = builder
                 .comment("Whether creatures inside a Bio Stabilizer range are kept from entity mutation.")
                 .define("bio_stabilize_entities", true);
+        GUIDED_MIN_TRAINED = builder
+                .comment("Minimum distinct trained targets inside a concept for the Guided Model to have any effect."
+                        + " Fewer counts as an incomplete classification (q = 0).")
+                .defineInRange("guided_min_trained", 2, 1, 64);
+        GUIDED_Q_MULTIPLIER = builder
+                .comment("Multiplier applied to the Guided Model's concept coverage when computing q.")
+                .defineInRange("guided_q_multiplier", 1.0, 0.0, 10.0);
+        GUIDED_Q_CAP = builder
+                .comment("Upper cap (0-1) for the Guided Model's q after the multiplier.")
+                .defineInRange("guided_q_cap", 1.0, 0.0, 1.0);
+        GUIDED_STAGE3_HALVE = builder
+                .comment("Whether stage 3 halves the Guided Model's q (effect decay).")
+                .define("guided_stage3_halve", true);
         THRONE_RITUAL_SECONDS = builder
                 .comment("Duration of the End Throne ritual in seconds (33 minutes is the optional homage cap).")
                 .defineInRange("throne_ritual_seconds", 30, 1, 1980);
