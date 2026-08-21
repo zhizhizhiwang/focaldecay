@@ -37,7 +37,9 @@ public class InteractionHandler {
         }
         BlockPos pos = event.getPos();
         BlockState state = serverLevel.getBlockState(pos);
+        BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
         if (FocalDecayWorldData.get(serverLevel.getServer()).isObserverOnline()) {
+            breakData.clear(); // 失焦终止：清掉可能的陈旧锁定
             return; // 失焦终止：不再锁定突变目标
         }
 
@@ -47,6 +49,7 @@ public class InteractionHandler {
 
         // 带方块实体的方块、空气、黑名单、非本阶段转换源：不参与转换
         if (!MutationHelper.isConversionSource(state, serverLevel, pos, stage)) {
+            breakData.clear(); // 非转换源（门/楼梯/栅栏等）：清掉陈旧锁定，避免掉落泄漏
             return;
         }
 
@@ -62,8 +65,7 @@ public class InteractionHandler {
         BlockState target = MutationHelper.getVisibleTarget(state, pos, worldSeed, periodIndex, pool, chance,
                 bias, protection, birthPeriod);
 
-        BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
-        breakData.start(target, periodIndex);
+        breakData.start(target, periodIndex, pos);
     }
 
     /** 方块破坏：执行真实转换。 */
@@ -80,6 +82,10 @@ public class InteractionHandler {
         BlockState sourceState = event.getState();
         BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
         if (!breakData.isActive()) {
+            return;
+        }
+        if (!pos.equals(breakData.getPos())) {
+            breakData.clear(); // 位置不匹配：陈旧的锁定（上次挖掘的目标残留）
             return;
         }
 
@@ -111,6 +117,13 @@ public class InteractionHandler {
         int exp = targetState.getExpDrop(serverLevel, pos, null, player, player.getMainHandItem());
         if (exp > 0) {
             targetState.getBlock().popExperience(serverLevel, pos, exp);
+        }
+
+        // 原版 destroyBlock 在 BreakEvent 取消后跳过了 mineBlock 的耐久消耗，这里手动补上：
+        // 按"当前可见目标"结算（目标可破坏速度非 0 时扣 2 耐久，与原版一致）
+        ItemStack held = player.getMainHandItem();
+        if (!held.isEmpty()) {
+            held.mineBlock(serverLevel, targetState, pos, player);
         }
 
         // 铜块失焦突变：概率掉落"硫铜结晶"语义碎片（设计大纲 §11 来源 5）

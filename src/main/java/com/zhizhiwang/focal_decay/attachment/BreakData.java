@@ -1,5 +1,6 @@
 package com.zhizhiwang.focal_decay.attachment;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.world.level.block.state.BlockState;
@@ -12,21 +13,25 @@ import net.minecraft.world.level.block.state.BlockState;
 public class BreakData {
     private BlockState targetState;
     private long periodIndex;
+    /** 锁定目标所在位置：破坏时校验，防止陈旧的锁定泄漏到其他方块。 */
+    private BlockPos pos;
     private boolean active;
 
     public BreakData() {
         this.active = false;
     }
 
-    public void start(BlockState targetState, long periodIndex) {
+    public void start(BlockState targetState, long periodIndex, BlockPos pos) {
         this.targetState = targetState;
         this.periodIndex = periodIndex;
+        this.pos = pos.immutable();
         this.active = true;
     }
 
     public void clear() {
         this.active = false;
         this.targetState = null;
+        this.pos = null;
     }
 
     public boolean isActive() {
@@ -41,6 +46,10 @@ public class BreakData {
         return periodIndex;
     }
 
+    public BlockPos getPos() {
+        return pos;
+    }
+
     // ---- NBT 序列化（attachment serializer） ----
     public void saveNBT(CompoundTag tag) {
         tag.putBoolean("Active", active);
@@ -48,6 +57,9 @@ public class BreakData {
             tag.putString("Target", net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(targetState.getBlock()).toString());
         }
         tag.putLong("PeriodIndex", periodIndex);
+        if (pos != null) {
+            tag.putLong("Pos", pos.asLong());
+        }
     }
 
     public void loadNBT(CompoundTag tag) {
@@ -60,6 +72,7 @@ public class BreakData {
             }
         }
         this.periodIndex = tag.getLong("PeriodIndex");
+        this.pos = tag.contains("Pos") ? BlockPos.of(tag.getLong("Pos")) : null;
     }
 
     // ---- 网络序列化 ----
@@ -67,6 +80,7 @@ public class BreakData {
         buf.writeBoolean(active);
         buf.writeVarInt(targetState == null ? 0 : net.minecraft.core.registries.BuiltInRegistries.BLOCK.getId(targetState.getBlock()));
         buf.writeVarLong(periodIndex);
+        buf.writeLong(pos == null ? 0L : pos.asLong());
     }
 
     public static BreakData decode(RegistryFriendlyByteBuf buf) {
@@ -75,6 +89,8 @@ public class BreakData {
         int id = buf.readVarInt();
         data.targetState = id == 0 ? null : net.minecraft.core.registries.BuiltInRegistries.BLOCK.byId(id).defaultBlockState();
         data.periodIndex = buf.readVarLong();
+        long p = buf.readLong();
+        data.pos = p == 0 ? null : BlockPos.of(p);
         return data;
     }
 }
