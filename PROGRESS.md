@@ -45,7 +45,7 @@
 - `mutation/InteractionHandler.java`：LeftClickBlock 锁定目标 + BreakEvent setCanceled(true) 后按目标方块生成掉落/经验；创造模式跳过
 - 挖掘速度/工具要求由目标决定（2026-08-21）：`MultiPlayerGameModeMixin` 把挖掘进度改为读可见目标（`ClientRenderCache.miningState` 走缓存，O(1)）；掉落/经验传入玩家主手工具，`requiresCorrectToolForDrops` 生效
 - 陈旧挖掘锁定修复（2026-08-21）：`BreakData` 记录锁定位置并序列化；非转换源（门/楼梯/栅栏等）左键时清空锁定，破坏时校验位置不匹配即清空——杜绝"上次目标的掉落泄漏到不完整方块"的问题
-- 挖掘耐久修复（2026-08-21）：`BreakEvent` 取消后原版 `destroyBlock` 的 `itemstack.mineBlock`（扣 2 耐久）被跳过，导致工具永不耗损；`InteractionHandler.onBlockBreak` 手动补调 `held.mineBlock(level, 目标状态, pos, player)` 按"当前可见目标"结算
+- 挖掘原版行为还原（2026-08-21）：`BreakEvent` 取消会跳过原版 `destroyBlock`/`playerDestroy` 的后续逻辑——`InteractionHandler.onBlockBreak` 手动补调 `held.mineBlock`（按目标扣 2 耐久）、`awardStat(Stats.BLOCK_MINED)`（挖掘统计）、`causeFoodExhaustion(0.005F)`（饥饿），均按"当前可见目标"结算
 
 ### 7. 客户端渲染缓存系统（完成）
 - `client/ClientRenderCache.java`：`Map<Long, Entry> targetCache`（带周期号防跨周期旧值）+ `Set<Long> visibleSurfaces` + `Set<Long> activeSections`（按节计数精确回收）

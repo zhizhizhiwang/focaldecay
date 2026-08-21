@@ -6,6 +6,7 @@ import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.item.ModItems;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.stats.Stats;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
@@ -125,6 +126,10 @@ public class InteractionHandler {
         if (!held.isEmpty()) {
             held.mineBlock(serverLevel, targetState, pos, player);
         }
+        // 还原原版 Block.playerDestroy 的玩家侧行为（被 BreakEvent 取消跳过）：
+        // 挖掘统计 + 0.005 饥饿消耗，按"当前可见目标"结算
+        player.awardStat(Stats.BLOCK_MINED.get(targetState.getBlock()));
+        player.causeFoodExhaustion(0.005F);
 
         // 铜块失焦突变：概率掉落"硫铜结晶"语义碎片（设计大纲 §11 来源 5）
         if (targetState.getBlock() != sourceState.getBlock()
