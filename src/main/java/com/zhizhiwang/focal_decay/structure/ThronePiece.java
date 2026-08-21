@@ -1,11 +1,9 @@
 package com.zhizhiwang.focal_decay.structure;
 
 import com.zhizhiwang.focal_decay.block.ModBlocks;
+import com.zhizhiwang.focal_decay.item.ModItems;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.StructureManager;
@@ -70,19 +68,22 @@ public class ThronePiece extends StructurePiece {
             }
         }
 
-        // 王座基座宝箱：固定产出语义碎片（借原版末地城宝藏表，该表同时享受碎片战利品注入）
+        // 王座基座宝箱：固定产出"碎片·王座"（非随机，探索发现即得）
         BlockPos chestPos = origin.offset(0, 1, 2);
         if (chunkBox.isInside(chestPos) && level.getBlockState(chestPos).isAir()) {
             level.setBlock(chestPos, Blocks.CHEST.defaultBlockState(), 3);
             if (level.getBlockEntity(chestPos) instanceof ChestBlockEntity chest) {
-                chest.setLootTable(ResourceKey.create(Registries.LOOT_TABLE,
-                        ResourceLocation.withDefaultNamespace("chests/end_city_treasure")));
+                chest.setItem(0, new net.minecraft.world.item.ItemStack(ModItems.FRAGMENT_THRONE.get()));
             }
         }
     }
 
     /** 本地坐标（dx,dy,dz，原点 = 基座中心）到方块的映射；null 表示留空。 */
     private static BlockState stateAt(int dx, int dy, int dz) {
+        // 中央空基座：观测者核心（前任观测者遗骸/插座，供安装候选观测者）
+        if (dx == 0 && dy == 1 && dz == 0) {
+            return ModBlocks.OBSERVER_CORE.get().defaultBlockState();
+        }
         // 基座：y=0 整层黑曜石，y=1 环带 + 中央空基座围边
         if (dy == 0) {
             return Math.abs(dx) <= ThroneStructure.HALF_X && Math.abs(dz) <= ThroneStructure.HALF_Z ? THRONE_BLOCK : null;

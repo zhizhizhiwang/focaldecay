@@ -28,6 +28,7 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.BIO_STABILIZER_MODEL.get());
                         output.accept(ModItems.TOTAL_STABILITY_MODEL.get());
                         output.accept(ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get());
+                        output.accept(ModItems.OBSERVER_MODEL_CANDIDATE.get());
                         output.accept(ModItems.FRAGMENT_ROSE.get());
                         output.accept(ModItems.FRAGMENT_THRONE.get());
                         output.accept(ModItems.FRAGMENT_SEMANTIC.get());
@@ -35,7 +36,6 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.FRAGMENT_CRYSTAL.get());
                         output.accept(ModItems.FRAGMENT_AARON.get());
                         output.accept(ModItems.FRAGMENT_CHENG.get());
-                        output.accept(ModItems.REBUILT_OBSERVER_PROTOCOL.get());
                     })
                     .build());
 

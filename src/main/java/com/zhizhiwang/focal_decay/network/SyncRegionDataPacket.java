@@ -26,7 +26,7 @@ public record SyncRegionDataPacket(ResourceKey<Level> dimension, List<PrototypeD
     /** 单个原型机的效果摘要（位置 + 半径 + 模型类型与训练目标 + 生物稳定能量 + 引导概念/完备度）。 */
     public record PrototypeData(long pos, int radius, String type,
                                 List<String> trainedTargets, List<String> trainedEntities,
-                                int bioEnergy, String concept, double q) {
+                                int bioEnergy, String concept, int progress, double q) {
         // 分量超过 composite 上限（6），手写编码
         public static final StreamCodec<ByteBuf, PrototypeData> STREAM_CODEC = StreamCodec.of(
                 (buf, p) -> {
@@ -37,6 +37,7 @@ public record SyncRegionDataPacket(ResourceKey<Level> dimension, List<PrototypeD
                     ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()).encode(buf, p.trainedEntities());
                     buf.writeInt(p.bioEnergy());
                     ByteBufCodecs.STRING_UTF8.encode(buf, p.concept());
+                    buf.writeInt(p.progress());
                     buf.writeDouble(p.q());
                 },
                 buf -> new PrototypeData(
@@ -46,6 +47,7 @@ public record SyncRegionDataPacket(ResourceKey<Level> dimension, List<PrototypeD
                         ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()).decode(buf),
                         buf.readInt(),
                         ByteBufCodecs.STRING_UTF8.decode(buf),
+                        buf.readInt(),
                         buf.readDouble()));
     }
 

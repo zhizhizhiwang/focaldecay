@@ -34,24 +34,26 @@
 - **生成（2026-08-19 定稿）**：每末地维度仅一个，**生成于主岛与外岛之间的虚空环带**（需末影珍珠/鞘翅到达），位置由世界种子确定（方向 + 距离）；生成时规避末影龙活动/锁定相关机制（如不在龙的战斗半径内、不干扰水晶刷新）。
 - **不可破坏**：王座方块硬度等同基岩，仅可仪式操作。
 - **用途**：将稳定锚原型机 + 完全稳定模型（未激活）升级为完全稳定锚（仪式详见 §3.5.1）。
+- **观测者核心（2026-08-21 接入）**：王座中央空基座生成 `observer_core`（前任观测者遗骸/插座），供玩家安装候选观测者模型（§3.4）；仪式触发跳过核心方块。
 
 ### 2.2 观测者核心（Observer Core）——修复路径保留
 - **类型**：原大型研究设施结构的中央核心块（结构生成改由王座取代后，核心块以独立目标形式保留）。
 - **状态**：
   - **失效**（默认）：失焦已开始，核心块熄灭。
-  - **激活**：玩家使用“重建的观测协议”后，核心块发光，失焦终止（"修复世界核心"路线）。
-- **交互（2026-08-21 已实现）**：右键核心块打开 GUI，显示“观测者离线/在线”与激活按钮；首次右键赠送一枚语义碎片。
+  - **激活**：玩家**安装候选观测者模型**后，核心块发光，失焦终止（"新观测者取代旧观测者"路线）。
+- **交互（2026-08-21 已实现，主线重构后待调整）**：右键核心块打开 GUI，显示"旧观测者：离线/新观测者：在线"与"安装候选观测者"按钮；首次右键赠送一枚语义碎片。
 
-### 2.3 语义碎片（Semantic Fragments）
-- 7种不同物品
-- 来源
-  1. 由玫瑰失焦突变出现
-  2. 固定生成于末地王座/末地城结构中
-  3. 村庄中概率刷新
-  4. 第一次右键观测者核心方块时获取
-  5. 由铜块突变得到
-  6. 所有战利品箱里概率刷新
-  7. 由稳定锚合成
+### 2.3 语义碎片（Semantic Fragments）——观测者的记忆知识（2026-08-21 重定位）
+- 7种不同物品；不再是"合成钥匙"，而是**语义知识**：通过配方"候选观测者模型 + 碎片"喂给候选模型，增加训练进度（`candidate_fragment_points`）。
+- **获取方式（里程碑化，移除随机箱子注入）**：
+  1. 碎片·玫瑰 —— 首次完成任意模型训练（训练终端"完成训练"）
+  2. 碎片·王座 —— 末地王座基座宝箱固定产出（非随机）
+  3. 碎片·完备语义 —— 第一次右键观测者核心方块时获取（已实现）
+  4. 碎片·42ms —— 首次完成王座仪式
+  5. 碎片·硫铜结晶 —— 铜块失焦突变概率掉落（已实现，`fragment_copper_mutation_chance`）
+  6. 碎片·Aaron的誓约 —— 击败末影龙后的"遗物宝箱"（生成在主岛地面、传送门正下方附近，与完全稳定模型同箱，替代掉落物防掉虚空/火焰）
+  7. 碎片·程玖章的最后传输 —— 首次将某个引导模型概念完备度练到 100%（q=1.0）
+  - 里程碑发放由 `FocalDecayWorldData` 位掩码持久化，防重复获得。
 - **碎片列表与Lore**
   1. 碎片·玫瑰 —— “玫瑰，是玫瑰，是玫瑰……”
   2. 碎片·王座 —— “它不是能用语言描述的事物。”
@@ -60,7 +62,7 @@
   5. 碎片·硫铜结晶 —— “一小块Dr. Kacper Darlin”
   6. 碎片·Aaron的誓约 —— “世界会继续美丽。”
   7. 碎片·程玖章的最后传输 —— “那就这么决定了。”
-- **合成**：7个碎片无序合成 `重建的观测协议`（`Rebuilt Observer Protocol`），配方类型 `minecraft:crafting_special_rebuildobserver`。
+- **合成**：`rebuilt_observer_protocol` 物品与合成配方**移除**（碎片不再合成协议；碎片 = 候选模型训练材料）。
 
 ---
 
@@ -109,11 +111,12 @@
 ### 3.3 观测模型（Observer Models，物品 + DataComponents）
 - 统一用 `ObserverModelData` 组件（NeoForge 1.21.1 `DataComponentType`）存储：
   ```
-  type: "semantic_lock" | "guided" | "bio_stabilizer" | "total_stability"
+  type: "semantic_lock" | "guided" | "bio_stabilizer" | "total_stability" | "candidate"
   trainedTargets: List<String>    // 已训练目标（方块ID或标签表达式）
   trainedEntities: List<String>   // 可稳定实体类型
   stabilityStrength: double       // 0.0 - 1.0；引导模型存"完备度 q"，语义锁定保留
   concept: String                 // 引导模型固化的概念标签（focal_decay:concept/* 或原版标签），训练完成时解析
+  progress: int                   // 候选观测者训练进度（唯一目标数 + 碎片注入点数）
   bioEnergy: int                  // 生物稳定模型剩余能量
   totalStability: boolean         // 完全稳定模型标记
   ```
@@ -123,13 +126,14 @@
   3. 引导模型 `guided_mutation_model` — 训练；范围内"概念内成员"突变时，以完备度 q 偏向概念邻域（方案 A，2026-08-20 定稿，详见 §4.2；替代旧的"目标池硬限制为训练列表"）
   4. 生物稳定模型 `bio_stabilizer_model` — 无需训练；消耗周围生物生命值换取能量，范围内所有方块与生物稳定
   5. 完全稳定模型——**两个独立物品**：`total_stability_model`（未激活，末影龙掉落）与 `total_stability_model_activated`（已激活，王座仪式后）；已激活模型 + 空白模型可复制（获取见 §5.4）
+  6. 候选观测者模型 `observer_model_candidate` — **主线道具（2026-08-21 新设计）**：本质是无数量上限的"空白模型"，不经过训练终端；手持右键世界方块/生物收集目标（每个唯一目标 +1 进度），或通过配方"候选模型 + 语义碎片"注入知识（+`candidate_fragment_points`）；进度达到 `candidate_required_points`（默认 100）即 100% 完成。完成后的候选模型**兼具完全稳定模型效果**（插入原型机 = 半径 32 硬保护），并可在观测者核心处**安装为新观测者**（消耗模型 → 失焦终止 = 胜利）。**不可复制**。
 
 ### 3.4 观测者核心块（Observer Core Block，修复路径保留）
 - **注册名**：`observer_core`
 - 不可破坏、不可合成。
 - 两种状态：`powered=false`（失效）和 `powered=true`（激活），由 `blockstate` 控制。
 - 使用 `BlockBehaviour.Properties.of().strength(-1.0f, Float.MAX_VALUE).noLootTable()`。
-- **激活逻辑（2026-08-21 已实现）**：GUI 内点击"激活"（需消耗一个 `Rebuilt Observer Protocol`），播放开始特效并 `scheduleTick`（`observer_core_activation_ticks`，默认 100 tick）；完成 tick 设置 `powered=true`、`FocalDecayWorldData.observerOnline=true`（方块/实体突变全部停止，客户端清空幽灵预览）、广播 `ObserverCoreActivatePacket` 与胜利消息。
+- **安装逻辑（2026-08-21 主线重构）**：核心 = 前任观测者的遗骸/插座，位于末地王座。GUI 显示"旧观测者：离线"，携带**已完成的候选观测者模型**点击"安装"→ 消耗模型、播放特效并 `scheduleTick`（`observer_core_activation_ticks`，默认 100 tick）→ 完成时 `powered=true`、`FocalDecayWorldData.observerOnline=true`（方块/实体突变全部停止，客户端清空幽灵预览）、广播 `ObserverCoreActivatePacket` 与胜利消息（"新观测者已就位"）。
 - 原"观测者核心结构"的世界生成由末地王座取代（见 §3.5 / §5）；核心块仍作为"修复世界核心"路线的目标保留。
 
 ### 3.5 末地王座（The Throne）
@@ -144,8 +148,8 @@
 4. **完成**：原型机升级为**完全稳定锚**，模型变为 `total_stability_model`，广播 `ThroneRitualPacket`，播放音效与成就。
 5. **结果**：完全稳定锚可拾取并重新放置在任何地方。
 
-#### 3.5.2 完全稳定模型获取（2026-08-19 定稿）
-- **第一枚**：击败末影龙后的稀有掉落，物品为 `total_stability_model`（未激活）。
+#### 3.5.2 完全稳定模型获取（2026-08-21 修订）
+- **第一枚**：击败末影龙后生成"遗物宝箱"（主岛地面、传送门正下方附近，中心偏移 10~14 格、种子决定方向；内含未激活 `total_stability_model` + 碎片·Aaron的誓约），用箱子替代掉落物防止掉进虚空/火焰，且避开传送门生成时对平台的覆盖；概率 `ender_dragon_total_stability_drop_chance`（默认 1.0，可调成设计文档的稀有掉落）。
 - **王座仪式后**：原型机升级为完全稳定锚，同时得到独立物品 `total_stability_model_activated`（已激活）。
 - **后续复制**：`total_stability_model_activated` + 空白模型合成可复制出新的已激活完全稳定模型（仅已激活物品可复制，未激活不可复制）。
 - 不走训练终端。
@@ -377,6 +381,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - **新增可配置项（2026-08-19 规划，均带默认值便于整合包修改）**：
   - 原型机：`prototype_radius`（默认 8，替代 `anchor_radius` 语义）、各模型半径加成（生物稳定 +4）、完全稳定锚半径（固定 32）
   - 语义锁定：`semantic_lock_stage3_strength`（阶段3保护强度，默认 0.5 = 效果减半；1.0 = 不衰减）
+  - 候选观测者：`candidate_required_points`（训练进度要求，默认 100）、`candidate_fragment_points`（单枚碎片注入点数，默认 10）
   - 训练终端：训练所需能量/时长（**FE 默认消耗 0，单模组不启用**）、空白模型记录数量上限、经验瓶回退开关、训练交互冷却
   - 生物稳定模型：生命值→能量换算、`bioEnergy` 消耗速率、阶段3双倍消耗开关、范围内实体稳定开关
   - 引导模型：`guided_min_trained`（最少有效训练数，默认 2）、`guided_q_multiplier` / `guided_q_cap`（q 倍率与上限）、`guided_stage3_halve`（阶段3 q 减半开关，默认开）
@@ -446,6 +451,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 
 - 方块：`anchor_prototype`, `training_terminal`, `observer_core`, 王座相关（`throne_base` 等，待定）
 - 物品：`observer_model_blank`, `semantic_lock_model`, `guided_mutation_model`, `bio_stabilizer_model`, `total_stability_model`, `semantic_fragment_rose`, `semantic_fragment_throne`, `semantic_fragment_semantic`, `semantic_fragment_42ms`, `semantic_fragment_crystal`, `semantic_fragment_aaron`, `semantic_fragment_cheng`, `rebuilt_observer_protocol`
+- 主线道具：`observer_model_candidate`（候选观测者，2026-08-21 新增）；`rebuilt_observer_protocol` 已移除
 - 方块实体类型：`anchor_prototype`, `training_terminal`
 - 能力：`break_data`
 - 标签：

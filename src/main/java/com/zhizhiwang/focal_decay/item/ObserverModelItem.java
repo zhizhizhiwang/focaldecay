@@ -2,6 +2,7 @@ package com.zhizhiwang.focal_decay.item;
 
 import com.zhizhiwang.focal_decay.data.ModDataComponents;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
+import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.screens.Screen;
@@ -42,6 +43,19 @@ public class ObserverModelItem extends Item {
         return data != null && ObserverModelData.TYPE_TRAINING.equals(data.type());
     }
 
+    /** 是否为候选观测者模型（可手持右键收集训练目标）。 */
+    public static boolean isCandidate(ItemStack stack) {
+        ObserverModelData data = getData(stack);
+        return data != null && ObserverModelData.TYPE_CANDIDATE.equals(data.type());
+    }
+
+    /** 候选观测者是否已完成训练（进度达到要求 = 兼具完全稳定效果，可在核心安装）。 */
+    public static boolean isCompletedCandidate(ItemStack stack) {
+        ObserverModelData data = getData(stack);
+        return data != null && ObserverModelData.TYPE_CANDIDATE.equals(data.type())
+                && data.progress() >= FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get();
+    }
+
     /** 收纳袋风格提示：默认折叠显示数量，按住 Shift 展开训练目标列表。 */
     @Override
     public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltipComponents, TooltipFlag tooltipFlag) {
@@ -60,6 +74,20 @@ public class ObserverModelItem extends Item {
             tooltipComponents.add(Component.translatable("tooltip.focal_decay.total_stabilizer")
                     .withStyle(ChatFormatting.DARK_PURPLE));
             return; // 完全稳定无需训练，不显示目标列表/Shift 提示
+        }
+        if (ObserverModelData.TYPE_CANDIDATE.equals(data.type())) {
+            if (isCompletedCandidate(stack)) {
+                tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_complete")
+                        .withStyle(ChatFormatting.DARK_PURPLE));
+            } else {
+                int required = Math.max(1, FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get());
+                int percent = (int) Math.min(100, Math.round(data.progress() * 100.0 / required));
+                tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_progress", percent)
+                        .withStyle(ChatFormatting.AQUA));
+                tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_hint")
+                        .withStyle(ChatFormatting.DARK_GRAY));
+            }
+            return;
         }
         if (ObserverModelData.TYPE_GUIDED.equals(data.type())) {
             if (data.concept().isEmpty()) {

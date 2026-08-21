@@ -3,7 +3,7 @@
 > 最后更新：2026-08-20
 > 环境：NeoForge 21.1.248 / Minecraft 1.21.1 / Parchment 2024.11.17 / Java 21
 > Mod ID：`focal_decay`，包：`com.zhizhiwang.focal_decay`
-> 当前状态（2026-08-21）：`compileJava` / `runData` / `build -x test` 通过。引导模型重设计（方案 A，§9.2）已实施并**提交**（`c6f437c`）。§9 观测稳定系统里程碑 1~7 全部完成；§11 观测者核心修复路径**已实施（2026-08-21，未提交）**。剩余里程碑 8（彩蛋打磨）与实机平衡测试。
+> 当前状态（2026-08-21）：`compileJava` / `runData` / `build -x test` 通过。引导模型重设计（方案 A，§9.2）已实施并**提交**（`c6f437c`）。§9 观测稳定系统里程碑 1~7 全部完成；§11 观测者核心修复路径已实施（未提交）；**§11.1 候选观测者主线重构已实施（2026-08-21，未提交）**——碎片知识化 + 候选观测者模型 + 核心安装胜利 + 龙遗物宝箱。
 
 ## 已完成
 
@@ -127,7 +127,7 @@
      - 视觉（2026-08-20）：四根角柱绘制折跃门式信标光束（`ThroneBeamRenderer` 客户端渲染，end_gateway_beam 贴图，结构生成后显示）；常驻粒子（每 2 秒末地棒/传送门漂浮）、仪式开始（传送门+末地棒爆发 + 末地传送门/潮涌核心音效）、进行中（每秒粒子 + 波次龙息粒子与远古守卫者诅咒音效）、完成（末地棒+传送门大爆发 + 信标激活/末地传送门音效）。
      - 仪式：右键基座触发（携带原型机物品或附近已放置 + 未激活完全稳定模型）；`ThroneRitualData`（维度级 SavedData）持久化进度，离开半径按 `throne_ritual_pause_on_leave` 暂停（同玩家返回续仪）或失败；按配置波次生成敌人（`throne_ritual_wave_entities/size/interval`）；完成时只升级"槽内本来就是未激活完全稳定模型"的原型机，其他情况激活模型交还玩家背包（不再覆盖原型机原有内容），广播 `ThroneRitualPacket`（开始/进度/波次/暂停/完成/失败）。
      - 模型接入修正（2026-08-20）：插入有效模型时**先按模型实际半径（完全稳定=32）固化范围失焦状态、再登记保护**（此前先登记保护导致 `getEffectivePool` 返回空、固化无效）；`convertPrototypeRange` 增加 `isLoaded` 防护避免大半径触发未加载区块加载；激活的完全稳定模型 tooltip 不再显示训练目标/Shift 提示。
-  6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制——**已完成（2026-08-20）**：仪式升级（原型机插槽升级为 `total_stability_model_activated`，不覆盖原有模型）、半径 32 完美稳定（`radiusFor(TYPE_TOTAL)=32` + `isProtected`）、复制配方（`CopyTrainedModelRecipe`）、末影龙掉落（`DragonDropHandler`，配置 `ender_dragon_total_stability_drop_chance`，默认 1.0 必掉、可调成设计文档的稀有掉落）、特殊视觉（`TotalStabilityFieldHandler` 旋转光环粒子 + 锚上方漂浮粒子）
+  6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚"龙遗物宝箱"、后续"已激活模型 + 空白模型"复制——**已完成（2026-08-20，2026-08-21 修订获取方式）**：仪式升级（原型机插槽升级为 `total_stability_model_activated`，不覆盖原有模型）、半径 32 完美稳定（`radiusFor(TYPE_TOTAL)=32` + `isProtected`）、复制配方（`CopyTrainedModelRecipe`）、**第一枚改由击败末影龙后的"遗物宝箱"产出**（`DragonChestHandler`，传送门平台生成，替代原 `DragonDropHandler` 掉落物防掉虚空/火焰）、特殊视觉（`TotalStabilityFieldHandler` 旋转光环粒子 + 锚上方漂浮粒子）
   7. 与末日阶段/渲染/网络整合（阶段3模型效果衰减等）——**已完成（2026-08-21）**：引导模型阶段3 q 减半（§9.2 随 `guided_stage3_halve` 实现）；语义锁定阶段3转**软保护**——新增 `MutationHelper.Protection`（硬保护/软保护）与 `semantic_lock_stage3_strength`（默认 0.5）：阶段1/2 语义锁定仍硬保护，阶段3 每周期先掷"守住"骰子、失守才参与突变骰（确定性、服务端 `MutationPoolManager.protectionInfo` 与客户端 `ClientRenderCache.protectionInfo` 同一公式）；生物稳定/完全稳定保持硬保护；渲染缓存/中键选取/挖掘锁定统一走该判定。
   8. 彩蛋与打磨（粒子/音效/专属贴图/测试）
 
@@ -157,16 +157,39 @@
 - 使用 NeoForge 21.1 Payload API（现有 `ModNetwork` 基础上扩展），协议版本 "1"
 
 ### 11. 观测者核心修复路径（已完成，2026-08-21）
-- **核心 GUI**：右键 `observer_core` 打开无槽位菜单（`ObserverCoreMenu`/`ObserverCoreScreen`），显示"观测者离线/在线" + 激活按钮；首次右键赠送一枚 `碎片·完备语义`（`FocalDecayWorldData.coreVisited` 持久化防重复）。
-- **激活流程**：GUI 按钮 → 服务端校验并**消耗 1 个 `rebuilt_observer_protocol`** → 播放开始特效/音效 → `scheduleTick`（`observer_core_activation_ticks`，默认 100 tick）→ 完成 tick 设置 `powered=true`、`FocalDecayWorldData.observerOnline=true`（**失焦终止**：方块锁定/实体突变/客户端幽灵预览全部停止，`DoomsdayHandler`、`InteractionHandler`、`ModelTrainingHandler`、`MutationEventHandler.convertPrototypeRange`、`ClientRenderCache` 统一门控）→ 广播 `ObserverCoreActivatePacket` + 全服胜利消息。
-- **语义碎片来源落地**：
-  1. 玫瑰失焦突变 —— **暂缓**：玫瑰（虞美人）无碰撞箱，被 §6.3 源规则（阶段1完整 / 阶段2+ 有碰撞）排除，改由箱子来源覆盖；如需可放宽阶段3源范围
-  2. 末地王座/末地城 —— **王座基座宝箱**（借 `minecraft:chests/end_city_treasure`，`ThronePiece` 生成时设置）+ 该表同时享受碎片注入
-  3. 村庄战利品 —— 由 `chests/*` 注入覆盖
-  4. 首次右键核心 —— **已实现**（赠送碎片·完备语义）
-  5. 铜块突变 —— **已实现**：铜块失焦突变时按 `fragment_copper_mutation_chance`（默认 0.15）掉落 `碎片·硫铜结晶`
-  6. 所有战利品箱 —— **已实现**：`LootTableLoadEvent` + `LootTableAccessor`（mixin）向全部 `chests/*` 表原地追加碎片池（普通 5%、末地城 12%）
-  7. 由稳定锚合成 —— 未做（语义待定：原"稳定锚"已重构为原型机，来源表述过时）
+- **核心 GUI**：右键 `observer_core` 打开无槽位菜单（`ObserverCoreMenu`/`ObserverCoreScreen`），显示"旧观测者：离线/新观测者：在线" + 安装按钮；首次右键赠送一枚 `碎片·完备语义`（`FocalDecayWorldData.coreVisited` 持久化防重复）。
+- **安装流程（2026-08-21 主线重构后）**：GUI 按钮 → 服务端校验并**消耗 1 个已完成的候选观测者模型**（`ObserverModelItem.isCompletedCandidate`）→ 播放开始特效/音效 → `scheduleTick`（`observer_core_activation_ticks`，默认 100 tick）→ 完成 tick 设置 `powered=true`、`FocalDecayWorldData.observerOnline=true`（**失焦终止**：方块锁定/实体突变/客户端幽灵预览全部停止，`DoomsdayHandler`、`InteractionHandler`、`ModelTrainingHandler`、`MutationEventHandler.convertPrototypeRange`、`ClientRenderCache` 统一门控）→ 广播 `ObserverCoreActivatePacket` + 全服胜利消息。
+- **王座内置核心 + 候选定位**：`ThronePiece` 中央空基座生成 `observer_core`（仪式触发跳过核心方块）；已完成的候选模型在末地右键（空处）生成指向王座的 END_ROD 粒子束 + 距离提示（`candidate_locate`）。
+- **语义碎片来源（2026-08-21 里程碑化，移除随机箱子注入）**：
+  1. 碎片·玫瑰 —— 首次完成任意模型训练（`TrainingTerminalBlockEntity.finishTraining`，位掩码防重复）
+  2. 碎片·王座 —— 末地王座基座宝箱固定产出（`ThronePiece` 直接 `setItem`，非随机）
+  3. 碎片·完备语义 —— 首次右键观测者核心（已实现）
+  4. 碎片·42ms —— 首次完成王座仪式（`ThroneRitualHandler.complete`，位掩码防重复）
+  5. 碎片·硫铜结晶 —— 铜块失焦突变概率掉落（`fragment_copper_mutation_chance`，默认 0.15）
+  6. 碎片·Aaron的誓约 —— 击败末影龙后的"遗物宝箱"（`DragonChestHandler`，主岛地面、传送门正下方附近，含未激活完全稳定模型 + Aaron碎片）
+  7. 碎片·程玖章的最后传输 —— 首次将引导模型概念完备度练到 100%（q=1.0，位掩码防重复）
+
+### 11.1 候选观测者主线重构（2026-08-21 定稿，已实施）
+- **背景**：原主线"收集 7 碎片 → 合成重建协议 → 激活旧核心"操作性弱（多为随机战利品）且与原著"亲手造出新观测者并登座"的结局割裂。
+- **定稿设计**（已同步到 PROXYAI.md §2.2 / §2.3 / §3.3 / §3.4 / §9.1 / §13）：
+  1. **候选观测者模型** `observer_model_candidate`：新物品，本质是无数量上限的空白模型；**不经过训练终端**（终端不加按钮），手持右键世界方块/生物收集目标（每个唯一目标 +1 进度），或配方"候选模型 + 语义碎片"注入知识（+`candidate_fragment_points`）；进度 ≥ `candidate_required_points`（默认 100）即 100% 完成。
+  2. **完成态效果**：兼具完全稳定模型效果（插入原型机 = 半径 32 硬保护），**不可复制**。
+  3. **碎片知识化**：7 碎片不再是合成钥匙，改为候选模型训练材料；获取全部改为**里程碑/主动探索**（首次完成训练、王座宝箱固定产出、首次右键核心、首次完成王座仪式、铜块突变、首次屠龙、首次概念 q=100%），**移除全部随机箱子注入**；`FocalDecayWorldData` 位掩码持久化防重复。
+  4. **胜利触发**：观测者核心 GUI（核心位于末地王座，= 前任观测者遗骸/插座）安装**已完成的候选模型**（消耗）→ 失焦终止（复用 `observerOnline` 机制）→ "新观测者已就位"。
+  5. 完全稳定锚链（末地主岛遗物宝箱 + 王座仪式升级）**保留，与主线并行**。
+  6. `rebuilt_observer_protocol` 物品与合成配方移除。
+- **实施清单**：
+  1. `ObserverModelData` 新增 `progress` 字段（Codec/StreamCodec/构造点同步）
+  2. `ModItems` 注册 `observer_model_candidate`（默认 TYPE_CANDIDATE、progress 0）
+  3. `ModelTrainingHandler` 支持 TYPE_CANDIDATE（右键收集目标、进度 +1、无上限）
+  4. 新配方 `FeedSemanticFragmentRecipe`（候选 + 任一碎片 → 进度 +X，消耗碎片）
+  5. 里程碑发放：首次完成训练（玫瑰）/ 王座宝箱（王座，`ThronePiece` 固定产出）/ 首次完成仪式（42ms）/ **龙遗物宝箱**（Aaron，`DragonChestHandler`，主岛地面生成）/ 首次概念 q=100%（程玖章）；位掩码持久化
+  6. 移除 `rebuilt_observer_protocol` 物品/配方/文案；移除箱子碎片注入（`LootTableAccessor` mixin 与 `onLootTableLoad`）；`DragonDropHandler` 掉落物改为 `DragonChestHandler` 宝箱
+  7. 完成态接入原型机：`radiusFor` / `protectionInfo` / 客户端镜像 / 实体保护按"候选已完成 = 完全稳定"处理
+  8. 核心 GUI 安装：`ObserverCoreHandler` 改为检查并消耗已完成候选模型；GUI/消息文案更新
+  9. 配置：`candidate_required_points` / `candidate_fragment_points` / `ender_dragon_total_stability_drop_chance`（宝箱概率）
+  10. 语言 / 文档 / `compileJava` + `build -x test` 验证
+- **状态**：**已实施（2026-08-21）**。`compileJava` / `runData` / `build -x test` 通过；待实机验证。
 
 ### 12. 收尾
 - 原型机 GUI 与训练终端 GUI：自定义占位贴图已替换（`assets/focal_decay/textures/gui/*.png`），专属模型/细化待做

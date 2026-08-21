@@ -104,7 +104,7 @@ public final class ClientRenderCache {
     /** 客户端侧原型机效果镜像。 */
     private record ClientPrototype(BlockPos center, int radius, String type,
                                    Set<String> trainedTargets, Set<String> trainedEntities,
-                                   int bioEnergy, String concept, double q) {
+                                   int bioEnergy, String concept, int progress, double q) {
     }
 
     /** pos.asLong() -> 突变目标（含所属周期，防止跨周期读到旧值）。 */
@@ -364,7 +364,7 @@ public final class ClientRenderCache {
             prototypeList.add(new ClientPrototype(
                     BlockPos.of(p.pos()), p.radius(), p.type(),
                     Set.copyOf(p.trainedTargets()), Set.copyOf(p.trainedEntities()), p.bioEnergy(),
-                    p.concept(), p.q()));
+                    p.concept(), p.progress(), p.q()));
         }
 
         Map<BlockPos, Long> newBirths = new HashMap<>();
@@ -422,6 +422,10 @@ public final class ClientRenderCache {
             }
             if (ObserverModelData.TYPE_BIO.equals(prototype.type()) && prototype.bioEnergy() > 0) {
                 return MutationHelper.Protection.HARD;
+            }
+            if (ObserverModelData.TYPE_CANDIDATE.equals(prototype.type())
+                    && prototype.progress() >= FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get()) {
+                return MutationHelper.Protection.HARD; // 已完成候选 = 完全稳定
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(prototype.type())) {
                 String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();

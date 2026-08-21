@@ -37,6 +37,10 @@ public final class ModItems {
             ITEMS.register("total_stability_model", () -> observerModel());
     public static final DeferredItem<ObserverModelItem> TOTAL_STABILITY_MODEL_ACTIVATED =
             ITEMS.register("total_stability_model_activated", () -> observerModel());
+    public static final DeferredItem<ObserverModelItem> OBSERVER_MODEL_CANDIDATE =
+            ITEMS.register("observer_model_candidate", () -> new ObserverModelItem(
+                    new Item.Properties().stacksTo(1)
+                            .component(ModDataComponents.OBSERVER_MODEL_DATA.get(), ObserverModelData.candidate())));
 
     // 语义碎片
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_ROSE =
@@ -53,10 +57,6 @@ public final class ModItems {
             ITEMS.register("semantic_fragment_aaron", () -> fragment("lore.focal_decay.fragment_aaron"));
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_CHENG =
             ITEMS.register("semantic_fragment_cheng", () -> fragment("lore.focal_decay.fragment_cheng"));
-
-    // 重建的观测协议
-    public static final DeferredItem<Item> REBUILT_OBSERVER_PROTOCOL =
-            ITEMS.register("rebuilt_observer_protocol", () -> new Item(new Item.Properties().stacksTo(1)));
 
     private static SemanticFragmentItem fragment(String loreKey) {
         return new SemanticFragmentItem(new Item.Properties().stacksTo(16), loreKey);

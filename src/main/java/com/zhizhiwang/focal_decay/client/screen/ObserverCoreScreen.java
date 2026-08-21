@@ -25,7 +25,7 @@ public class ObserverCoreScreen extends AbstractContainerScreen<ObserverCoreMenu
     protected void init() {
         super.init();
         this.addRenderableWidget(Button.builder(
-                        Component.translatable("gui.focal_decay.core_activate"),
+                        Component.translatable("gui.focal_decay.core_install"),
                         b -> sendButton(0))
                 .bounds(this.leftPos + 8, this.topPos + 40, 160, 20)
                 .build());

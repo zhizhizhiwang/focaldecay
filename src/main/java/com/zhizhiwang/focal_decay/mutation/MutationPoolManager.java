@@ -108,6 +108,11 @@ public class MutationPoolManager extends SavedData {
 
     /** 模型效果半径（供放置固化与效果注册共用）：生物稳定 +4，完全稳定固定 32。 */
     public static int radiusFor(ObserverModelData data) {
+        if (ObserverModelData.TYPE_CANDIDATE.equals(data.type())) {
+            // 候选观测者完成训练后兼具完全稳定效果（半径 32）；未完成 = 无保护（基础半径）
+            return data.progress() >= FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get() ? 32
+                    : FocalDecayConfig.PROTOTYPE_RADIUS.get();
+        }
         return switch (data.type()) {
             case ObserverModelData.TYPE_BIO -> FocalDecayConfig.PROTOTYPE_RADIUS.get() + 4;
             case ObserverModelData.TYPE_TOTAL -> 32;
@@ -135,6 +140,10 @@ public class MutationPoolManager extends SavedData {
             }
             if (ObserverModelData.TYPE_BIO.equals(type) && effect.data().bioEnergy() > 0) {
                 return MutationHelper.Protection.HARD;
+            }
+            if (ObserverModelData.TYPE_CANDIDATE.equals(type)
+                    && effect.data().progress() >= FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get()) {
+                return MutationHelper.Protection.HARD; // 已完成候选 = 完全稳定
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)) {
                 String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();

@@ -17,8 +17,14 @@ public class FocalDecayWorldData extends SavedData {
     private static final String TAG_PARTIAL_TICKS = "PartialTicks";
     private static final String TAG_OBSERVER_ONLINE = "ObserverOnline";
     private static final String TAG_CORE_VISITED = "CoreVisited";
+    private static final String TAG_GRANTED_FRAGMENTS = "GrantedFragments";
 
     public static final long TICKS_PER_DAY = 24000L;
+
+    /** 语义碎片里程碑位（首次达成发放，防重复）。 */
+    public static final int BIT_FRAGMENT_ROSE = 1;
+    public static final int BIT_FRAGMENT_42MS = 1 << 1;
+    public static final int BIT_FRAGMENT_CHENG = 1 << 2;
 
     private long days;
     private long partialTicks;
@@ -26,6 +32,8 @@ public class FocalDecayWorldData extends SavedData {
     private boolean observerOnline;
     /** 玩家是否已第一次右键过观测者核心（发过一次碎片）。 */
     private boolean coreVisited;
+    /** 已发放过的碎片里程碑位掩码。 */
+    private int grantedFragmentBits;
 
     public static final Factory<FocalDecayWorldData> FACTORY = new Factory<>(
             FocalDecayWorldData::new,
@@ -74,6 +82,16 @@ public class FocalDecayWorldData extends SavedData {
         setDirty();
     }
 
+    /** 里程碑碎片：首次达成返回 true 并发放；重复返回 false。 */
+    public boolean grantFragmentOnce(int bit) {
+        if ((grantedFragmentBits & bit) != 0) {
+            return false;
+        }
+        grantedFragmentBits |= bit;
+        setDirty();
+        return true;
+    }
+
     /** 每 tick 调用：有玩家在线时累计，满一个游戏日后天数 +1 并广播给所有玩家。 */
     public void tick(MinecraftServer server) {
         if (server.getPlayerCount() > 0) {
@@ -93,6 +111,7 @@ public class FocalDecayWorldData extends SavedData {
         data.partialTicks = tag.getLong(TAG_PARTIAL_TICKS);
         data.observerOnline = tag.getBoolean(TAG_OBSERVER_ONLINE);
         data.coreVisited = tag.getBoolean(TAG_CORE_VISITED);
+        data.grantedFragmentBits = tag.getInt(TAG_GRANTED_FRAGMENTS);
         return data;
     }
 
@@ -102,6 +121,7 @@ public class FocalDecayWorldData extends SavedData {
         tag.putLong(TAG_PARTIAL_TICKS, partialTicks);
         tag.putBoolean(TAG_OBSERVER_ONLINE, observerOnline);
         tag.putBoolean(TAG_CORE_VISITED, coreVisited);
+        tag.putInt(TAG_GRANTED_FRAGMENTS, grantedFragmentBits);
         return tag;
     }
 }

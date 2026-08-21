@@ -41,16 +41,16 @@ public class ModRecipeProvider extends RecipeProvider {
                 .unlockedBy("has_book", has(Items.BOOK))
                 .save(recipeOutput);
 
-        // ---- 重建的观测协议：7 碎片无序合成（自定义配方类型） ----
-        SpecialRecipeBuilder.special(
-                (net.minecraft.world.item.crafting.CraftingBookCategory category) ->
-                        new RebuildObserverProtocolRecipe(category))
-                .save(recipeOutput, "focal_decay:rebuild_observer_protocol");
-
         // ---- 训练模型复制：已训练模型 + 空白模型 → 2 份（保留训练数据） ----
         SpecialRecipeBuilder.special(
                 (net.minecraft.world.item.crafting.CraftingBookCategory category) ->
                         new CopyTrainedModelRecipe(category))
                 .save(recipeOutput, "focal_decay:copy_trained_model");
+
+        // ---- 语义知识注入：候选观测者 + 任一碎片 → 进度 +X ----
+        SpecialRecipeBuilder.special(
+                (net.minecraft.world.item.crafting.CraftingBookCategory category) ->
+                        new FeedSemanticFragmentRecipe(category))
+                .save(recipeOutput, "focal_decay:feed_semantic_fragment");
     }
 }

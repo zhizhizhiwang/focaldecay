@@ -12,7 +12,8 @@ import java.util.List;
  * 观测模型的训练数据（设计大纲 §3.3），存于物品 DataComponent（NeoForge 1.21.1 DataComponentType）。
  */
 public record ObserverModelData(String type, List<String> trainedTargets, List<String> trainedEntities,
-                                double stabilityStrength, String concept, int bioEnergy, boolean totalStability) {
+                                double stabilityStrength, String concept, int progress,
+                                int bioEnergy, boolean totalStability) {
 
     public static final String TYPE_BLANK = "blank";
     public static final String TYPE_TRAINING = "training";
@@ -20,6 +21,7 @@ public record ObserverModelData(String type, List<String> trainedTargets, List<S
     public static final String TYPE_GUIDED = "guided";
     public static final String TYPE_BIO = "bio_stabilizer";
     public static final String TYPE_TOTAL = "total_stability";
+    public static final String TYPE_CANDIDATE = "candidate";
 
     public static final Codec<ObserverModelData> CODEC = RecordCodecBuilder.create(inst -> inst.group(
             Codec.STRING.fieldOf("type").forGetter(ObserverModelData::type),
@@ -27,6 +29,7 @@ public record ObserverModelData(String type, List<String> trainedTargets, List<S
             Codec.STRING.listOf().optionalFieldOf("trainedEntities", List.of()).forGetter(ObserverModelData::trainedEntities),
             Codec.DOUBLE.optionalFieldOf("stabilityStrength", 0.0).forGetter(ObserverModelData::stabilityStrength),
             Codec.STRING.optionalFieldOf("concept", "").forGetter(ObserverModelData::concept),
+            Codec.INT.optionalFieldOf("progress", 0).forGetter(ObserverModelData::progress),
             Codec.INT.optionalFieldOf("bioEnergy", 0).forGetter(ObserverModelData::bioEnergy),
             Codec.BOOL.optionalFieldOf("totalStability", false).forGetter(ObserverModelData::totalStability)
     ).apply(inst, ObserverModelData::new));
@@ -39,6 +42,7 @@ public record ObserverModelData(String type, List<String> trainedTargets, List<S
                 ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()).encode(buf, data.trainedEntities());
                 buf.writeDouble(data.stabilityStrength());
                 ByteBufCodecs.STRING_UTF8.encode(buf, data.concept());
+                buf.writeInt(data.progress());
                 buf.writeInt(data.bioEnergy());
                 buf.writeBoolean(data.totalStability());
             },
@@ -49,14 +53,20 @@ public record ObserverModelData(String type, List<String> trainedTargets, List<S
                     buf.readDouble(),
                     ByteBufCodecs.STRING_UTF8.decode(buf),
                     buf.readInt(),
+                    buf.readInt(),
                     buf.readBoolean()));
 
     public static ObserverModelData blank() {
-        return new ObserverModelData(TYPE_BLANK, List.of(), List.of(), 0.0, "", 0, false);
+        return new ObserverModelData(TYPE_BLANK, List.of(), List.of(), 0.0, "", 0, 0, false);
     }
 
     /** 生物稳定模型：无需训练，初始能量为 0，靠范围内生物生命值补充。 */
     public static ObserverModelData bio() {
-        return new ObserverModelData(TYPE_BIO, List.of(), List.of(), 1.0, "", 0, false);
+        return new ObserverModelData(TYPE_BIO, List.of(), List.of(), 1.0, "", 0, 0, false);
+    }
+
+    /** 候选观测者模型：无数量上限的"空白模型"，进度从 0 开始。 */
+    public static ObserverModelData candidate() {
+        return new ObserverModelData(TYPE_CANDIDATE, List.of(), List.of(), 0.0, "", 0, 0, false);
     }
 }

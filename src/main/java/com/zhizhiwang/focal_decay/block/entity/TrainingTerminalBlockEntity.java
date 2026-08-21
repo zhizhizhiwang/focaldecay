@@ -6,10 +6,14 @@ import com.zhizhiwang.focal_decay.item.ModItems;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.menu.TrainingTerminalMenu;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
+import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
+import com.zhizhiwang.focal_decay.mutation.FragmentGrants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
@@ -63,7 +67,7 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
         ItemStack training = model.copy();
         training.setCount(1);
         ObserverModelItem.setData(training, new ObserverModelData(
-                ObserverModelData.TYPE_TRAINING, List.of(), List.of(), 0.0, "", 0, false));
+                ObserverModelData.TYPE_TRAINING, List.of(), List.of(), 0.0, "", 0, 0, false));
         setItem(0, training);
         return true;
     }
@@ -87,8 +91,9 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
         finished.setCount(1);
         double q = 1.0;
         String concept = "";
+        GuidedConcept.Concept resolved = null;
         if (finalType == TYPE_GUIDED) {
-            GuidedConcept.Concept resolved = GuidedConcept.resolve(data.trainedTargets());
+            resolved = GuidedConcept.resolve(data.trainedTargets());
             concept = resolved.tagId();
             q = resolved.q();
             if (resolved.valid()) {
@@ -102,9 +107,20 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
             }
         }
         ObserverModelItem.setData(finished, new ObserverModelData(
-                finalTypeName, data.trainedTargets(), data.trainedEntities(), q, concept, 0, false));
+                finalTypeName, data.trainedTargets(), data.trainedEntities(), q, concept, 0, 0, false));
         setItem(0, finished);
         this.finalType = TYPE_SEMANTIC_LOCK;
+        // 语义碎片里程碑：首次完成训练（玫瑰）、首次将概念完备度练到 100%（程玖章）
+        if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer) {
+            FocalDecayWorldData worldData = FocalDecayWorldData.get(serverLevel.getServer());
+            if (worldData.grantFragmentOnce(FocalDecayWorldData.BIT_FRAGMENT_ROSE)) {
+                FragmentGrants.grant(serverPlayer, ModItems.FRAGMENT_ROSE.get());
+            }
+            if (finalType == TYPE_GUIDED && resolved != null && resolved.valid() && resolved.q() >= 1.0
+                    && worldData.grantFragmentOnce(FocalDecayWorldData.BIT_FRAGMENT_CHENG)) {
+                FragmentGrants.grant(serverPlayer, ModItems.FRAGMENT_CHENG.get());
+            }
+        }
         return true;
     }
 

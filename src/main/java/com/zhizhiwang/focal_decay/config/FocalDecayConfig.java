@@ -50,6 +50,8 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.ConfigValue<List<? extends String>> THRONE_RITUAL_WAVE_ENTITIES;
     public static final ModConfigSpec.IntValue THRONE_RITUAL_RADIUS;
     public static final ModConfigSpec.BooleanValue THRONE_RITUAL_PAUSE_ON_LEAVE;
+    public static final ModConfigSpec.IntValue CANDIDATE_REQUIRED_POINTS;
+    public static final ModConfigSpec.IntValue CANDIDATE_FRAGMENT_POINTS;
     public static final ModConfigSpec.DoubleValue ENDER_DRAGON_TOTAL_STABILITY_DROP_CHANCE;
 
     static {
@@ -162,9 +164,17 @@ public final class FocalDecayConfig {
         THRONE_RITUAL_PAUSE_ON_LEAVE = builder
                 .comment("Pause the ritual when the player leaves the radius; otherwise it fails.")
                 .define("throne_ritual_pause_on_leave", true);
+        CANDIDATE_REQUIRED_POINTS = builder
+                .comment("Training points required for the Candidate Observer model to reach 100%"
+                        + " (each unique trained target = +1).")
+                .defineInRange("candidate_required_points", 100, 1, 10000);
+        CANDIDATE_FRAGMENT_POINTS = builder
+                .comment("Training points granted by feeding one Semantic Fragment to the Candidate Observer.")
+                .defineInRange("candidate_fragment_points", 10, 1, 1000);
         ENDER_DRAGON_TOTAL_STABILITY_DROP_CHANCE = builder
-                .comment("Chance (0-1) for the Ender Dragon to drop the first unactivated Total Stability Model."
-                        + " 1.0 = guaranteed; lower values make it the 'rare drop' from the design doc.")
+                .comment("Chance (0-1) for the Ender Dragon to leave a relic chest after death"
+                        + " (Total Stability Model + Aaron's Vow fragment). 1.0 = always;"
+                        + " lower values make it the 'rare drop' from the design doc.")
                 .defineInRange("ender_dragon_total_stability_drop_chance", 1.0, 0.0, 1.0);
 
         builder.pop();

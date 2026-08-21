@@ -60,6 +60,9 @@ public final class ThroneRitualHandler {
             return;
         }
         BlockPos pos = event.getPos();
+        if (level.getBlockState(pos).is(ModBlocks.OBSERVER_CORE.get())) {
+            return; // 核心交互走核心 GUI（安装候选观测者），不触发仪式
+        }
         BlockPos throne = ThroneStructure.thronePos(level.getSeed());
         if (!isThroneBase(pos, throne)) {
             return;
@@ -176,7 +179,7 @@ public final class ThroneRitualHandler {
 
         ItemStack activated = new ItemStack(ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get());
         ObserverModelItem.setData(activated, new ObserverModelData(
-                ObserverModelData.TYPE_TOTAL, List.of(), List.of(), 1.0, "", 0, true));
+                ObserverModelData.TYPE_TOTAL, List.of(), List.of(), 1.0, "", 0, 0, true));
 
         // 只升级"槽内本来就是未激活完全稳定模型"的原型机；其他情况不动插槽，
         // 激活模型交还玩家背包（避免覆盖原型机里原有的模型）。
@@ -207,6 +210,13 @@ public final class ThroneRitualHandler {
         level.playSound(null, throne, SoundEvents.END_PORTAL_SPAWN, SoundSource.AMBIENT, 1.0F, 1.0F);
         ModNetwork.sendToAllPlayers(new ThroneRitualPacket(
                 ThroneRitualPacket.STATE_COMPLETE, 0, 0, 0));
+        // 语义碎片里程碑：首次完成王座仪式（42ms）
+        if (player != null) {
+            FocalDecayWorldData worldData = FocalDecayWorldData.get(level.getServer());
+            if (worldData.grantFragmentOnce(FocalDecayWorldData.BIT_FRAGMENT_42MS)) {
+                FragmentGrants.grant(player, ModItems.FRAGMENT_42MS.get());
+            }
+        }
         data.stop();
     }
 
