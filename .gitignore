@@ -30,7 +30,7 @@ bin/
 .vscode/
 
 ### proxy AI ###
-.proxyai/*
+.proxyai/
 
 
 ### Mac OS ###

@@ -141,7 +141,7 @@ public final class ClientRenderCache {
      * 未命中缓存时惰性计算并写回，保证首次编译即有预览。
      */
     public BlockState resolve(RenderChunkRegion region, BlockPos pos, BlockState original) {
-        if (isProtected(pos, original)) {
+        if (isProtected(pos, original, currentStage())) {
             return original;
         }
         if (!(region instanceof RenderChunkRegionAccessor accessor)) {
@@ -181,7 +181,7 @@ public final class ClientRenderCache {
      */
     public BlockState visibleState(ClientLevel level, BlockPos pos) {
         BlockState original = level.getBlockState(pos);
-        if (isProtected(pos, original)) {
+        if (isProtected(pos, original, currentStage())) {
             return original;
         }
         if (original.isAir()) {
@@ -369,30 +369,49 @@ public final class ClientRenderCache {
         return regionData.get(mc.level.dimension());
     }
 
-    /** 位置是否处于任一稳定锚的保护范围内。 */
-    public boolean isProtected(BlockPos pos, BlockState state) {
+    /**
+     * 阶段感知的保护形态（与服务端 {@code MutationPoolManager#protectionInfo} 同一逻辑）：
+     * 阶段3语义锁定转为软保护（每周期按强度掷"守住"骰子），生物稳定/完全稳定仍硬保护。
+     */
+    public MutationHelper.Protection protectionInfo(BlockPos pos, BlockState state, int stage) {
         RegionData data = currentRegionData();
         if (data == null) {
-            return false;
+            return MutationHelper.Protection.NONE;
         }
+        MutationHelper.Protection result = MutationHelper.Protection.NONE;
         for (ClientPrototype prototype : data.prototypes) {
             if (!withinRadius(pos, prototype)) {
                 continue;
             }
             if (ObserverModelData.TYPE_TOTAL.equals(prototype.type())) {
-                return true;
+                return MutationHelper.Protection.HARD;
             }
             if (ObserverModelData.TYPE_BIO.equals(prototype.type()) && prototype.bioEnergy() > 0) {
-                return true;
+                return MutationHelper.Protection.HARD;
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(prototype.type())) {
                 String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
-                if (prototype.trainedTargets().contains(id)) {
-                    return true;
+                if (!prototype.trainedTargets().contains(id)) {
+                    continue;
+                }
+                if (stage >= 3) {
+                    double strength = FocalDecayConfig.SEMANTIC_LOCK_STAGE3_STRENGTH.get()
+                            * prototype.q();
+                    strength = Math.max(0.0, Math.min(1.0, strength));
+                    if (strength > result.softChance()) {
+                        result = new MutationHelper.Protection(false, strength);
+                    }
+                } else {
+                    return MutationHelper.Protection.HARD;
                 }
             }
         }
-        return false;
+        return result;
+    }
+
+    /** 硬保护判定（渲染/扫描早期跳过用；阶段3语义锁定不再是硬保护）。 */
+    public boolean isProtected(BlockPos pos, BlockState state, int stage) {
+        return protectionInfo(pos, state, stage).hard();
     }
 
     private static boolean withinRadius(BlockPos pos, ClientPrototype prototype) {
@@ -418,7 +437,7 @@ public final class ClientRenderCache {
             BlockState real = Minecraft.getInstance().level != null
                     ? Minecraft.getInstance().level.getBlockState(pos)
                     : Blocks.AIR.defaultBlockState();
-            if (isProtected(pos, real) || changedBirths.contains(pos)) {
+            if (isProtected(pos, real, currentStage()) || changedBirths.contains(pos)) {
                 targetCache.remove(key, entry);
                 decrSection(pos);
                 visibleSurfaces.remove(key);
@@ -515,7 +534,7 @@ public final class ClientRenderCache {
                     long key = pos.asLong();
                     BlockState state = level.getBlockState(pos);
 
-                    if (!isCandidate(state, level, pos, stage) || isProtected(pos, state) || !isExposed(level, pos)) {
+                    if (!isCandidate(state, level, pos, stage) || isProtected(pos, state, stage) || !isExposed(level, pos)) {
                         if (removeEntry(pos, key)) {
                             changed = true;
                         }
@@ -560,7 +579,7 @@ public final class ClientRenderCache {
         List<Block> global = pool.snapshot();
         GuidedBias bias = guidedBias(pos, original, stage);
         return MutationHelper.getVisibleTarget(original, pos, worldSeed(level), period, global,
-                chance, bias, isProtected(pos, original), birthPeriod);
+                chance, bias, protectionInfo(pos, original, stage), birthPeriod);
     }
 
     /**

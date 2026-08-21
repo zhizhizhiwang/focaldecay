@@ -115,10 +115,10 @@ public final class ModelTrainingHandler {
         long period = MutationHelper.blockPeriod(level.getGameTime());
         List<Block> pool = manager.getGlobalPool().snapshot();
         double chance = MutationHelper.mutationChance(stage);
-        boolean protectedPos = manager.isProtected(pos, real);
+        MutationHelper.Protection protection = manager.protectionInfo(pos, real, stage);
         long birth = manager.getBlockBirthPeriod(pos);
         GuidedBias bias = manager.getGuidedBias(pos, real, stage);
         return MutationHelper.getVisibleTarget(real, pos, level.getSeed(), period, pool, chance,
-                bias, protectedPos, birth);
+                bias, protection, birth);
     }
 }

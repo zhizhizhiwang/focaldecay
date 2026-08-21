@@ -295,7 +295,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 ### 6.5 与稳定系统的联动（2026-08-19）
 - 生物稳定模型：在阶段 3 消耗双倍 `bioEnergy`；范围内被动生物不参与实体转换（§6.4 跳过）。
 - 完全稳定锚：无论阶段，范围内方块与实体（含玩家）完全不受失焦影响。
-- 语义锁定：阶段 3 效果减半指保护相关参数（可配置），完全稳定锚不受影响。
+- 语义锁定：阶段 3 效果减半 = 保护强度衰减（`semantic_lock_stage3_strength`，默认 0.5）——被锁定方块每周期先掷"守住"骰子，失守（1−强度）才参与突变骰（确定性、服务端/客户端一致），完全稳定锚不受影响。
 - 引导模型：阶段 3 效果减半 = 完备度 q 减半（可配置），完全稳定锚不受影响。
 ---
 
@@ -376,6 +376,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
   - **Client**：`postProcessEnabled`, `surface_update_frequency`, `max_render_distance`。
 - **新增可配置项（2026-08-19 规划，均带默认值便于整合包修改）**：
   - 原型机：`prototype_radius`（默认 8，替代 `anchor_radius` 语义）、各模型半径加成（生物稳定 +4）、完全稳定锚半径（固定 32）
+  - 语义锁定：`semantic_lock_stage3_strength`（阶段3保护强度，默认 0.5 = 效果减半；1.0 = 不衰减）
   - 训练终端：训练所需能量/时长（**FE 默认消耗 0，单模组不启用**）、空白模型记录数量上限、经验瓶回退开关、训练交互冷却
   - 生物稳定模型：生命值→能量换算、`bioEnergy` 消耗速率、阶段3双倍消耗开关、范围内实体稳定开关
   - 引导模型：`guided_min_trained`（最少有效训练数，默认 2）、`guided_q_multiplier` / `guided_q_cap`（q 倍率与上限）、`guided_stage3_halve`（阶段3 q 减半开关，默认开）

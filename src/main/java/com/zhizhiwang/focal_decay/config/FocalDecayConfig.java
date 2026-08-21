@@ -37,6 +37,7 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.IntValue BIO_DRAIN_PER_SECOND;
     public static final ModConfigSpec.BooleanValue BIO_STAGE3_DOUBLE_DRAIN;
     public static final ModConfigSpec.BooleanValue BIO_STABILIZE_ENTITIES;
+    public static final ModConfigSpec.DoubleValue SEMANTIC_LOCK_STAGE3_STRENGTH;
     public static final ModConfigSpec.IntValue GUIDED_MIN_TRAINED;
     public static final ModConfigSpec.DoubleValue GUIDED_Q_MULTIPLIER;
     public static final ModConfigSpec.DoubleValue GUIDED_Q_CAP;
@@ -115,6 +116,11 @@ public final class FocalDecayConfig {
         BIO_STABILIZE_ENTITIES = builder
                 .comment("Whether creatures inside a Bio Stabilizer range are kept from entity mutation.")
                 .define("bio_stabilize_entities", true);
+        SEMANTIC_LOCK_STAGE3_STRENGTH = builder
+                .comment("Semantic Lock protection strength during stage 3 (0-1)."
+                        + " Each cycle the locked block rolls a 'hold' die with this chance;"
+                        + " when it fails the block joins the mutation roll. 0.5 = half effect, 1.0 = no decay.")
+                .defineInRange("semantic_lock_stage3_strength", 1.0, 0.0, 1.0);
         GUIDED_MIN_TRAINED = builder
                 .comment("Minimum distinct trained targets inside a concept for the Guided Model to have any effect."
                         + " Fewer counts as an incomplete classification (q = 0).")

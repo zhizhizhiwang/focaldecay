@@ -22,6 +22,24 @@ public final class MutationHelper {
     }
 
     /**
+     * 位置保护形态（里程碑 7，2026-08-21）：
+     * <ul>
+     *   <li>{@code hard=true}：硬保护（生物稳定/完全稳定/阶段1-2语义锁定），完全不受失焦影响；</li>
+     *   <li>{@code hard=false && softChance>0}：阶段3语义锁定的软保护——每周期先掷"失守"骰子，
+     *       失守（1−softChance）才继续参与突变骰，未失守保持原方块；</li>
+     *   <li>其余：无保护。</li>
+     * </ul>
+     */
+    public record Protection(boolean hard, double softChance) {
+        public static final Protection NONE = new Protection(false, 0.0);
+        public static final Protection HARD = new Protection(true, 0.0);
+
+        public boolean active() {
+            return hard || softChance > 0.0;
+        }
+    }
+
+    /**
      * 计算某方块在"单个周期"的突变目标（无记忆，抽不中就回原方块）。
      * 有记忆的累积转换请走 {@link #getVisibleTarget}。
      * 池为空时返回原方块；概率 roll 使用同一确定性种子，两端结果一致。
@@ -42,11 +60,12 @@ public final class MutationHelper {
      * 统一的方块识别函数：生存破坏、创造中键选取、客户端预览共用。
      * 受稳定锚保护的方块一律返回原方块（不转换、不显示幽灵）。
      * {@code bias} 为引导偏向（方案 A）：概念内成员抽中突变时，以 q 偏向概念邻域。
+     * {@code protection} 为保护形态（硬保护直接返回原方块；软保护按周期掷"失守"骰子）。
      */
     public static BlockState getVisibleTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
                                               List<Block> pool, double probability, GuidedBias bias,
-                                              boolean isProtected, long birthPeriod) {
-        if (isProtected) {
+                                              Protection protection, long birthPeriod) {
+        if (protection.hard()) {
             return original;
         }
         // 玩家放置的方块：从"放置周期 + 1"才开始崩坏，放置瞬间保持原方块。
@@ -54,7 +73,7 @@ public final class MutationHelper {
         if (periodIndex < fromPeriod) {
             return original;
         }
-        return cumulativeTarget(original, pos, worldSeed, periodIndex, pool, probability, bias, fromPeriod);
+        return cumulativeTarget(original, pos, worldSeed, periodIndex, pool, probability, bias, protection, fromPeriod);
     }
 
     /** 兼容旧调用（无引导偏向，等价于完全走全局池）。 */
@@ -62,7 +81,7 @@ public final class MutationHelper {
                                               List<Block> pool, double probability, boolean isProtected,
                                               long birthPeriod) {
         return getVisibleTarget(original, pos, worldSeed, periodIndex, pool, probability,
-                GuidedBias.NONE, isProtected, birthPeriod);
+                GuidedBias.NONE, isProtected ? Protection.HARD : Protection.NONE, birthPeriod);
     }
 
     /**
@@ -76,7 +95,8 @@ public final class MutationHelper {
      * 服务端与客户端共用同一公式，保证预览与真实转换一致。
      */
     private static BlockState cumulativeTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
-                                               List<Block> pool, double probability, GuidedBias bias, long fromPeriod) {
+                                               List<Block> pool, double probability, GuidedBias bias,
+                                               Protection protection, long fromPeriod) {
         if (pool.isEmpty() || probability <= 0.0) {
             return original;
         }
@@ -86,6 +106,9 @@ public final class MutationHelper {
             long period = periodIndex - back;
             long seed = seedFor(pos, worldSeed, period);
             RandomSource random = RandomSource.create(seed);
+            if (protection.softChance() > 0.0 && random.nextDouble() < protection.softChance()) {
+                continue; // 该周期被语义锁定稳定住，保持原方块并继续回扫
+            }
             if (random.nextDouble() >= probability) {
                 continue;
             }

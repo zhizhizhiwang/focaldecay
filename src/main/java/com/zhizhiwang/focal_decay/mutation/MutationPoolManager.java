@@ -116,31 +116,49 @@ public class MutationPoolManager extends SavedData {
     }
 
     /**
-     * 位置是否被任一原型机效果"保护"（不参与视觉转换、交互不转换）：
-     *  - 生物稳定：范围内全部（能量耗尽时不保护）；
-     *  - 完全稳定：范围内全部；
-     *  - 语义锁定：真实方块 ID 在 trainedTargets 中。
+     * 阶段感知的保护形态（里程碑 7，2026-08-21，PROXYAI §6.5）：
+     *  - 生物稳定 / 完全稳定：硬保护（范围内全部，能量耗尽时生物稳定失效）；
+     *  - 语义锁定：阶段1/2 硬保护；阶段3 转为软保护——每周期以
+     *    {@code stabilityStrength × semantic_lock_stage3_strength} 概率"守住"，
+     *    失守才参与突变骰（默认 0.5 = 效果减半）。
+     * 硬保护优先于软保护返回。
      */
-    public boolean isProtected(BlockPos pos, BlockState state) {
+    public MutationHelper.Protection protectionInfo(BlockPos pos, BlockState state, int stage) {
+        MutationHelper.Protection result = MutationHelper.Protection.NONE;
         for (PrototypeEffect effect : prototypeEffects) {
             if (!withinRadius(pos, effect)) {
                 continue;
             }
             String type = effect.data().type();
             if (ObserverModelData.TYPE_TOTAL.equals(type)) {
-                return true;
+                return MutationHelper.Protection.HARD;
             }
             if (ObserverModelData.TYPE_BIO.equals(type) && effect.data().bioEnergy() > 0) {
-                return true;
+                return MutationHelper.Protection.HARD;
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)) {
                 String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
-                if (effect.data().trainedTargets().contains(id)) {
-                    return true;
+                if (!effect.data().trainedTargets().contains(id)) {
+                    continue;
+                }
+                if (stage >= 3) {
+                    double strength = FocalDecayConfig.SEMANTIC_LOCK_STAGE3_STRENGTH.get()
+                            * effect.data().stabilityStrength();
+                    strength = Math.max(0.0, Math.min(1.0, strength));
+                    if (strength > result.softChance()) {
+                        result = new MutationHelper.Protection(false, strength);
+                    }
+                } else {
+                    return MutationHelper.Protection.HARD;
                 }
             }
         }
-        return false;
+        return result;
+    }
+
+    /** 硬保护判定（渲染/扫描早期跳过用；阶段3语义锁定不再是硬保护）。 */
+    public boolean isProtected(BlockPos pos, BlockState state, int stage) {
+        return protectionInfo(pos, state, stage).hard();
     }
 
     /**

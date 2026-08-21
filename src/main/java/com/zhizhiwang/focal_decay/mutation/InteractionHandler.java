@@ -51,11 +51,11 @@ public class InteractionHandler {
 
         List<Block> pool = manager.getGlobalPool().snapshot();
         double chance = MutationHelper.mutationChance(stage);
-        boolean isProtected = manager.isProtected(pos, state);
+        MutationHelper.Protection protection = manager.protectionInfo(pos, state, stage);
         long birthPeriod = manager.getBlockBirthPeriod(pos);
         GuidedBias bias = manager.getGuidedBias(pos, state, stage);
         BlockState target = MutationHelper.getVisibleTarget(state, pos, worldSeed, periodIndex, pool, chance,
-                bias, isProtected, birthPeriod);
+                bias, protection, birthPeriod);
 
         BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
         breakData.start(target, periodIndex);

@@ -3,7 +3,7 @@
 > 最后更新：2026-08-20
 > 环境：NeoForge 21.1.248 / Minecraft 1.21.1 / Parchment 2024.11.17 / Java 21
 > Mod ID：`focal_decay`，包：`com.zhizhiwang.focal_decay`
-> 当前状态（2026-08-21）：`compileJava` / `runData` / `build -x test` 通过。§9 重构整批改动尚未提交（含根目录误提交的 `net/minecraft/*.class` 删除），本地领先 origin/main 4 个提交。引导模型重设计（方案 A，§9.2）**已实施**（2026-08-21）。
+> 当前状态（2026-08-21）：`compileJava` / `runData` / `build -x test` 通过。引导模型重设计（方案 A，§9.2）已实施并**提交**（`c6f437c 修改引导模型的功能`，本地与 origin/main 同步）。§9 观测稳定系统里程碑 1~7 全部完成（7 = 阶段3衰减整合，2026-08-21）；剩余里程碑 8（彩蛋打磨）、§10/§11（观测者核心修复路径）与实机平衡测试。
 
 ## 已完成
 
@@ -128,10 +128,10 @@
      - 仪式：右键基座触发（携带原型机物品或附近已放置 + 未激活完全稳定模型）；`ThroneRitualData`（维度级 SavedData）持久化进度，离开半径按 `throne_ritual_pause_on_leave` 暂停（同玩家返回续仪）或失败；按配置波次生成敌人（`throne_ritual_wave_entities/size/interval`）；完成时只升级"槽内本来就是未激活完全稳定模型"的原型机，其他情况激活模型交还玩家背包（不再覆盖原型机原有内容），广播 `ThroneRitualPacket`（开始/进度/波次/暂停/完成/失败）。
      - 模型接入修正（2026-08-20）：插入有效模型时**先按模型实际半径（完全稳定=32）固化范围失焦状态、再登记保护**（此前先登记保护导致 `getEffectivePool` 返回空、固化无效）；`convertPrototypeRange` 增加 `isLoaded` 防护避免大半径触发未加载区块加载；激活的完全稳定模型 tooltip 不再显示训练目标/Shift 提示。
   6. 完全稳定锚：仪式升级、半径 32 完美稳定、特殊视觉；完全稳定模型第一枚末影龙掉落、后续"已激活模型 + 空白模型"复制——**已完成（2026-08-20）**：仪式升级（原型机插槽升级为 `total_stability_model_activated`，不覆盖原有模型）、半径 32 完美稳定（`radiusFor(TYPE_TOTAL)=32` + `isProtected`）、复制配方（`CopyTrainedModelRecipe`）、末影龙掉落（`DragonDropHandler`，配置 `ender_dragon_total_stability_drop_chance`，默认 1.0 必掉、可调成设计文档的稀有掉落）、特殊视觉（`TotalStabilityFieldHandler` 旋转光环粒子 + 锚上方漂浮粒子）
-  7. 与末日阶段/渲染/网络整合（阶段3模型效果衰减等）
+  7. 与末日阶段/渲染/网络整合（阶段3模型效果衰减等）——**已完成（2026-08-21）**：引导模型阶段3 q 减半（§9.2 随 `guided_stage3_halve` 实现）；语义锁定阶段3转**软保护**——新增 `MutationHelper.Protection`（硬保护/软保护）与 `semantic_lock_stage3_strength`（默认 0.5）：阶段1/2 语义锁定仍硬保护，阶段3 每周期先掷"守住"骰子、失守才参与突变骰（确定性、服务端 `MutationPoolManager.protectionInfo` 与客户端 `ClientRenderCache.protectionInfo` 同一公式）；生物稳定/完全稳定保持硬保护；渲染缓存/中键选取/挖掘锁定统一走该判定。
   8. 彩蛋与打磨（粒子/音效/专属贴图/测试）
 
-### 9.2 引导模型重设计（方案 A，2026-08-20 定稿，待用户确认后开工）
+### 9.2 引导模型重设计（方案 A，2026-08-20 定稿，2026-08-21 已提交）
 - **问题**：现行引导模型把半径内突变目标池硬限制为训练列表，阶段3（概率 1.0、40 tick/周期）下可把任意方块稳定刷成训练目标，过度 OP，且不符合 SCP-CN-2999 苹果实验的"概念一致性"（分类器稳定的不是具体物体，而是与概念相关的一切；概念外物体失焦概率不受影响；单一/残缺分类几乎无效；"变了的就变了"）。
 - **定稿设计**（已同步到 PROXYAI.md §3.1 / §3.3 / §4.2 / §4.3 / §5.1 / §6.5 / §9.1 / §13）：
   1. **概念**：训练列表不再直接作为目标池，而是用于**指认概念**；训练完成时解析并固化 `concept` 标签 + 完备度 q 到模型数据。概念标签来源 = 策展 `focal_decay:concept/*`（数据生成）+ 原版标签兜底 + 通用标签黑名单；概念邻域 = 标签下全部方块（过滤空气/带方块实体/`conversion_blacklist`）；无法指认有效概念 → q=0，模型无效。
@@ -147,7 +147,7 @@
   5. 原型机 GUI / 模型 tooltip：显示概念名与完备度 q——**已完成**
   6. 配置项：`guided_min_trained` / `guided_q_multiplier` / `guided_q_cap` / `guided_stage3_halve`——**已完成**
   7. `compileJava` / `runData` / `build -x test`——**全部通过（2026-08-21）**；平衡测试待实机
-- **状态**：**已实施（2026-08-21）**。改动未提交；待实机平衡测试。
+- **状态**：**已实施并提交（`c6f437c`，2026-08-21）**。待实机平衡测试。
 
 ### 10. 网络通信（承接现有实现）
 - `SyncRegionDataPacket`（S→C）：**已完成扩展**——携带有效原型机效果（位置/半径/模型数据）+ 方块诞生周期；登录/换维/原型机变化/方块放置破坏时发送
