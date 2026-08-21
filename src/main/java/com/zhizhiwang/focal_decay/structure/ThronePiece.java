@@ -2,13 +2,17 @@ package com.zhizhiwang.focal_decay.structure;
 
 import com.zhizhiwang.focal_decay.block.ModBlocks;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.StructurePiece;
@@ -63,6 +67,16 @@ public class ThronePiece extends StructurePiece {
                         level.setBlock(new BlockPos(x, y, z), state, 3);
                     }
                 }
+            }
+        }
+
+        // 王座基座宝箱：固定产出语义碎片（借原版末地城宝藏表，该表同时享受碎片战利品注入）
+        BlockPos chestPos = origin.offset(0, 1, 2);
+        if (chunkBox.isInside(chestPos) && level.getBlockState(chestPos).isAir()) {
+            level.setBlock(chestPos, Blocks.CHEST.defaultBlockState(), 3);
+            if (level.getBlockEntity(chestPos) instanceof ChestBlockEntity chest) {
+                chest.setLootTable(ResourceKey.create(Registries.LOOT_TABLE,
+                        ResourceLocation.withDefaultNamespace("chests/end_city_treasure")));
             }
         }
     }

@@ -15,11 +15,17 @@ public class FocalDecayWorldData extends SavedData {
     private static final String DATA_NAME = FocalDecay.MODID + "_world_days";
     private static final String TAG_DAYS = "Days";
     private static final String TAG_PARTIAL_TICKS = "PartialTicks";
+    private static final String TAG_OBSERVER_ONLINE = "ObserverOnline";
+    private static final String TAG_CORE_VISITED = "CoreVisited";
 
     public static final long TICKS_PER_DAY = 24000L;
 
     private long days;
     private long partialTicks;
+    /** 观测者核心已激活：失焦终止（方块/实体突变停止）。 */
+    private boolean observerOnline;
+    /** 玩家是否已第一次右键过观测者核心（发过一次碎片）。 */
+    private boolean coreVisited;
 
     public static final Factory<FocalDecayWorldData> FACTORY = new Factory<>(
             FocalDecayWorldData::new,
@@ -42,7 +48,30 @@ public class FocalDecayWorldData extends SavedData {
     public void setDays(long days) {
         this.days = Math.max(0L, days);
         setDirty();
-        ModNetwork.sendWorldDataToAll(this.days);
+        ModNetwork.sendWorldDataToAll(this.days, this.observerOnline);
+    }
+
+    public boolean isObserverOnline() {
+        return observerOnline;
+    }
+
+    /** 激活观测者核心：置在线并广播（客户端清空失焦预览）。 */
+    public void setObserverOnline(boolean online) {
+        if (this.observerOnline == online) {
+            return;
+        }
+        this.observerOnline = online;
+        setDirty();
+        ModNetwork.sendWorldDataToAll(this.days, this.observerOnline);
+    }
+
+    public boolean isCoreVisited() {
+        return coreVisited;
+    }
+
+    public void setCoreVisited(boolean visited) {
+        this.coreVisited = visited;
+        setDirty();
     }
 
     /** 每 tick 调用：有玩家在线时累计，满一个游戏日后天数 +1 并广播给所有玩家。 */
@@ -53,7 +82,7 @@ public class FocalDecayWorldData extends SavedData {
                 partialTicks -= TICKS_PER_DAY;
                 days++;
                 setDirty();
-                ModNetwork.sendWorldDataToAll(days);
+                ModNetwork.sendWorldDataToAll(days, observerOnline);
             }
         }
     }
@@ -62,6 +91,8 @@ public class FocalDecayWorldData extends SavedData {
         FocalDecayWorldData data = new FocalDecayWorldData();
         data.days = tag.getLong(TAG_DAYS);
         data.partialTicks = tag.getLong(TAG_PARTIAL_TICKS);
+        data.observerOnline = tag.getBoolean(TAG_OBSERVER_ONLINE);
+        data.coreVisited = tag.getBoolean(TAG_CORE_VISITED);
         return data;
     }
 
@@ -69,6 +100,8 @@ public class FocalDecayWorldData extends SavedData {
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
         tag.putLong(TAG_DAYS, days);
         tag.putLong(TAG_PARTIAL_TICKS, partialTicks);
+        tag.putBoolean(TAG_OBSERVER_ONLINE, observerOnline);
+        tag.putBoolean(TAG_CORE_VISITED, coreVisited);
         return tag;
     }
 }

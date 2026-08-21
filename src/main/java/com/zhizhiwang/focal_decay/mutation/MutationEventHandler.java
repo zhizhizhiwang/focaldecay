@@ -102,6 +102,9 @@ public class MutationEventHandler {
      * 然后才由调用方登记保护。
      */
     public static void convertPrototypeRange(ServerLevel level, BlockPos anchorPos, MutationPoolManager manager, int radius) {
+        if (FocalDecayWorldData.get(level.getServer()).isObserverOnline()) {
+            return; // 失焦终止：无需固化
+        }
         long periodIndex = currentPeriodIndex(level);
         int stage = MutationHelper.currentStage(FocalDecayWorldData.get(level.getServer()).getDays());
         long worldSeed = level.getSeed();

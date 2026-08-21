@@ -25,6 +25,8 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.DoubleValue ENTITY_MUTATION_CHANCE_STAGE2;
     public static final ModConfigSpec.DoubleValue ENTITY_MUTATION_CHANCE_STAGE3;
     public static final ModConfigSpec.BooleanValue ENABLE_CORE_REPAIR;
+    public static final ModConfigSpec.IntValue OBSERVER_CORE_ACTIVATION_TICKS;
+    public static final ModConfigSpec.DoubleValue FRAGMENT_COPPER_MUTATION_CHANCE;
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE1;
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE2;
     public static final ModConfigSpec.DoubleValue BLOCK_MUTATION_CHANCE_STAGE3;
@@ -92,6 +94,12 @@ public final class FocalDecayConfig {
         ENABLE_CORE_REPAIR = builder
                 .comment("Whether the Observer Core can be repaired to end the defocus.")
                 .define("enable_core_repair", true);
+        OBSERVER_CORE_ACTIVATION_TICKS = builder
+                .comment("Ticks between activating the Observer Core and the defocus ending.")
+                .defineInRange("observer_core_activation_ticks", 100, 20, 600);
+        FRAGMENT_COPPER_MUTATION_CHANCE = builder
+                .comment("Chance (0-1) for a copper block that defocuses to drop the Sulfur-Copper Crystal fragment.")
+                .defineInRange("fragment_copper_mutation_chance", 0.15, 0.0, 1.0);
         TRAINING_ENERGY_CAPACITY = builder
                 .comment("Training Terminal FE capacity.")
                 .defineInRange("training_energy_capacity", 100000, 0, Integer.MAX_VALUE);

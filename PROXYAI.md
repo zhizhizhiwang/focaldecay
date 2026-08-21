@@ -40,7 +40,7 @@
 - **状态**：
   - **失效**（默认）：失焦已开始，核心块熄灭。
   - **激活**：玩家使用“重建的观测协议”后，核心块发光，失焦终止（"修复世界核心"路线）。
-- **交互**：右键核心块打开 GUI，显示“观测者离线”或“观测者在线”。
+- **交互（2026-08-21 已实现）**：右键核心块打开 GUI，显示“观测者离线/在线”与激活按钮；首次右键赠送一枚语义碎片。
 
 ### 2.3 语义碎片（Semantic Fragments）
 - 7种不同物品
@@ -129,7 +129,7 @@
 - 不可破坏、不可合成。
 - 两种状态：`powered=false`（失效）和 `powered=true`（激活），由 `blockstate` 控制。
 - 使用 `BlockBehaviour.Properties.of().strength(-1.0f, Float.MAX_VALUE).noLootTable()`。
-- 激活逻辑：当玩家右键持有 `Rebuilt Observer Protocol` 时，播放动画（粒子+音效），几秒后设置 `powered=true`，触发胜利事件。
+- **激活逻辑（2026-08-21 已实现）**：GUI 内点击"激活"（需消耗一个 `Rebuilt Observer Protocol`），播放开始特效并 `scheduleTick`（`observer_core_activation_ticks`，默认 100 tick）；完成 tick 设置 `powered=true`、`FocalDecayWorldData.observerOnline=true`（方块/实体突变全部停止，客户端清空幽灵预览）、广播 `ObserverCoreActivatePacket` 与胜利消息。
 - 原"观测者核心结构"的世界生成由末地王座取代（见 §3.5 / §5）；核心块仍作为"修复世界核心"路线的目标保留。
 
 ### 3.5 末地王座（The Throne）
@@ -356,7 +356,7 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
   - 维度ID、**有效原型机**列表（位置 + 半径 + 模型效果摘要：语义锁定目标 / 引导池 / 生物稳定 / 完全稳定）、方块诞生周期表（位置 → 周期）（2026-08-10/2026-08-13 已实现锚与诞生周期；2026-08-19 起改为原型机/模型数据，覆盖区域为引导模型的实现载体）。
   - 在玩家登录、切换维度、原型机放置/破坏/换模、方块放置/破坏（诞生周期变化）时发送。
 - **ObserverCoreActivatePacket**（S→C）：
-  - 当核心被激活时，发送给所有玩家，触发全局动画和成就。
+  - 当核心被激活时，发送给所有玩家，触发全局粒子/音效与胜利提示——**已实现（2026-08-21）**。
 - **ThroneRitualPacket**（S→C，2026-08-19 规划）：王座仪式进度/波次/完成事件同步。
 - **BreakDataSyncPacket**（可无需，挖掘数据仅存服务器，客户端无需知道目标）。
 

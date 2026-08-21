@@ -2,6 +2,7 @@ package com.zhizhiwang.focal_decay.client;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.client.screen.AnchorPrototypeScreen;
+import com.zhizhiwang.focal_decay.client.screen.ObserverCoreScreen;
 import com.zhizhiwang.focal_decay.client.screen.TrainingTerminalScreen;
 import com.zhizhiwang.focal_decay.menu.ModMenus;
 import net.neoforged.api.distmarker.Dist;
@@ -20,5 +21,6 @@ public final class ClientSetup {
     public static void registerMenuScreens(RegisterMenuScreensEvent event) {
         event.register(ModMenus.ANCHOR_PROTOTYPE.get(), AnchorPrototypeScreen::new);
         event.register(ModMenus.TRAINING_TERMINAL.get(), TrainingTerminalScreen::new);
+        event.register(ModMenus.OBSERVER_CORE.get(), ObserverCoreScreen::new);
     }
 }

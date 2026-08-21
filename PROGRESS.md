@@ -3,7 +3,7 @@
 > 最后更新：2026-08-20
 > 环境：NeoForge 21.1.248 / Minecraft 1.21.1 / Parchment 2024.11.17 / Java 21
 > Mod ID：`focal_decay`，包：`com.zhizhiwang.focal_decay`
-> 当前状态（2026-08-21）：`compileJava` / `runData` / `build -x test` 通过。引导模型重设计（方案 A，§9.2）已实施并**提交**（`c6f437c 修改引导模型的功能`，本地与 origin/main 同步）。§9 观测稳定系统里程碑 1~7 全部完成（7 = 阶段3衰减整合，2026-08-21）；剩余里程碑 8（彩蛋打磨）、§10/§11（观测者核心修复路径）与实机平衡测试。
+> 当前状态（2026-08-21）：`compileJava` / `runData` / `build -x test` 通过。引导模型重设计（方案 A，§9.2）已实施并**提交**（`c6f437c`）。§9 观测稳定系统里程碑 1~7 全部完成；§11 观测者核心修复路径**已实施（2026-08-21，未提交）**。剩余里程碑 8（彩蛋打磨）与实机平衡测试。
 
 ## 已完成
 
@@ -151,15 +151,22 @@
 
 ### 10. 网络通信（承接现有实现）
 - `SyncRegionDataPacket`（S→C）：**已完成扩展**——携带有效原型机效果（位置/半径/模型数据）+ 方块诞生周期；登录/换维/原型机变化/方块放置破坏时发送
-- `ObserverCoreActivatePacket`（S→C）：核心激活时全服动画——**未实现**
-- `ThroneRitualPacket`（S→C，新增）：王座仪式进度/波次/完成同步——**未实现**
+- `SyncWorldDataPacket`（S→C）：**已扩展**——携带末日天数 + 观测者在线状态（`observerOnline`），激活/登录/换维时广播
+- `ObserverCoreActivatePacket`（S→C）：核心激活完成的全服粒子/音效/胜利提示——**已实现（2026-08-21）**
+- `ThroneRitualPacket`（S→C，新增）：王座仪式进度/波次/完成同步——**已实现**（随王座仪式一起落地）
 - 使用 NeoForge 21.1 Payload API（现有 `ModNetwork` 基础上扩展），协议版本 "1"
 
-### 11. 观测者核心修复路径（保留）
-- **现状（2026-08-20）**：`observer_core` 方块已注册（含 powered 状态，亮度随状态变化）；右键 GUI、激活流程、动画/粒子、战利品注入均未实现
-- 观测者核心块：右键 GUI（"观测者离线/在线"）、用重建协议激活（动画+粒子，powered=true，触发胜利）
-- 语义碎片来源：玫瑰失焦突变、王座/末地城结构、村庄战利品、首次右键核心、铜块突变、所有战利品箱、原型机合成
-- 战利品注入（碎片）：`GlobalLootModifier` 或 LootTableLoadEvent
+### 11. 观测者核心修复路径（已完成，2026-08-21）
+- **核心 GUI**：右键 `observer_core` 打开无槽位菜单（`ObserverCoreMenu`/`ObserverCoreScreen`），显示"观测者离线/在线" + 激活按钮；首次右键赠送一枚 `碎片·完备语义`（`FocalDecayWorldData.coreVisited` 持久化防重复）。
+- **激活流程**：GUI 按钮 → 服务端校验并**消耗 1 个 `rebuilt_observer_protocol`** → 播放开始特效/音效 → `scheduleTick`（`observer_core_activation_ticks`，默认 100 tick）→ 完成 tick 设置 `powered=true`、`FocalDecayWorldData.observerOnline=true`（**失焦终止**：方块锁定/实体突变/客户端幽灵预览全部停止，`DoomsdayHandler`、`InteractionHandler`、`ModelTrainingHandler`、`MutationEventHandler.convertPrototypeRange`、`ClientRenderCache` 统一门控）→ 广播 `ObserverCoreActivatePacket` + 全服胜利消息。
+- **语义碎片来源落地**：
+  1. 玫瑰失焦突变 —— **暂缓**：玫瑰（虞美人）无碰撞箱，被 §6.3 源规则（阶段1完整 / 阶段2+ 有碰撞）排除，改由箱子来源覆盖；如需可放宽阶段3源范围
+  2. 末地王座/末地城 —— **王座基座宝箱**（借 `minecraft:chests/end_city_treasure`，`ThronePiece` 生成时设置）+ 该表同时享受碎片注入
+  3. 村庄战利品 —— 由 `chests/*` 注入覆盖
+  4. 首次右键核心 —— **已实现**（赠送碎片·完备语义）
+  5. 铜块突变 —— **已实现**：铜块失焦突变时按 `fragment_copper_mutation_chance`（默认 0.15）掉落 `碎片·硫铜结晶`
+  6. 所有战利品箱 —— **已实现**：`LootTableLoadEvent` + `LootTableAccessor`（mixin）向全部 `chests/*` 表原地追加碎片池（普通 5%、末地城 12%）
+  7. 由稳定锚合成 —— 未做（语义待定：原"稳定锚"已重构为原型机，来源表述过时）
 
 ### 12. 收尾
 - 原型机 GUI 与训练终端 GUI：自定义占位贴图已替换（`assets/focal_decay/textures/gui/*.png`），专属模型/细化待做

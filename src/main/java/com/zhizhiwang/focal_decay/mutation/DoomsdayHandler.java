@@ -40,6 +40,10 @@ public final class DoomsdayHandler {
         MinecraftServer server = event.getServer();
         FocalDecayWorldData worldData = FocalDecayWorldData.get(server);
         worldData.tick(server);
+        if (worldData.isObserverOnline()) {
+            lastEntityMutationTick = server.getTickCount(); // 失焦终止：跳过实体突变
+            return;
+        }
 
         long serverTick = server.getTickCount();
         int stage = MutationHelper.currentStage(worldData.getDays());

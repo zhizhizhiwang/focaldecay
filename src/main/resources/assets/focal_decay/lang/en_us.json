@@ -32,6 +32,7 @@
 
   "container.focal_decay.anchor_prototype": "Observer Prototype",
   "container.focal_decay.training_terminal": "Training Terminal",
+  "container.focal_decay.observer_core": "Observer Core",
 
   "gui.focal_decay.training_semantic": "Train: Semantic Lock",
   "gui.focal_decay.training_guided": "Train: Guided Mutation",
@@ -41,6 +42,10 @@
   "gui.focal_decay.bio_energy_empty": "(Out of energy — stabilization disabled)",
   "gui.focal_decay.guided_concept": "Concept: %s, completeness: %s%%",
   "gui.focal_decay.guided_invalid": "(No valid concept identified — the model is inert)",
+  "gui.focal_decay.core_offline": "Observer: OFFLINE",
+  "gui.focal_decay.core_online": "Observer: ONLINE",
+  "gui.focal_decay.core_activate": "Activate Core",
+  "gui.focal_decay.core_hint": "Hold the Rebuilt Observer Protocol and activate to repair the world",
 
   "message.focal_decay.training_need_blank": "Place a blank Observer Model first",
   "message.focal_decay.training_no_energy": "Not enough energy",
@@ -51,6 +56,12 @@
   "message.focal_decay.training_target_entity": "Trained entity: %s",
   "message.focal_decay.training_concept_result": "Concept: %s, completeness: %s%%",
   "message.focal_decay.training_concept_invalid": "No valid concept identified — model is inert (need at least %s targets of one concept)",
+  "message.focal_decay.core_first_visit": "First gaze at the Observer Core — you received a Fragment of Complete Semantics",
+  "message.focal_decay.core_activating": "The Observer Core is refocusing...",
+  "message.focal_decay.core_activated": "Observer Core activated — defocus has ended!",
+  "message.focal_decay.core_activated_broadcast": "The Observer Core has refocused — the world is stable once more.",
+  "message.focal_decay.core_need_protocol": "You need to carry the Rebuilt Observer Protocol",
+  "message.focal_decay.core_already_online": "The Observer is already online",
   "message.focal_decay.ritual_started": "Ritual started — stay within the throne's reach!",
   "message.focal_decay.ritual_progress": "Ritual progress: %s seconds remaining",
   "message.focal_decay.ritual_wave": "Wave %s incoming!",

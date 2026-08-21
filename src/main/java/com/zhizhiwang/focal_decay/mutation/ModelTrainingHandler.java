@@ -109,6 +109,9 @@ public final class ModelTrainingHandler {
 
     /** 服务端计算"可见目标"方块状态（与客户端预览同一确定性公式）。 */
     private static BlockState visibleState(ServerLevel level, BlockPos pos, BlockState real) {
+        if (FocalDecayWorldData.get(level.getServer()).isObserverOnline()) {
+            return real; // 失焦终止：无可训练目标
+        }
         MutationPoolManager manager = MutationPoolManager.get(level);
         long days = FocalDecayWorldData.get(level.getServer()).getDays();
         int stage = MutationHelper.currentStage(days);

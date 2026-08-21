@@ -8,8 +8,8 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-/** S→C：同步全局末日天数，客户端据此判定阶段（周期/概率/影响范围）。 */
-public record SyncWorldDataPacket(long days) implements CustomPacketPayload {
+/** S→C：同步全局末日天数与观测者在线状态（阶段判定 + 失焦终止门控）。 */
+public record SyncWorldDataPacket(long days, boolean observerOnline) implements CustomPacketPayload {
 
     public static final Type<SyncWorldDataPacket> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "sync_world_data"));
@@ -18,11 +18,12 @@ public record SyncWorldDataPacket(long days) implements CustomPacketPayload {
             StreamCodec.of(SyncWorldDataPacket::encode, SyncWorldDataPacket::new);
 
     public SyncWorldDataPacket(FriendlyByteBuf buf) {
-        this(buf.readLong());
+        this(buf.readLong(), buf.readBoolean());
     }
 
     private static void encode(FriendlyByteBuf buf, SyncWorldDataPacket packet) {
         buf.writeLong(packet.days());
+        buf.writeBoolean(packet.observerOnline());
     }
 
     @Override
@@ -31,6 +32,6 @@ public record SyncWorldDataPacket(long days) implements CustomPacketPayload {
     }
 
     public void handle(IPayloadContext context) {
-        context.enqueueWork(() -> ClientRenderCache.INSTANCE.setWorldDays(days));
+        context.enqueueWork(() -> ClientRenderCache.INSTANCE.setWorldData(days, observerOnline));
     }
 }

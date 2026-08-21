@@ -3,6 +3,7 @@ package com.zhizhiwang.focal_decay.network;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.MutationPoolManager;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -27,6 +28,8 @@ public final class ModNetwork {
         registrar.playToClient(SyncRegionDataPacket.TYPE, SyncRegionDataPacket.STREAM_CODEC, SyncRegionDataPacket::handle);
         registrar.playToClient(SyncWorldDataPacket.TYPE, SyncWorldDataPacket.STREAM_CODEC, SyncWorldDataPacket::handle);
         registrar.playToClient(ThroneRitualPacket.TYPE, ThroneRitualPacket.STREAM_CODEC, ThroneRitualPacket::handle);
+        registrar.playToClient(ObserverCoreActivatePacket.TYPE, ObserverCoreActivatePacket.STREAM_CODEC,
+                ObserverCoreActivatePacket::handle);
     }
 
     /** 向单个玩家发送其当前维度的锚保护数据。 */
@@ -41,16 +44,17 @@ public final class ModNetwork {
 
     /** 向单个玩家发送当前全局末日天数。 */
     public static void sendWorldData(ServerPlayer player) {
-        PacketDistributor.sendToPlayer(player, new SyncWorldDataPacket(FocalDecayWorldData.get(player.server).getDays()));
+        FocalDecayWorldData data = FocalDecayWorldData.get(player.server);
+        PacketDistributor.sendToPlayer(player, new SyncWorldDataPacket(data.getDays(), data.isObserverOnline()));
     }
 
-    /** 广播全局末日天数给所有玩家（天数变化时调用）。 */
-    public static void sendWorldDataToAll(long days) {
-        PacketDistributor.sendToAllPlayers(new SyncWorldDataPacket(days));
+    /** 广播全局末日天数与观测者状态给所有玩家（天数/激活变化时调用）。 */
+    public static void sendWorldDataToAll(long days, boolean observerOnline) {
+        PacketDistributor.sendToAllPlayers(new SyncWorldDataPacket(days, observerOnline));
     }
 
-    /** 向所有玩家广播王座仪式状态。 */
-    public static void sendToAllPlayers(ThroneRitualPacket packet) {
+    /** 向所有玩家广播（王座仪式状态 / 观测者核心激活动画）。 */
+    public static void sendToAllPlayers(CustomPacketPayload packet) {
         PacketDistributor.sendToAllPlayers(packet);
     }
 

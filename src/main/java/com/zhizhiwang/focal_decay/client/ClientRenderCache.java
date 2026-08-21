@@ -19,11 +19,16 @@ import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -119,6 +124,8 @@ public final class ClientRenderCache {
     private volatile ClientLevel level;
     private volatile MutationPool pool = MutationPool.empty(0);
     private volatile long worldDays;
+    /** 观测者核心已激活：失焦终止，不再生成/保留幽灵预览。 */
+    private volatile boolean observerOnline;
     private long lastPeriodIndex = Long.MIN_VALUE;
     private int scanCooldown;
 
@@ -142,6 +149,9 @@ public final class ClientRenderCache {
      */
     public BlockState resolve(RenderChunkRegion region, BlockPos pos, BlockState original) {
         if (isProtected(pos, original, currentStage())) {
+            return original;
+        }
+        if (observerOnline) {
             return original;
         }
         if (!(region instanceof RenderChunkRegionAccessor accessor)) {
@@ -184,6 +194,9 @@ public final class ClientRenderCache {
         if (isProtected(pos, original, currentStage())) {
             return original;
         }
+        if (observerOnline) {
+            return original;
+        }
         if (original.isAir()) {
             return original; // 空气无法拾取
         }
@@ -217,6 +230,7 @@ public final class ClientRenderCache {
             }
             regionData.clear();
             worldDays = 0;
+            observerOnline = false;
             level = null;
             pool = MutationPool.empty(0);
             lastPeriodIndex = Long.MIN_VALUE;
@@ -311,11 +325,31 @@ public final class ClientRenderCache {
     }
 
     /** 服务端同步末日天数；阶段变化会改变周期/概率/影响范围，需要清缓存重算。 */
-    public void setWorldDays(long days) {
-        if (this.worldDays != days) {
+    public void setWorldData(long days, boolean observerOnline) {
+        boolean changed = this.worldDays != days || this.observerOnline != observerOnline;
+        if (changed) {
             this.worldDays = days;
+            this.observerOnline = observerOnline;
             clearCache();
         }
+    }
+
+    /** 观测者核心激活完成（客户端）：播放粒子/音效与胜利提示。 */
+    public void notifyCoreActivated(BlockPos pos) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || mc.player == null) {
+            return;
+        }
+        mc.player.displayClientMessage(Component.translatable("message.focal_decay.core_activated"), true);
+        RandomSource random = mc.level.random;
+        for (int i = 0; i < 120; i++) {
+            double x = pos.getX() + 0.5 + (random.nextDouble() - 0.5) * 3.0;
+            double y = pos.getY() + 0.5 + random.nextDouble() * 4.0;
+            double z = pos.getZ() + 0.5 + (random.nextDouble() - 0.5) * 3.0;
+            mc.level.addParticle(ParticleTypes.END_ROD, x, y, z, 0.0, 0.05, 0.0);
+        }
+        mc.level.playLocalSound(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,
+                SoundEvents.BEACON_ACTIVATE, SoundSource.BLOCKS, 1.0F, 1.0F, false);
     }
 
     // ------------------------------------------------------------------
@@ -454,6 +488,9 @@ public final class ClientRenderCache {
     // ------------------------------------------------------------------
 
     private void scanSurfaces(ClientLevel level) {
+        if (observerOnline) {
+            return; // 失焦终止：无幽灵可扫描
+        }
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) {
             return;
@@ -568,6 +605,9 @@ public final class ClientRenderCache {
     // ------------------------------------------------------------------
 
     private BlockState computeTarget(ClientLevel level, BlockPos pos, BlockState original) {
+        if (observerOnline) {
+            return original;
+        }
         MutationPool pool = this.pool;
         if (pool.isEmpty()) {
             return original;

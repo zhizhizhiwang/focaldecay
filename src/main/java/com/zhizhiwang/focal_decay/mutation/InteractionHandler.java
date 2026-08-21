@@ -2,6 +2,8 @@ package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.attachment.BreakData;
 import com.zhizhiwang.focal_decay.attachment.ModAttachments;
+import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.item.ModItems;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
@@ -35,6 +37,9 @@ public class InteractionHandler {
         }
         BlockPos pos = event.getPos();
         BlockState state = serverLevel.getBlockState(pos);
+        if (FocalDecayWorldData.get(serverLevel.getServer()).isObserverOnline()) {
+            return; // 失焦终止：不再锁定突变目标
+        }
 
         MutationPoolManager manager = MutationPoolManager.get(serverLevel);
         long days = FocalDecayWorldData.get(serverLevel.getServer()).getDays();
@@ -72,6 +77,7 @@ public class InteractionHandler {
             return;
         }
         BlockPos pos = event.getPos();
+        BlockState sourceState = event.getState();
         BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
         if (!breakData.isActive()) {
             return;
@@ -103,6 +109,17 @@ public class InteractionHandler {
         int exp = targetState.getExpDrop(serverLevel, pos, null, player, ItemStack.EMPTY);
         if (exp > 0) {
             targetState.getBlock().popExperience(serverLevel, pos, exp);
+        }
+
+        // 铜块失焦突变：概率掉落"硫铜结晶"语义碎片（设计大纲 §11 来源 5）
+        if (targetState.getBlock() != sourceState.getBlock()
+                && sourceState.is(Blocks.COPPER_BLOCK)
+                && serverLevel.random.nextDouble() < FocalDecayConfig.FRAGMENT_COPPER_MUTATION_CHANCE.get()) {
+            net.minecraft.world.entity.item.ItemEntity fragment = new net.minecraft.world.entity.item.ItemEntity(
+                    serverLevel, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,
+                    new ItemStack(ModItems.FRAGMENT_CRYSTAL.get()));
+            fragment.setDefaultPickUpDelay();
+            serverLevel.addFreshEntity(fragment);
         }
     }
 

@@ -19,6 +19,10 @@ public final class ModMenus {
             MENUS.register("training_terminal", () -> new MenuType<>(
                     (id, inv) -> new TrainingTerminalMenu(id, inv), FeatureFlags.VANILLA_SET));
 
+    public static final DeferredHolder<MenuType<?>, MenuType<ObserverCoreMenu>> OBSERVER_CORE =
+            MENUS.register("observer_core", () -> new MenuType<>(
+                    (id, inv) -> new ObserverCoreMenu(id, inv), FeatureFlags.VANILLA_SET));
+
     private ModMenus() {
     }
 }

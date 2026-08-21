@@ -32,6 +32,7 @@
 
   "container.focal_decay.anchor_prototype": "观测者原型机",
   "container.focal_decay.training_terminal": "训练终端",
+  "container.focal_decay.observer_core": "观测者核心",
 
   "gui.focal_decay.training_semantic": "训练：语义锁定",
   "gui.focal_decay.training_guided": "训练：引导突变",
@@ -41,6 +42,10 @@
   "gui.focal_decay.bio_energy_empty": "（能量耗尽，稳定效果失效）",
   "gui.focal_decay.guided_concept": "概念：%s，完备度：%s%%",
   "gui.focal_decay.guided_invalid": "（无法指认有效概念，模型无效）",
+  "gui.focal_decay.core_offline": "观测者：离线",
+  "gui.focal_decay.core_online": "观测者：在线",
+  "gui.focal_decay.core_activate": "激活核心",
+  "gui.focal_decay.core_hint": "手持「重建的观测协议」，点击激活以修复世界",
 
   "message.focal_decay.training_need_blank": "请先放入空白观测模型",
   "message.focal_decay.training_no_energy": "能量不足",
@@ -51,6 +56,12 @@
   "message.focal_decay.training_target_entity": "已训练实体：%s",
   "message.focal_decay.training_concept_result": "概念：%s，完备度：%s%%",
   "message.focal_decay.training_concept_invalid": "无法指认有效概念——模型无效（需要至少 %s 个同概念目标）",
+  "message.focal_decay.core_first_visit": "第一次注视观测者核心——你获得了碎片·完备语义",
+  "message.focal_decay.core_activating": "观测者核心正在重新聚焦……",
+  "message.focal_decay.core_activated": "观测者核心已激活——失焦终止！",
+  "message.focal_decay.core_activated_broadcast": "观测者核心重新聚焦——世界恢复了稳定。",
+  "message.focal_decay.core_need_protocol": "需要携带「重建的观测协议」",
+  "message.focal_decay.core_already_online": "观测者已经在线",
   "message.focal_decay.ritual_started": "仪式开始——保持留在王座范围内！",
   "message.focal_decay.ritual_progress": "仪式进度：剩余 %s 秒",
   "message.focal_decay.ritual_wave": "第 %s 波来袭！",

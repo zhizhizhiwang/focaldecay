@@ -22,6 +22,7 @@ import com.zhizhiwang.focal_decay.mutation.DragonDropHandler;
 import com.zhizhiwang.focal_decay.mutation.TotalStabilityFieldHandler;
 import com.zhizhiwang.focal_decay.mutation.DoomsdayHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
+import com.zhizhiwang.focal_decay.mutation.ObserverCoreHandler;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -69,6 +70,7 @@ public final class FocalDecay {
         NeoForge.EVENT_BUS.register(ThroneRitualHandler.class);
         NeoForge.EVENT_BUS.register(DragonDropHandler.class);
         NeoForge.EVENT_BUS.register(TotalStabilityFieldHandler.class);
+        NeoForge.EVENT_BUS.register(ObserverCoreHandler.class);
 
         // Register config specs
         modContainer.registerConfig(ModConfig.Type.SERVER, FocalDecayConfig.SERVER_SPEC);
