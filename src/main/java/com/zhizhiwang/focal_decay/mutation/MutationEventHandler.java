@@ -122,8 +122,8 @@ public class MutationEventHandler {
                     List<Block> pool = manager.getGlobalPool().snapshot();
                     long birthPeriod = manager.getBlockBirthPeriod(p);
                     GuidedBias bias = manager.getGuidedBias(p, state, stage);
-                    BlockState target = MutationHelper.getVisibleTarget(
-                            state, p, worldSeed, periodIndex, pool, chance, bias,
+                    BlockState target = MutationTargets.resolve(
+                            level, state, p, stage, worldSeed, periodIndex, pool, chance, bias,
                             MutationHelper.Protection.NONE, birthPeriod);
                     if (target != state) {
                         level.setBlock(p, target, 3);

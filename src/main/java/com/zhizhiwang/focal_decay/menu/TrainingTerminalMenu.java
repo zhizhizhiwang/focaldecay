@@ -59,15 +59,15 @@ public class TrainingTerminalMenu extends AbstractContainerMenu {
             }
         });
 
-        // 玩家主背包 27
+        // 玩家主背包 27（y=92/110/128：压缩进标准 176×166 容器，避免最底行超出贴图）
         for (int row = 0; row < 3; row++) {
             for (int col = 0; col < 9; col++) {
-                this.addSlot(new Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, 96 + row * 18));
+                this.addSlot(new Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, 92 + row * 18));
             }
         }
         // 快捷栏 9
         for (int col = 0; col < 9; col++) {
-            this.addSlot(new Slot(playerInventory, col, 8 + col * 18, 154));
+            this.addSlot(new Slot(playerInventory, col, 8 + col * 18, 146));
         }
         this.addDataSlots(energyData);
     }

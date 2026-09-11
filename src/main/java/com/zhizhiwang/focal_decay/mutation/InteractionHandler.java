@@ -9,7 +9,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.stats.Stats;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.EventPriority;
@@ -44,7 +43,6 @@ public class InteractionHandler {
             return; // 失焦终止：不再锁定突变目标
         }
 
-        MutationPoolManager manager = MutationPoolManager.get(serverLevel);
         long days = FocalDecayWorldData.get(serverLevel.getServer()).getDays();
         int stage = MutationHelper.currentStage(days);
 
@@ -54,18 +52,9 @@ public class InteractionHandler {
             return;
         }
 
-        long gameTick = serverLevel.getGameTime();
-        long periodIndex = MutationHelper.blockPeriod(gameTick);
-        long worldSeed = serverLevel.getSeed();
-
-        List<Block> pool = manager.getGlobalPool().snapshot();
-        double chance = MutationHelper.mutationChance(stage);
-        MutationHelper.Protection protection = manager.protectionInfo(pos, state, stage);
-        long birthPeriod = manager.getBlockBirthPeriod(pos);
-        GuidedBias bias = manager.getGuidedBias(pos, state, stage);
-        BlockState target = MutationHelper.getVisibleTarget(state, pos, worldSeed, periodIndex, pool, chance,
-                bias, protection, birthPeriod);
-
+        // 统一入口抽取目标（与右键训练、渲染预览、锚固化同一公式）
+        long periodIndex = MutationHelper.blockPeriod(serverLevel.getGameTime());
+        BlockState target = MutationTargets.resolveServer(serverLevel, pos, state);
         breakData.start(target, periodIndex, pos);
     }
 

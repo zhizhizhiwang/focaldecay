@@ -158,19 +158,7 @@ public final class ModelTrainingHandler {
 
     /** 服务端计算"可见目标"方块状态（与客户端预览同一确定性公式）。 */
     private static BlockState visibleState(ServerLevel level, BlockPos pos, BlockState real) {
-        if (FocalDecayWorldData.get(level.getServer()).isObserverOnline()) {
-            return real; // 失焦终止：无可训练目标
-        }
-        MutationPoolManager manager = MutationPoolManager.get(level);
-        long days = FocalDecayWorldData.get(level.getServer()).getDays();
-        int stage = MutationHelper.currentStage(days);
-        long period = MutationHelper.blockPeriod(level.getGameTime());
-        List<Block> pool = manager.getGlobalPool().snapshot();
-        double chance = MutationHelper.mutationChance(stage);
-        MutationHelper.Protection protection = manager.protectionInfo(pos, real, stage);
-        long birth = manager.getBlockBirthPeriod(pos);
-        GuidedBias bias = manager.getGuidedBias(pos, real, stage);
-        return MutationHelper.getVisibleTarget(real, pos, level.getSeed(), period, pool, chance,
-                bias, protection, birth);
+        // 统一入口：包含"转换源"判定（门/楼梯/栅栏等不完整方块不会被记录成突变目标）
+        return MutationTargets.resolveServer(level, pos, real);
     }
 }

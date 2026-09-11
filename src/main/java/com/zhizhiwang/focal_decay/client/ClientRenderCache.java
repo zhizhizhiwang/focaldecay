@@ -9,6 +9,7 @@ import com.zhizhiwang.focal_decay.mixin.client.RenderChunkRegionAccessor;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationPool;
+import com.zhizhiwang.focal_decay.mutation.MutationTargets;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import net.minecraft.client.Minecraft;
@@ -658,7 +659,7 @@ public final class ClientRenderCache {
         long birthPeriod = getBlockBirthPeriod(pos);
         List<Block> global = pool.snapshot();
         GuidedBias bias = guidedBias(pos, original, stage);
-        return MutationHelper.getVisibleTarget(original, pos, worldSeed(level), period, global,
+        return MutationTargets.resolve(level, original, pos, stage, worldSeed(level), period, global,
                 chance, bias, protectionInfo(pos, original, stage), birthPeriod);
     }
 

@@ -30,6 +30,7 @@ public class AnchorPrototypeBlock extends Block implements EntityBlock {
         super(BlockBehaviour.Properties.of()
                 .strength(3.0f)
                 .sound(SoundType.METAL)
+                .noOcclusion() // 玻璃外壳：不参与遮挡剔除，相邻面不会被剔除
                 .lightLevel(state -> 7));
     }
 

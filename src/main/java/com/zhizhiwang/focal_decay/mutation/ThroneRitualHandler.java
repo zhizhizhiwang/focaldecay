@@ -1,6 +1,7 @@
 package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.block.ModBlocks;
+import com.zhizhiwang.focal_decay.block.ObserverCoreBlock;
 import com.zhizhiwang.focal_decay.block.entity.AnchorPrototypeBlockEntity;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
@@ -115,6 +116,7 @@ public final class ThroneRitualHandler {
                 BlockPos throne = ThroneStructure.thronePos(level.getSeed());
                 if (level.isLoaded(throne)) {
                     spawnAmbientParticles(level, throne);
+                    spawnCoreAmbientParticles(level, throne);
                 }
             }
             ThroneRitualData data = ThroneRitualData.get(level);
@@ -265,6 +267,22 @@ public final class ThroneRitualHandler {
         level.sendParticles(ParticleTypes.PORTAL,
                 throne.getX() + 0.5, throne.getY() + 3.0, throne.getZ() + 0.5,
                 8, 6, 3, 6, 0.1);
+    }
+
+    /** 彩蛋：王座中央的观测者核心激活后，周围漂浮蓝色光点。 */
+    private static void spawnCoreAmbientParticles(ServerLevel level, BlockPos throne) {
+        BlockPos corePos = throne.offset(0, 1, 0);
+        if (!level.getBlockState(corePos).is(ModBlocks.OBSERVER_CORE.get())
+                || !level.getBlockState(corePos).getValue(ObserverCoreBlock.POWERED)) {
+            return;
+        }
+        RandomSource random = level.getRandom();
+        for (int i = 0; i < 5; i++) {
+            double x = corePos.getX() + 0.5 + (random.nextDouble() - 0.5) * 2.0;
+            double y = corePos.getY() + 0.5 + random.nextDouble() * 2.5;
+            double z = corePos.getZ() + 0.5 + (random.nextDouble() - 0.5) * 2.0;
+            level.sendParticles(ParticleTypes.GLOW, x, y, z, 1, 0, 0.04, 0, 0);
+        }
     }
 
     private static boolean isThroneBase(BlockPos pos, BlockPos throne) {

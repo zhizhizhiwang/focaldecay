@@ -90,10 +90,10 @@ public class ThronePiece extends StructurePiece {
         }
         if (dy == 1) {
             boolean rim = Math.max(Math.abs(dx), Math.abs(dz)) == ThroneStructure.HALF_X;
-            boolean innerRing = Math.abs(dx) == 3 || Math.abs(dz) == 3;
+            // boolean innerRing = Math.abs(dx) == 3 || Math.abs(dz) == 3;
             boolean seat = dz == -4 && Math.abs(dx) <= 1;
             boolean armrest = dz == -4 && Math.abs(dx) == 2;
-            if (rim || innerRing || seat || armrest) {
+            if (rim || seat || armrest) {
                 return THRONE_BLOCK;
             }
             return null;
@@ -109,7 +109,7 @@ public class ThronePiece extends StructurePiece {
             return END_ROD;
         }
         // 四角高柱（"末地水晶"）
-        if (Math.abs(dx) == 6 && Math.abs(dz) == 6) {
+        if (Math.abs(dx) == ThroneStructure.HALF_X && Math.abs(dz) == ThroneStructure.HALF_Z) {
             if (dy >= 0 && dy <= 17) {
                 return THRONE_BLOCK;
             }
@@ -118,7 +118,7 @@ public class ThronePiece extends StructurePiece {
             }
         }
         // 四边中柱
-        if ((dx == 0 && Math.abs(dz) == 6) || (Math.abs(dx) == 6 && dz == 0)) {
+        if ((dx == 0 && Math.abs(dz) == ThroneStructure.HALF_Z) || (Math.abs(dx) == ThroneStructure.HALF_X && dz == 0)) {
             if (dy >= 0 && dy <= 13) {
                 return THRONE_BLOCK;
             }

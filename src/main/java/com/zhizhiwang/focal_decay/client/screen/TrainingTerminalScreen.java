@@ -59,7 +59,7 @@ public class TrainingTerminalScreen extends AbstractContainerScreen<TrainingTerm
         super.render(graphics, mouseX, mouseY, partialTick);
         graphics.drawString(this.font,
                 Component.translatable("gui.focal_decay.energy", this.menu.getEnergy()),
-                this.leftPos + 8, this.topPos + 96, 0xFFFFFF);
+                this.leftPos + 100, this.topPos + 70, 0xFFFFFF);
         this.renderTooltip(graphics, mouseX, mouseY);
     }
 }

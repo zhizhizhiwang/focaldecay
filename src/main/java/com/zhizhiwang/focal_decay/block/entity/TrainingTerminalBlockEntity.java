@@ -7,6 +7,7 @@ import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.menu.TrainingTerminalMenu;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
+import com.zhizhiwang.focal_decay.mutation.FloatingText;
 import com.zhizhiwang.focal_decay.mutation.FragmentGrants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -110,6 +111,11 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
                 finalTypeName, data.trainedTargets(), data.trainedEntities(), q, concept, 0, 0, false));
         setItem(0, finished);
         this.finalType = TYPE_SEMANTIC_LOCK;
+        // 彩蛋：完成训练时在终端上方浮动 "42ms"
+        if (level instanceof ServerLevel serverLevel) {
+            FloatingText.spawn(serverLevel, worldPosition,
+                    Component.translatable("particle.focal_decay.42ms"), 40);
+        }
         // 语义碎片里程碑：首次完成训练（玫瑰）、首次将概念完备度练到 100%（程玖章）
         if (level instanceof ServerLevel serverLevel && player instanceof ServerPlayer serverPlayer) {
             FocalDecayWorldData worldData = FocalDecayWorldData.get(serverLevel.getServer());
