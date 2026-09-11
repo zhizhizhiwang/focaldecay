@@ -3,6 +3,7 @@ package com.zhizhiwang.focal_decay.block;
 import com.zhizhiwang.focal_decay.item.ModItems;
 import com.zhizhiwang.focal_decay.menu.ObserverCoreMenu;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
+import com.zhizhiwang.focal_decay.mutation.FloatingText;
 import com.zhizhiwang.focal_decay.network.ModNetwork;
 import com.zhizhiwang.focal_decay.network.ObserverCoreActivatePacket;
 import net.minecraft.core.BlockPos;
@@ -85,6 +86,8 @@ public class ObserverCoreBlock extends Block {
                 240, 1.5, 2.5, 1.5, 0.25);
         level.getServer().getPlayerList().broadcastSystemMessage(
                 Component.translatable("message.focal_decay.core_activated_broadcast"), false);
+        // 彩蛋：新观测者就位时浮动 "完备语义分类"
+        FloatingText.spawn(level, pos, Component.translatable("particle.focal_decay.complete_semantics"), 60);
         ModNetwork.sendToAllPlayers(new ObserverCoreActivatePacket(pos.immutable()));
     }
 }

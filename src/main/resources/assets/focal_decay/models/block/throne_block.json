@@ -1,3 +1,6 @@
 {
-  "parent": "minecraft:block/obsidian"
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "focal_decay:block/throne_block"
+  }
 }

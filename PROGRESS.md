@@ -46,6 +46,7 @@
 - 挖掘速度/工具要求由目标决定（2026-08-21）：`MultiPlayerGameModeMixin` 把挖掘进度改为读可见目标（`ClientRenderCache.miningState` 走缓存，O(1)）；掉落/经验传入玩家主手工具，`requiresCorrectToolForDrops` 生效
 - 陈旧挖掘锁定修复（2026-08-21）：`BreakData` 记录锁定位置并序列化；非转换源（门/楼梯/栅栏等）左键时清空锁定，破坏时校验位置不匹配即清空——杜绝"上次目标的掉落泄漏到不完整方块"的问题
 - 挖掘原版行为还原（2026-08-21）：`BreakEvent` 取消会跳过原版 `destroyBlock`/`playerDestroy` 的后续逻辑——`InteractionHandler.onBlockBreak` 手动补调 `held.mineBlock`（按目标扣 2 耐久）、`awardStat(Stats.BLOCK_MINED)`（挖掘统计）、`causeFoodExhaustion(0.005F)`（饥饿），均按"当前可见目标"结算
+- **突变目标抽取统一入口（2026-09-11）**：新增 `mutation/MutationTargets`——`resolve(...)`（纯函数：转换源判定 + 保护/概率/引导偏向/诞生周期/累积回退扫描，两端共用）与 `resolveServer(level,pos,state)`（服务端装配阶段/池/保护/偏向/周期）。四处调用点全部改走它：世界固化（`MutationEventHandler.convertPrototypeRange`）、左键锁定（`InteractionHandler`）、右键训练（`ModelTrainingHandler.visibleState`）、客户端渲染预览（`ClientRenderCache.computeTarget`）。**修复 bug**：右键训练此前漏掉转换源判定，导致右键门/楼梯/栅栏等不完整方块会记录一个"并未突变"的突变目标；现在所见即所记录（此类方块记录其自身）。
 
 ### 7. 客户端渲染缓存系统（完成）
 - `client/ClientRenderCache.java`：`Map<Long, Entry> targetCache`（带周期号防跨周期旧值）+ `Set<Long> visibleSurfaces` + `Set<Long> activeSections`（按节计数精确回收）
@@ -118,7 +119,6 @@
   - **方块周期固定基准**：方块突变周期改为 `blockPeriod = gameTick / base_interval`（固定 100 tick），不再随阶段 interval（100/60/40）跳变——此前阶段切换会让周期编号跳变、全图目标重排。
   - **累积转换最终决策（2026-08-20）**：经确认，`cumulativeTarget` 恢复原始"回退扫描最近抽中周期"公式——命中条件即阶段概率（0.1/0.6/1.0），每周期掷骰、抽中换新材质、未抽中保留上次材质，世界随周期逐渐积累崩坏；阶段切换（含 `/focaldecay days` 指令）改变命中概率导致已失焦方块材质重排，视为预期行为。`MEMORY_CHANCE` 解耦方案已移除；保留固定周期基准与登录天数补发两处真修复。
 
-## 未完成（按推荐实现顺序）
 
 ### 9. 观测稳定系统（2026-08-19 设计修订，取代原"稳定锚 + 突变控制器"）
 - **设计变更**：原 `stable_anchor` / `mutation_controller` 统一重构为 **稳定锚原型机**（`anchor_prototype`）+ **观测模型**（物品 + DataComponents）；新增 **训练终端**（`training_terminal`）与 **末地王座**；语义锁定/引导模型继承原突变控制器功能，完全稳定锚为终极形态。
@@ -198,7 +198,7 @@
 
 ### 12. 收尾
 - 原型机 GUI 与训练终端 GUI：自定义占位贴图已替换（`assets/focal_decay/textures/gui/*.png`），专属模型/细化待做
-- 粒子（蓝色漂浮、"42ms"、"完备语义分类"字样）
+- 彩蛋粒子（2026-08-27 已完成）：`FloatingText`（Text Display 实体 + @Invoker mixin 访问私有 setter）——训练完成时终端上方浮动 "42ms"、观测者核心安装成功时浮动 "完备语义分类"，无重力/透明背景/到点自动移除；王座中央核心激活后每 40 tick 漂浮蓝色 GLOW 光点
 - 测试与平衡调整
 
 ## 关键约定与注意事项

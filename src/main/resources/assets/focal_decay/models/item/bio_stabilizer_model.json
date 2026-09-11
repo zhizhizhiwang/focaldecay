@@ -1,6 +1,6 @@
 {
   "parent": "minecraft:item/generated",
   "textures": {
-    "layer0": "minecraft:item/ghast_tear"
+    "layer0": "focal_decay:item/bio_stabilizer_model"
   }
 }

@@ -4,6 +4,7 @@ import com.zhizhiwang.focal_decay.data.ModDataComponents;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
+import com.zhizhiwang.focal_decay.item.ModItems;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -60,8 +61,34 @@ public class ObserverModelItem extends Item {
     @Override
     public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltipComponents, TooltipFlag tooltipFlag) {
         ObserverModelData data = getData(stack);
-        if (data == null) {
+
+        // 静态 lore：按物品本身判断（未训练/无数据组件时也能显示）
+        if (stack.is(ModItems.OBSERVER_MODEL_BLANK.get())) {
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.observer_model_blank")
+                    .withStyle(ChatFormatting.GRAY));
+        } else if (stack.is(ModItems.SEMANTIC_LOCK_MODEL.get())) {
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.semantic_lock_model")
+                    .withStyle(ChatFormatting.AQUA));
+        } else if (stack.is(ModItems.GUIDED_MUTATION_MODEL.get())) {
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.guided_mutation_model")
+                    .withStyle(ChatFormatting.AQUA));
+        } else if (stack.is(ModItems.TOTAL_STABILITY_MODEL.get())) {
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.total_stability_model")
+                    .withStyle(ChatFormatting.DARK_PURPLE));
             return;
+        } else if (stack.is(ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get())) {
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.total_stability_model_activated")
+                    .withStyle(ChatFormatting.DARK_PURPLE));
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.total_stabilizer")
+                    .withStyle(ChatFormatting.DARK_GRAY));
+            return;
+        } else if (stack.is(ModItems.OBSERVER_MODEL_CANDIDATE.get())) {
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.observer_model_candidate")
+                    .withStyle(ChatFormatting.AQUA));
+        }
+
+        if (data == null) {
+            return; // 未训练/无数据：只有静态 lore
         }
         if (ObserverModelData.TYPE_BIO.equals(data.type())) {
             tooltipComponents.add(Component.translatable("tooltip.focal_decay.bio_stabilizer")
@@ -69,11 +96,6 @@ public class ObserverModelItem extends Item {
             tooltipComponents.add(Component.translatable("tooltip.focal_decay.bio_energy",
                     Math.max(0, data.bioEnergy())));
             return; // 生物稳定无需训练，不显示目标列表
-        }
-        if (ObserverModelData.TYPE_TOTAL.equals(data.type())) {
-            tooltipComponents.add(Component.translatable("tooltip.focal_decay.total_stabilizer")
-                    .withStyle(ChatFormatting.DARK_PURPLE));
-            return; // 完全稳定无需训练，不显示目标列表/Shift 提示
         }
         if (ObserverModelData.TYPE_CANDIDATE.equals(data.type())) {
             if (isCompletedCandidate(stack)) {
