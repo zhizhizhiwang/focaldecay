@@ -107,18 +107,39 @@ public class MutationPoolManager extends SavedData {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
     }
 
-    /** 模型效果半径（供放置固化与效果注册共用）：生物稳定 +4，完全稳定固定 32。 */
+    /**
+     * 模型效果半径（供放置固化与效果注册共用）：生物稳定 +4，完全稳定按复制代数递减。
+     * <p>
+     * 完全稳定模型是唯一"可复制"的顶级保护，所以它必须随代数变弱，否则复制就没有代价：
+     * 原件 32，一代副本 32 − p，二代副本 32 − 3p（p = {@code total_stability_copy_penalty}，
+     * 递减量逐代递增，体现"越重铸越失真"）。
+     */
     public static int radiusFor(ObserverModelData data) {
+        // 防御：物品没有模型数据时不能假定它有。否则 data.type() 直接 NPE，
+        // 而调用点（放基座、固化范围）都在玩家操作路径上，会直接崩游戏。
+        if (data == null) {
+            return FocalDecayConfig.PROTOTYPE_RADIUS.get();
+        }
         if (ObserverModelData.TYPE_CANDIDATE.equals(data.type())) {
             // 候选观测者完成训练后兼具完全稳定效果（半径 32）；未完成 = 无保护（基础半径）
-            return data.progress() >= FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get() ? 32
+            return data.progress() >= ObserverModelItem.requiredCandidatePoints(data) ? 32
                     : FocalDecayConfig.PROTOTYPE_RADIUS.get();
         }
         return switch (data.type()) {
             case ObserverModelData.TYPE_BIO -> FocalDecayConfig.PROTOTYPE_RADIUS.get() + 4;
-            case ObserverModelData.TYPE_TOTAL -> 32;
+            case ObserverModelData.TYPE_TOTAL -> totalStabilityRadius(data.copies());
             default -> FocalDecayConfig.PROTOTYPE_RADIUS.get();
         };
+    }
+
+    /** 完全稳定模型的半径：32 减去年限递增的复制损耗，并不低于基础半径。 */
+    private static int totalStabilityRadius(int copies) {
+        int base = 32;
+        int penalty = Math.max(0, FocalDecayConfig.TOTAL_STABILITY_COPY_PENALTY.get());
+        int generation = Math.max(0, copies);
+        // 三角数：1 代 ×1、2 代 ×3、3 代 ×6 —— 损耗不断加剧
+        int lost = generation * (generation + 1) / 2 * penalty;
+        return Math.max(FocalDecayConfig.PROTOTYPE_RADIUS.get(), base - lost);
     }
 
     /**
@@ -143,7 +164,7 @@ public class MutationPoolManager extends SavedData {
                 return MutationHelper.Protection.HARD;
             }
             if (ObserverModelData.TYPE_CANDIDATE.equals(type)
-                    && effect.data().progress() >= FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get()) {
+                    && effect.data().progress() >= ObserverModelItem.requiredCandidatePoints(effect.data())) {
                 return MutationHelper.Protection.HARD; // 已完成候选 = 完全稳定
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)) {

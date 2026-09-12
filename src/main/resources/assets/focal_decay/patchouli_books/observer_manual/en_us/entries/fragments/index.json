@@ -1,0 +1,19 @@
+{
+  "name": "Master Index",
+  "category": "focal_decay:fragments",
+  "icon": "focal_decay:semantic_fragment_semantic",
+  "sortnum": 0,
+  "read_by_default": true,
+  "priority": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Description:$() There are seven semantic fragments. They are carriers of semantic material left by personnel of the previous iteration, and the only source material besides this manual.$(br2)They cannot be crafted, and no repeatable acquisition path exists for any of them."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "Each fragment corresponds to an event: at some moment someone performed some action, and only afterwards did that fragment appear in the world.$(br2)Fragments are records; each of them happens once.",
+      "title": "Archive note"
+    }
+  ]
+}

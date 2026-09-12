@@ -160,8 +160,7 @@ public final class DoomsdayHandler {
             if (ObserverModelData.TYPE_TOTAL.equals(type)) {
                 return true;
             }
-            if (ObserverModelData.TYPE_CANDIDATE.equals(type)
-                    && effect.data().progress() >= FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get()) {
+            if (ObserverModelData.TYPE_CANDIDATE.equals(type) && effect.data().candidateComplete()) {
                 return true; // 已完成候选 = 完全稳定
             }
             if (ObserverModelData.TYPE_BIO.equals(type)) {

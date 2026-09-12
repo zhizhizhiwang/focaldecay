@@ -1,0 +1,39 @@
+{
+  "name": "附录·最后传输",
+  "category": "focal_decay:refocus",
+  "icon": "minecraft:ender_eye",
+  "sortnum": 1,
+  "read_by_default": true,
+  "advancement": "focal_decay:unlock_core",
+  "secret": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "以下通信记录回收自上一迭代 Site-CN-25 的服务器备份。由于时间戳缺失，通信的具体时间已不可考。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)程：$()事实上，Aaron，我也是来向你告别的。$(br2)$(bold)Aaron：$()……出什么事了？$(br2)$(bold)程：$()没什么，只是……我这部操作台没有办法将 OBSR-3 发送给你。缺了一个固件，我得把我的操作台物理连接到另一个传输器上。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)程：$()不用担心，它不远，就在我隔壁，也不是很复杂的事，我只需要拉根线而已。$(br2)$(bold)Aaron：$()……但是这并不在你的 OBSR-2 的参数上，对吧？$(br2)$(bold)程：$()是啊……"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)程：$()数据传输应该不会有问题，我也能够赶在效应消失之前把线连上，这点自信我还是有的。但是在那之后，失焦应该是不会放过我了。$(br2)$(bold)Aaron：$()……我很抱歉，程。$(br2)$(bold)程：$()用不着，头儿。我在基金会上的班，我很清楚我自己面对的是什么。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Aaron：$()事实上，我这边的情况也是一样的。我也会失焦。我需要把 OBSR-3 带上王座，这也是我的 OBSR-2 的参数外。$(br2)$(bold)程：$()那看来我们俩都看不到黎明的曙光了。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)程：$()不用了，Aaron，这一切的终结已经在我们手上了，没必要在这演内心戏了。$(br2)$(bold)程：$()那就这样吧，很高兴认识你，Aaron。$(br2)$(bold)Aaron：$()我也是，程，我也是。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)程：$()那我们来吧，你和我。我会把 OBSR-3 的数据发送给你，然后你会将它带上王座。$(br2)$(bold)程：$()然后世界会继续美丽。"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "A": {
+      "item": "minecraft:amethyst_shard"
+    },
+    "G": {
+      "item": "minecraft:glass"
+    },
+    "L": {
+      "item": "minecraft:lead"
+    },
+    "O": {
+      "item": "focal_decay:observer_model_blank"
+    },
+    "R": {
+      "item": "minecraft:red_dye"
+    }
+  },
+  "pattern": [
+    "GRG",
+    "LOL",
+    "GAG"
+  ],
+  "result": {
+    "count": 1,
+    "id": "focal_decay:bio_stabilizer_model"
+  }
+}

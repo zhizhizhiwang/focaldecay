@@ -1,0 +1,38 @@
+{
+  "name": "附录·现场记录",
+  "category": "focal_decay:decay",
+  "icon": "minecraft:written_book",
+  "sortnum": 1,
+  "read_by_default": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "以下资料收集于上一迭代基金会站点与人类聚居地遗址。由于时间戳的缺失与数据损坏，所有资料的具体时间与涉及人员身份已不可考。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)■ 初始事件$()$(br2)第一起在南极，阿蒙森-斯科特南极站，一名科研人员发现他喝的咖啡变成了石油。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "第二起在巴西利亚，一个小孩刚从商场门口走到街上，他新买的足球就当着所有人的面变成了一只横斑林鸮。"
+    },
+    {
+      "type": "patchouli:entity",
+      "entity": "minecraft:parrot",
+      "name": "记录配图：横斑林鸮（形态替换产物）"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "第三起造成了人员伤亡：一个十四岁女孩的牙齿矫正器变成了硝酸甘油，并立刻爆炸。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "第四起在指挥部会议开始前发生：一块手表表盘变成了蓝莓味的过期果冻。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)■ 观察结论$()$(br2)上述四起在当时的记录中均列为“疑似”，因为当时无法百分之百确认其成因。"
+    }
+  ]
+}

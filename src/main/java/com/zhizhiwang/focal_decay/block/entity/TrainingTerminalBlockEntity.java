@@ -67,8 +67,10 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
         this.finalType = type;
         ItemStack training = model.copy();
         training.setCount(1);
+        ObserverModelData blankData = ObserverModelItem.getData(model);
         ObserverModelItem.setData(training, new ObserverModelData(
-                ObserverModelData.TYPE_TRAINING, List.of(), List.of(), 0.0, "", 0, 0, false));
+                ObserverModelData.TYPE_TRAINING, List.of(), List.of(), 0.0, "", 0, 0, false,
+                blankData != null ? blankData.copies() : 0));
         setItem(0, training);
         return true;
     }
@@ -108,7 +110,8 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
             }
         }
         ObserverModelItem.setData(finished, new ObserverModelData(
-                finalTypeName, data.trainedTargets(), data.trainedEntities(), q, concept, 0, 0, false));
+                finalTypeName, data.trainedTargets(), data.trainedEntities(), q, concept, 0, 0, false,
+                data.copies()));
         setItem(0, finished);
         this.finalType = TYPE_SEMANTIC_LOCK;
         // 彩蛋：完成训练时在终端上方浮动 "42ms"

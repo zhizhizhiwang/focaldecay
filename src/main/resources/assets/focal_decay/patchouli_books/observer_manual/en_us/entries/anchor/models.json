@@ -1,0 +1,39 @@
+{
+  "name": "Model Specifications",
+  "category": "focal_decay:anchor",
+  "icon": "focal_decay:semantic_lock_model",
+  "sortnum": 1,
+  "read_by_default": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Description:$() Five OBSR specifications are available in the field, all differentiated from the same prototype. Their functions are distinct and they are not interchangeable.",
+      "title": "Model Overview"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(li)$(l)OBSR-2 - Semantic Lock$(): protects recorded targets.$(br)$(li)$(l)OBSR-1 - Guided Mutation$(): changes where a drift within range goes.$(br)$(li)$(l)OBSR-Health - Bio Stabiliser$(): uses the brains of nearby creatures as its power source to stabilise every block and creature in range."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(li)$(l)OBSR-EX - Total Stability$(): the technical achievement of the previous iteration. Fixed coverage of an extremely wide area, unaffected by stage decay.$(br)$(li)$(l)OBSR-3 - Candidate Observer$(): not a stabilisation device.",
+      "title": "Model Overview (cont.)"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Stage decay:$() The intensification of defocus erodes the effectiveness of stabilisation devices.$(br2)$(li)OBSR-2's lock becomes probabilistic in the final stage - each settlement re-rolls \"whether it holds\";$(br)$(li)OBSR-1's completeness is halved in the final stage."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "OBSR-Health and OBSR-EX are unaffected by stage decay.$(br2)The effects of multiple anchors do not stack; the nearest one is used."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Copying loss:$() The parameters of OBSR-EX are hard-wired. Copying it is not copying a file; it is recasting.$(br2)Every recasting loses part of the classification precision:$(br)$(li)the original covers 32 blocks;$(br)$(li)a generation-1 copy loses 10, a generation-2 copy loses 30.$(br2)Nothing can be recast beyond generation 2."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "A Candidate Observer built around a copy requires more training: +50 points for a generation-1 core, +150 for a generation-2 core.$(br2)There is only one original. Where it goes is your decision."
+    }
+  ]
+}

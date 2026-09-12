@@ -54,7 +54,15 @@ public class ObserverModelItem extends Item {
     public static boolean isCompletedCandidate(ItemStack stack) {
         ObserverModelData data = getData(stack);
         return data != null && ObserverModelData.TYPE_CANDIDATE.equals(data.type())
-                && data.progress() >= FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get();
+                && data.progress() >= requiredCandidatePoints(data);
+    }
+
+    /**
+     * 该候选体完成所需的训练点数（委托给 {@link ObserverModelData#requiredCandidatePoints(int)}，
+     * 保证服务端与客户端共用同一公式）。
+     */
+    public static int requiredCandidatePoints(ObserverModelData data) {
+        return ObserverModelData.requiredCandidatePoints(data.copies());
     }
 
     /** 收纳袋风格提示：默认折叠显示数量，按住 Shift 展开训练目标列表。 */
@@ -62,10 +70,19 @@ public class ObserverModelItem extends Item {
     public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltipComponents, TooltipFlag tooltipFlag) {
         ObserverModelData data = getData(stack);
 
+        // 复制代数：损耗必须让玩家看得见，否则"半径变小"会显得莫名其妙
+        if (data != null && data.copies() > 0) {
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.model_copies", data.copies())
+                    .withStyle(ChatFormatting.RED));
+        }
+
         // 静态 lore：按物品本身判断（未训练/无数据组件时也能显示）
         if (stack.is(ModItems.OBSERVER_MODEL_BLANK.get())) {
             tooltipComponents.add(Component.translatable("tooltip.focal_decay.observer_model_blank")
                     .withStyle(ChatFormatting.GRAY));
+            // 下一步指引：空白模型是"不知道该怎么用"最典型的物品
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.model_next_step")
+                    .withStyle(ChatFormatting.DARK_GRAY));
         } else if (stack.is(ModItems.SEMANTIC_LOCK_MODEL.get())) {
             tooltipComponents.add(Component.translatable("tooltip.focal_decay.semantic_lock_model")
                     .withStyle(ChatFormatting.AQUA));
@@ -102,7 +119,7 @@ public class ObserverModelItem extends Item {
                 tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_complete")
                         .withStyle(ChatFormatting.DARK_PURPLE));
             } else {
-                int required = Math.max(1, FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get());
+                int required = requiredCandidatePoints(data);
                 int percent = (int) Math.min(100, Math.round(data.progress() * 100.0 / required));
                 tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_progress", percent)
                         .withStyle(ChatFormatting.AQUA));

@@ -1,0 +1,19 @@
+{
+  "name": "归档总表",
+  "category": "focal_decay:fragments",
+  "icon": "focal_decay:semantic_fragment_semantic",
+  "sortnum": 0,
+  "read_by_default": true,
+  "priority": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)描述：$()语义碎片共七枚，是上一迭代人员遗留的语义资料载体，也是本手册之外唯一的原始资料。$(br2)它们不可合成，也不存在可重复的获取路径。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "每一枚碎片都对应一个事件：某个人在某个时刻做出了某个动作，之后世界上才出现了这枚碎片。$(br2)碎片是记录，各自只发生一次。",
+      "title": "归档说明"
+    }
+  ]
+}

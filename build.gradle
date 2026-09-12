@@ -29,6 +29,11 @@ sourceSets.main.resources {
 
 repositories {
     // Add here additional repositories if required by some of the dependencies below.
+    // BlameJared hosts both JEI and Patchouli (the two optional compat targets).
+    maven {
+        name = 'BlameJared'
+        url = 'https://maven.blamejared.com'
+    }
 }
 
 base {
@@ -94,6 +99,44 @@ neoForge {
             // You can set various levels here.
             // Please read: https://stackoverflow.com/questions/2031163/when-to-use-the-different-log-levels
             logLevel = org.slf4j.event.Level.DEBUG
+
+            // Crash diagnostics: the client has been dying with a *native* JVM failure
+            // (exit -805306369 / NTSTATUS 0xCFFFFFFF) and no Java stack trace. These flags
+            // force a hotspot error dump (run/hs_err_pid*.log) with the native frames,
+            // plus OOM dumps, so the next failure is actually diagnosable.
+            jvmArguments.addAll(
+                    '-XX:+HeapDumpOnOutOfMemoryError',
+                    '-XX:HeapDumpPath=hs_err_heapdump.hprof',
+                    '-XX:ErrorFile=hs_err_pid%p.log',
+                    '-XX:+PrintCommandLineFlags'
+            )
+
+            // Audio workaround (machine-specific, see PROGRESS.md §13.1):
+            // this box's audio driver claims ALC_SOFT_HRTF support and then never returns from
+            // OpenAL's alcResetDeviceSOFT, which hangs the client at ~88% ("window not responding").
+            // Minecraft calls that unconditionally whenever the device advertises the extension,
+            // even with directionalAudio off, so the only client-side way around it is to keep
+            // OpenAL away from the real device. Trade-off: no game audio.
+            // Remove this line if the audio driver gets fixed.
+            environment 'ALSOFT_DRIVERS', 'null'
+        }
+    }
+
+    // Extra run config for native-layer diagnostics: FML's early (GL) progress window off and
+    // LWJGL debug output on, which separates "native/driver problem" from "game logic problem".
+    // Run with:  .\gradlew.bat runClientNoEarlyWindow
+    runs {
+        register('clientNoEarlyWindow') {
+            client()
+            systemProperty 'fml.earlyprogresswindow', 'false'
+            systemProperty 'org.lwjgl.util.Debug', 'true'
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            logLevel = org.slf4j.event.Level.DEBUG
+            environment 'ALSOFT_DRIVERS', 'null'
+            jvmArguments.addAll(
+                    '-XX:+HeapDumpOnOutOfMemoryError',
+                    '-XX:ErrorFile=hs_err_pid%p.log'
+            )
         }
     }
 
@@ -137,6 +180,25 @@ dependencies {
     // For more info:
     // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
+
+    // --- Optional compat: JEI -------------------------------------------------
+    // Both are OPTIONAL dependencies: compileOnly keeps the API on our compile
+    // classpath without leaking a dependency onto anyone who builds against us,
+    // and localRuntime supplies the implementation for the dev runs only.
+    // They are deliberately NOT declared in the mods.toml dependency block.
+    // --- Optional compat: JEI -------------------------------------------------
+    // Both are OPTIONAL dependencies: compileOnly keeps the API on our compile
+    // classpath without leaking a dependency onto anyone who builds against us,
+    // and localRuntime supplies the implementation for the dev runs only.
+    // They are deliberately NOT declared in the mods.toml dependency block.
+    compileOnly "mezz.jei:jei-${minecraft_version}-neoforge:${jei_version}"
+    localRuntime "mezz.jei:jei-${minecraft_version}-neoforge:${jei_version}"
+
+    // --- Optional compat: Patchouli ------------------------------------------
+    // The book itself is pure JSON data, so the API jar is only needed for the
+    // optional hooks (config flags registered through PatchouliAPI).
+    compileOnly "vazkii.patchouli:Patchouli:${patchouli_version}:api"
+    localRuntime "vazkii.patchouli:Patchouli:${patchouli_version}"
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

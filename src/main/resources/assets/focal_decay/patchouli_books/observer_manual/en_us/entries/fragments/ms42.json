@@ -1,0 +1,18 @@
+{
+  "name": "Fragment: 42ms",
+  "category": "focal_decay:fragments",
+  "icon": "focal_decay:semantic_fragment_42ms",
+  "sortnum": 4,
+  "read_by_default": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(italic)\"This is a hard timing requirement.\"$()$(br2)42ms is the measured time for OBSR-3 to complete semantic classification of every vector image point in one observation (soft-run stress test result).$(br2)That number is not a performance target. It is an $(l)admission requirement$().",
+      "title": "Fragment: 42ms"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Event:$() someone in the previous iteration completed the necessary preparatory work before the Throne.$(br2)$(bold)Collection:$() obtained on completing the $(l)Throne Ritual$() for the first time.$(br2)$(italic)Recorded once per recipient. A failed ritual produces no record.$()"
+    }
+  ]
+}

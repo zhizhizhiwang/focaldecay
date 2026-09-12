@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "E": {
+      "item": "minecraft:ender_eye"
+    },
+    "O": {
+      "item": "focal_decay:observer_model_blank"
+    },
+    "S": {
+      "item": "minecraft:nether_star"
+    },
+    "X": {
+      "item": "focal_decay:total_stability_model_activated"
+    }
+  },
+  "pattern": [
+    "OEO",
+    "EXE",
+    "OSO"
+  ],
+  "result": {
+    "count": 1,
+    "id": "focal_decay:observer_model_candidate"
+  }
+}

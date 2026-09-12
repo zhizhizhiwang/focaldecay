@@ -1,0 +1,18 @@
+{
+  "name": "碎片·42ms",
+  "category": "focal_decay:fragments",
+  "icon": "focal_decay:semantic_fragment_42ms",
+  "sortnum": 4,
+  "read_by_default": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(italic)“这是硬性时间要求。”$()$(br2)42ms 是 OBSR-3 完成一次观测内所有矢量影像点完备语义分类的实测耗时（软运行压力测试结果）。$(br2)这个数字不是性能目标，是$(l)准入条件$()。",
+      "title": "碎片·42ms"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)事件：$()上一迭代有人在王座之前完成了必要的准备作业。$(br2)$(bold)收集：$()第一次完成$(l)王座仪式$()时获得。$(br2)$(italic)每位接收者仅记录一次。仪式失败不产生记录。$()"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "name": "Appendix: Last Transmission",
+  "category": "focal_decay:refocus",
+  "icon": "minecraft:ender_eye",
+  "sortnum": 1,
+  "read_by_default": true,
+  "advancement": "focal_decay:unlock_core",
+  "secret": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "The following communication log was recovered from the Site-CN-25 server backup of the previous iteration. Owing to missing timestamps, the date of the exchange cannot be established."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Cheng:$() Actually, Aaron, I came to say goodbye to you too.$(br2)$(bold)Aaron:$() ...What's happened?$(br2)$(bold)Cheng:$() Nothing, it's just... this console of mine can't send OBSR-3 to you. It's missing a firmware. I have to physically connect my console to another transmitter."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Cheng:$() Don't worry, it isn't far, it's right next door, and it isn't complicated. I just need to run a cable.$(br2)$(bold)Aaron:$() ...But that isn't within your OBSR-2's parameters, is it?$(br2)$(bold)Cheng:$() No..."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Cheng:$() The data transfer should be fine. I can get the cable connected before the effect fades, I'm confident of that much. But after that, defocus is not going to let me go.$(br2)$(bold)Aaron:$() ...I'm sorry, Cheng.$(br2)$(bold)Cheng:$() Don't be, chief. I work for the Foundation. I know exactly what I'm facing."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Aaron:$() Actually, my situation is the same. I'll defocus too. I need to carry OBSR-3 to the Throne, and that is also outside my OBSR-2's parameters.$(br2)$(bold)Cheng:$() Then it looks like neither of us will see the dawn."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Cheng:$() No need, Aaron. The end of all this is already in our hands. There's no point putting on a little internal drama now.$(br2)$(bold)Cheng:$() Then let's leave it at that. It was good to know you, Aaron.$(br2)$(bold)Aaron:$() And you, Cheng. And you."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Cheng:$() Then let's go. You and me. I'll send you the OBSR-3 data, and then you'll carry it to the Throne.$(br2)$(bold)Cheng:$() And then the world will continue to be beautiful."
+    }
+  ]
+}

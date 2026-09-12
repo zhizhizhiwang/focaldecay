@@ -56,6 +56,9 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.IntValue CANDIDATE_REQUIRED_POINTS;
     public static final ModConfigSpec.IntValue CANDIDATE_FRAGMENT_POINTS;
     public static final ModConfigSpec.DoubleValue ENDER_DRAGON_TOTAL_STABILITY_DROP_CHANCE;
+    public static final ModConfigSpec.IntValue TOTAL_STABILITY_COPY_PENALTY;
+    public static final ModConfigSpec.IntValue TOTAL_STABILITY_MAX_COPIES;
+    public static final ModConfigSpec.IntValue TOTAL_STABILITY_COPY_TRAIN_PENALTY;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -188,6 +191,22 @@ public final class FocalDecayConfig {
                         + " (Total Stability Model + Aaron's Vow fragment). 1.0 = always;"
                         + " lower values make it the 'rare drop' from the design doc.")
                 .defineInRange("ender_dragon_total_stability_drop_chance", 1.0, 0.0, 1.0);
+        TOTAL_STABILITY_COPY_PENALTY = builder
+                .comment("Radius lost per generation when copying a Total Stability (OBSR-EX) model."
+                        + " The loss escalates: generation 1 loses 1x, generation 2 loses 3x (triangular)."
+                        + " Copying does NOT consume the original, so this plus the copy cap is what"
+                        + " prevents an unlimited number of radius-32 hard-protection fields.")
+                .defineInRange("total_stability_copy_penalty", 10, 0, 32);
+        TOTAL_STABILITY_MAX_COPIES = builder
+                .comment("Maximum copy generation of a Total Stability model. 2 means: original,"
+                        + " a generation-1 copy and a generation-2 copy may exist, and generation 2"
+                        + " can no longer be copied. 0 disables copying entirely.")
+                .defineInRange("total_stability_max_copies", 2, 0, 16);
+        TOTAL_STABILITY_COPY_TRAIN_PENALTY = builder
+                .comment("Extra training points required for a Candidate Observer (OBSR-3) built from a"
+                        + " copied OBSR-EX. Escalates with generation: 1x at generation 1, 3x at"
+                        + " generation 2. 0 makes copies as good as the original.")
+                .defineInRange("total_stability_copy_train_penalty", 50, 0, 10000);
 
         builder.pop();
         SERVER_SPEC = builder.build();

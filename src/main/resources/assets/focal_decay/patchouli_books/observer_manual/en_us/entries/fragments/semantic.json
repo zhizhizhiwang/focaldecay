@@ -1,0 +1,18 @@
+{
+  "name": "Fragment: Complete Semantics",
+  "category": "focal_decay:fragments",
+  "icon": "focal_decay:semantic_fragment_semantic",
+  "sortnum": 3,
+  "read_by_default": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(italic)\"True understanding.\"$()$(br2)This record is taken from Dr. Cheng Jiuzhang's formal verification report: the observation results of OBSR-3 have been proven to be a complete semantic classification, that is, true understanding.",
+      "title": "Fragment: Complete Semantics"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Event:$() someone in the previous iteration worked out what the word \"complete\" means for the first time.$(br2)$(bold)Collection:$() obtained together with the first-visit record the first time you look upon the $(l)Observer Core$()."
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import com.zhizhiwang.focal_decay.block.entity.ModBlockEntities;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ModDataGenerator;
 import com.zhizhiwang.focal_decay.data.ModDataComponents;
+import com.zhizhiwang.focal_decay.data.ModLootConditions;
 import com.zhizhiwang.focal_decay.data.recipe.ModRecipeSerializers;
 import com.zhizhiwang.focal_decay.item.ModCreativeTabs;
 import com.zhizhiwang.focal_decay.item.ModItems;
@@ -19,6 +20,7 @@ import com.zhizhiwang.focal_decay.mutation.ModelTrainingHandler;
 import com.zhizhiwang.focal_decay.mutation.BioStabilizerHandler;
 import com.zhizhiwang.focal_decay.mutation.ThroneRitualHandler;
 import com.zhizhiwang.focal_decay.mutation.DragonChestHandler;
+import com.zhizhiwang.focal_decay.mutation.GuideAdvancementHandler;
 import com.zhizhiwang.focal_decay.mutation.TotalStabilityFieldHandler;
 import com.zhizhiwang.focal_decay.mutation.DoomsdayHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
@@ -52,6 +54,8 @@ public final class FocalDecay {
         ModStructures.STRUCTURE_TYPES.register(modEventBus);
         ModStructures.PIECE_TYPES.register(modEventBus);
         ModStructures.PLACEMENT_TYPES.register(modEventBus);
+        // 战利品条件类型（手册发放表的前置门控，见 ModLootConditions）
+        ModLootConditions.LOOT_CONDITION_TYPES.register(modEventBus);
 
         // Register data generators (runData)
         ModDataGenerator.register(modEventBus);
@@ -69,6 +73,7 @@ public final class FocalDecay {
         NeoForge.EVENT_BUS.register(ThroneRitualHandler.class);
         NeoForge.EVENT_BUS.register(DragonChestHandler.class);
         NeoForge.EVENT_BUS.register(TotalStabilityFieldHandler.class);
+        NeoForge.EVENT_BUS.register(GuideAdvancementHandler.class);
 
         // Register config specs
         modContainer.registerConfig(ModConfig.Type.SERVER, FocalDecayConfig.SERVER_SPEC);

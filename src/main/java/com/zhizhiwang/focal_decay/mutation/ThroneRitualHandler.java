@@ -180,8 +180,10 @@ public final class ThroneRitualHandler {
         BlockPos throne = BlockPos.of(data.thronePos());
 
         ItemStack activated = new ItemStack(ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get());
+        // 仪式产出的是一枚全新的已激活模型，代数从 0 起算——即"原件"。
+        // 这也意味着复制只能在激活之后进行（未激活的 EX 不在复制配方的可复制列表里）。
         ObserverModelItem.setData(activated, new ObserverModelData(
-                ObserverModelData.TYPE_TOTAL, List.of(), List.of(), 1.0, "", 0, 0, true));
+                ObserverModelData.TYPE_TOTAL, List.of(), List.of(), 1.0, "", 0, 0, true, 0));
 
         // 只升级"槽内本来就是未激活完全稳定模型"的原型机；其他情况不动插槽，
         // 激活模型交还玩家背包（避免覆盖原型机里原有的模型）。

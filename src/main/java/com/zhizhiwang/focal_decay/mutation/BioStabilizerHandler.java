@@ -99,7 +99,8 @@ public final class BioStabilizerHandler {
         }
         ObserverModelItem.setData(model, new ObserverModelData(
                 data.type(), data.trainedTargets(), data.trainedEntities(),
-                data.stabilityStrength(), data.concept(), data.progress(), energy, data.totalStability()));
+                data.stabilityStrength(), data.concept(), data.progress(), energy, data.totalStability(),
+                data.copies()));
         be.setChanged();
 
         MutationPoolManager manager = MutationPoolManager.get(level);

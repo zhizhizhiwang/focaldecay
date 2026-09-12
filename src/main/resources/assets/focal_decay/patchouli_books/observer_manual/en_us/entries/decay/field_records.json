@@ -1,0 +1,38 @@
+{
+  "name": "Appendix: Field Records",
+  "category": "focal_decay:decay",
+  "icon": "minecraft:written_book",
+  "sortnum": 1,
+  "read_by_default": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "The following material was collected from Foundation sites and human settlement ruins of the previous iteration. Owing to missing timestamps and data corruption, neither the dates nor the identities of those involved can be established."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)- Initial incidents$()$(br2)The first was in Antarctica, at Amundsen-Scott South Pole Station: a researcher found that the coffee he was drinking had become petroleum."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "The second was in Brasilia. A child had just stepped from a shopping centre entrance into the street when the football he had just bought turned into a barred owl in front of everyone."
+    },
+    {
+      "type": "patchouli:entity",
+      "entity": "minecraft:parrot",
+      "name": "Record figure: barred owl (form substitution product)"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "The third caused casualties: a fourteen-year-old girl's dental braces became nitroglycerin and detonated immediately."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "The fourth occurred just before a command meeting began: the face of a wristwatch became blueberry-flavoured expired jelly."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)- Conclusion$()$(br2)All four were listed as \"suspected\" in the records of that period, because their cause could not be confirmed with certainty."
+    }
+  ]
+}

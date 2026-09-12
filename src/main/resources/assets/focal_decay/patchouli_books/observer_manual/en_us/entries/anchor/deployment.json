@@ -1,0 +1,28 @@
+{
+  "name": "Construction & Deployment",
+  "category": "focal_decay:anchor",
+  "icon": "focal_decay:anchor_prototype",
+  "sortnum": 0,
+  "read_by_default": true,
+  "priority": true,
+  "pages": [
+    {
+      "type": "patchouli:crafting",
+      "recipe": "focal_decay:anchor_prototype",
+      "title": "Construction",
+      "text": "The Observer Anchor (prototype) is the only deployable reality stabilisation device in the field.$(br2)Its construction is extremely crude: four iron legs, four redstone, one eye of ender. What makes it work is that it knows where to look."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Deployment:$() The anchor accepts one OBSR model in its slot.$(br2)$(li)With no model inserted the anchor produces no effect and serves only as decoration;$(br)$(li)once a model is inserted it takes effect immediately, and its area of effect is a square region centred on the anchor, equal in extent along each axis (Chebyshev radius)."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "At the moment of insertion the anchor first solidifies the blocks in range to their current state, and only then applies protection.$(br2)Registering protection directly would latch a pre-drift state, and the blocks that had not yet defocused would never change again."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Removal:$() Removing or swapping a model takes effect immediately, with no retroactive change. Changes that have already occurred will not be restored because of it."
+    }
+  ]
+}

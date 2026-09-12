@@ -1,0 +1,24 @@
+{
+  "name": "现场位置",
+  "category": "focal_decay:throne",
+  "icon": "focal_decay:throne_block",
+  "sortnum": 0,
+  "read_by_default": true,
+  "priority": true,
+  "advancement": "focal_decay:unlock_throne",
+  "secret": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)描述：$()王座位于末地主岛周边的虚空中，与主岛之间有相当一段距离。$(br2)具体方位与距离由当前迭代的种子决定，逐迭代不同。$(br2)上一迭代找到的坐标对本迭代无效。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)接近规程：$()这是一次远征，不是一次散步。建议在具备稳定补给与飞行手段之后再行前往。$(br2)抵达方式不受限制。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)导航：$()手持一枚$(l)已完成的 OBSR-3$()在末地右键空处，会生成一道指向王座的粒子束，并给出剩余距离。$(br2)该导航可用任意次数。"
+    }
+  ]
+}

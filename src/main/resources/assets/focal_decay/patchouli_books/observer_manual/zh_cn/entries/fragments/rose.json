@@ -1,0 +1,18 @@
+{
+  "name": "碎片·玫瑰",
+  "category": "focal_decay:fragments",
+  "icon": "focal_decay:semantic_fragment_rose",
+  "sortnum": 1,
+  "read_by_default": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(italic)“玫瑰，是玫瑰，是玫瑰……”$()$(br2)该记录取自前任观测者的临终遗言。原始音频仍在，目前只有这一句完全可辨。$(br2)$(bold)记录内容：$()对同一事物的语义反复确认。",
+      "title": "碎片·玫瑰"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)事件：$()上一迭代有人第一次完成了分类器训练。$(br2)$(bold)收集：$()在训练终端内第一次完成任意模型训练时获得。$(br2)每位接收者仅记录一次。"
+    }
+  ]
+}

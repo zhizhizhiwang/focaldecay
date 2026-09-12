@@ -1,0 +1,31 @@
+{
+  "name": "登座仪式",
+  "category": "focal_decay:throne",
+  "icon": "focal_decay:total_stability_model",
+  "sortnum": 1,
+  "read_by_default": true,
+  "advancement": "focal_decay:unlock_throne",
+  "secret": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)目的：$()将一枚未激活的 OBSR-EX 送上王座，换取它的激活。$(br2)OBSR-EX 的参数写死在硬件上，只有在王座处才能载入。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)前置条件：$()$(br2)$(li)手持一枚未激活的 OBSR-EX；$(br)$(li)手持观测者基座，或在王座附近已放置一座基座。$(br2)两项缺一不可。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)开始：$()以基座右键王座中央的基座方块，仪式即开始。$(br2)$(bold)过程：$()仪式持续一段时间，期间会分波次生成敌对生物。$(br2)留在王座附近。$(br2)若你在仪式期间远离王座，仪式将暂停（按现场配置，也可能直接判定失败）。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)结算：$()仪式完成时，范围内基座内那枚未激活的 OBSR-EX 被替换为已激活版本。$(br2)其余情况下（例如基座内是别的型号），激活后的模型会直接交还给你。$(br2)原基座内的其他内容不会被覆盖。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)附：仪式要求$()$(br2)仪式不要求击败任何东西。执行者必须在场，在它完成之前一步不离。"
+    }
+  ]
+}

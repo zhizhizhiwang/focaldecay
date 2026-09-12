@@ -1,0 +1,18 @@
+{
+  "name": "Fragment: Rose",
+  "category": "focal_decay:fragments",
+  "icon": "focal_decay:semantic_fragment_rose",
+  "sortnum": 1,
+  "read_by_default": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(italic)\"A rose, is a rose, is a rose...\"$()$(br2)This record is taken from the previous observer's final words. The original audio survives, but at present only this line is fully intelligible.$(br2)$(bold)Record content:$() repeated semantic confirmation of one and the same thing.",
+      "title": "Fragment: Rose"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Event:$() someone in the previous iteration completed a classifier training for the first time.$(br2)$(bold)Collection:$() obtained on completing any model training for the first time in the $(l)Training Terminal$().$(br2)Recorded only once per recipient."
+    }
+  ]
+}

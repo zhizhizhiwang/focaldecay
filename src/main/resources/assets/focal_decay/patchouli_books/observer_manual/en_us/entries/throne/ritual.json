@@ -1,0 +1,31 @@
+{
+  "name": "The Enthronement Ritual",
+  "category": "focal_decay:throne",
+  "icon": "focal_decay:total_stability_model",
+  "sortnum": 1,
+  "read_by_default": true,
+  "advancement": "focal_decay:unlock_throne",
+  "secret": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Purpose:$() to carry an inactive OBSR-EX to the Throne and exchange it for its activation.$(br2)OBSR-EX's parameters are hard-wired into its hardware and can be loaded only at the Throne."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Prerequisites:$()$(br2)$(li)carry an inactive OBSR-EX;$(br)$(li)carry an Observer Anchor, or have an anchor already placed near the Throne.$(br2)Both are required."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Start:$() right-click the pedestal block at the centre of the Throne with the anchor, and the ritual begins.$(br2)$(bold)Course:$() the ritual runs for a period, generating hostile creatures in waves.$(br2)Stay near the Throne.$(br2)If you move away from the Throne during the ritual, the ritual pauses (or, per field configuration, may be judged a failure outright)."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Settlement:$() when the ritual completes, the inactive OBSR-EX in the anchor in range is replaced by an activated version.$(br2)In other cases (for example if the anchor holds a different specification), the activated model is handed directly back to you.$(br2)Other contents of the original anchor are not overwritten."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Appendix: Ritual Requirements$()$(br2)The ritual does not require you to defeat anything. The executor must be present for its whole duration, remaining in place until it is complete."
+    }
+  ]
+}

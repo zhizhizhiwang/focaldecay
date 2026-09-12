@@ -1,0 +1,24 @@
+{
+  "name": "Site Location",
+  "category": "focal_decay:throne",
+  "icon": "focal_decay:throne_block",
+  "sortnum": 0,
+  "read_by_default": true,
+  "priority": true,
+  "advancement": "focal_decay:unlock_throne",
+  "secret": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Description:$() The Throne is in the void around the End's main island, a considerable distance from it.$(br2)The exact bearing and distance are determined by the current iteration's seed and differ from iteration to iteration.$(br2)Coordinates found in the previous iteration are invalid for this one."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Approach procedure:$() This is an expedition, not a stroll. It is recommended that you travel only once you have stable supplies and a means of flight.$(br2)The method of arrival is unrestricted."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Navigation:$() Holding a $(l)completed OBSR-3$() and right-clicking empty space in the End generates a particle beam pointing at the Throne, and gives the remaining distance.$(br2)This navigation can be used any number of times."
+    }
+  ]
+}

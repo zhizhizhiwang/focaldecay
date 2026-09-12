@@ -75,7 +75,7 @@ public class FeedSemanticFragmentRecipe extends CustomRecipe {
                         data.type(), data.trainedTargets(), data.trainedEntities(),
                         data.stabilityStrength(), data.concept(),
                         data.progress() + Math.max(0, FocalDecayConfig.CANDIDATE_FRAGMENT_POINTS.get()),
-                        data.bioEnergy(), data.totalStability()));
+                        data.bioEnergy(), data.totalStability(), data.copies()));
             }
             return copy;
         }

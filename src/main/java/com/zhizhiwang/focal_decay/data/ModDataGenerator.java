@@ -8,11 +8,13 @@ import com.zhizhiwang.focal_decay.data.tags.ModEntityTypeTagsProvider;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.data.DataGenerator;
 import net.minecraft.data.PackOutput;
+import net.minecraft.data.advancements.AdvancementProvider;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.common.data.ExistingFileHelper;
 import net.neoforged.neoforge.data.event.GatherDataEvent;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public final class ModDataGenerator {
@@ -37,5 +39,10 @@ public final class ModDataGenerator {
         generator.addProvider(true, new ModEntityTypeTagsProvider(packOutput, lookupProvider, existingFileHelper));
         generator.addProvider(true, new ModRecipeProvider(packOutput, lookupProvider));
         generator.addProvider(true, new ModWorldGenProvider(packOutput, lookupProvider));
+
+        // 手册发放链路（设计大纲 §14）：隐藏 advancement 驱动
+        // data/focal_decay/loot_table/grant_observer_manual.json（战利品表为手写资源，
+        // 因为 LootTableProvider 会用 vanilla codec 归一化写盘，必然丢掉 neoforge:conditions）
+        generator.addProvider(true, new AdvancementProvider(packOutput, lookupProvider, List.of(new ModAdvancementProvider())));
     }
 }

@@ -22,48 +22,58 @@ public final class ModItems {
     public static final DeferredItem<BlockItem> THRONE_BLOCK =
             ITEMS.registerSimpleBlockItem("throne_block", ModBlocks.THRONE_BLOCK);
 
-    // 观测模型（DataComponents 训练数据在里程碑 2 接入）
+    // 观测模型。
+    // ⚠️ 每一件都必须在注册时带上默认 ObserverModelData：创造栏/JEI/`/give` 拿到的物品不会经过
+    // 任何"设置数据"的流程，若组件为 null，往下走就会出事——例如把裸的已激活 EX 放进基座，
+    // MutationPoolManager.radiusFor(null) 里的 data.type() 会直接 NPE 崩游戏。
     public static final DeferredItem<ObserverModelItem> OBSERVER_MODEL_BLANK =
-            ITEMS.register("observer_model_blank", () -> observerModel());
+            ITEMS.register("observer_model_blank", () -> observerModel(ObserverModelData.blank()));
     public static final DeferredItem<ObserverModelItem> SEMANTIC_LOCK_MODEL =
-            ITEMS.register("semantic_lock_model", () -> observerModel());
+            ITEMS.register("semantic_lock_model", () -> observerModel(ObserverModelData.blank()));
     public static final DeferredItem<ObserverModelItem> GUIDED_MUTATION_MODEL =
-            ITEMS.register("guided_mutation_model", () -> observerModel());
+            ITEMS.register("guided_mutation_model", () -> observerModel(ObserverModelData.blank()));
     public static final DeferredItem<ObserverModelItem> BIO_STABILIZER_MODEL =
-            ITEMS.register("bio_stabilizer_model", () -> new ObserverModelItem(
-                    new Item.Properties().stacksTo(1)
-                            .component(ModDataComponents.OBSERVER_MODEL_DATA.get(), ObserverModelData.bio())));
+            ITEMS.register("bio_stabilizer_model", () -> observerModel(ObserverModelData.bio()));
     public static final DeferredItem<ObserverModelItem> TOTAL_STABILITY_MODEL =
-            ITEMS.register("total_stability_model", () -> observerModel());
+            ITEMS.register("total_stability_model", () -> observerModel(ObserverModelData.blank()));
+    /** 已激活的完全稳定模型。默认数据即"原件"（copies = 0）。 */
     public static final DeferredItem<ObserverModelItem> TOTAL_STABILITY_MODEL_ACTIVATED =
-            ITEMS.register("total_stability_model_activated", () -> observerModel());
+            ITEMS.register("total_stability_model_activated",
+                    () -> observerModel(ObserverModelData.activatedTotalStability()));
     public static final DeferredItem<ObserverModelItem> OBSERVER_MODEL_CANDIDATE =
-            ITEMS.register("observer_model_candidate", () -> new ObserverModelItem(
-                    new Item.Properties().stacksTo(1)
-                            .component(ModDataComponents.OBSERVER_MODEL_DATA.get(), ObserverModelData.candidate())));
+            ITEMS.register("observer_model_candidate", () -> observerModel(ObserverModelData.candidate()));
 
-    // 语义碎片
+    // 语义碎片（lore = 氛围文本，source = 获取来源，两者都走 lang key）
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_ROSE =
-            ITEMS.register("semantic_fragment_rose", () -> fragment("lore.focal_decay.fragment_rose"));
+            ITEMS.register("semantic_fragment_rose", () -> fragment(
+                    "lore.focal_decay.fragment_rose", "jei.focal_decay.source.rose"));
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_THRONE =
-            ITEMS.register("semantic_fragment_throne", () -> fragment("lore.focal_decay.fragment_throne"));
+            ITEMS.register("semantic_fragment_throne", () -> fragment(
+                    "lore.focal_decay.fragment_throne", "jei.focal_decay.source.throne"));
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_SEMANTIC =
-            ITEMS.register("semantic_fragment_semantic", () -> fragment("lore.focal_decay.fragment_semantic"));
+            ITEMS.register("semantic_fragment_semantic", () -> fragment(
+                    "lore.focal_decay.fragment_semantic", "jei.focal_decay.source.semantic"));
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_42MS =
-            ITEMS.register("semantic_fragment_42ms", () -> fragment("lore.focal_decay.fragment_42ms"));
+            ITEMS.register("semantic_fragment_42ms", () -> fragment(
+                    "lore.focal_decay.fragment_42ms", "jei.focal_decay.source.42ms"));
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_CRYSTAL =
-            ITEMS.register("semantic_fragment_crystal", () -> fragment("lore.focal_decay.fragment_crystal"));
+            ITEMS.register("semantic_fragment_crystal", () -> fragment(
+                    "lore.focal_decay.fragment_crystal", "jei.focal_decay.source.crystal"));
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_AARON =
-            ITEMS.register("semantic_fragment_aaron", () -> fragment("lore.focal_decay.fragment_aaron"));
+            ITEMS.register("semantic_fragment_aaron", () -> fragment(
+                    "lore.focal_decay.fragment_aaron", "jei.focal_decay.source.aaron"));
     public static final DeferredItem<SemanticFragmentItem> FRAGMENT_CHENG =
-            ITEMS.register("semantic_fragment_cheng", () -> fragment("lore.focal_decay.fragment_cheng"));
+            ITEMS.register("semantic_fragment_cheng", () -> fragment(
+                    "lore.focal_decay.fragment_cheng", "jei.focal_decay.source.cheng"));
 
-    private static SemanticFragmentItem fragment(String loreKey) {
-        return new SemanticFragmentItem(new Item.Properties().stacksTo(16), loreKey);
+    private static SemanticFragmentItem fragment(String loreKey, String sourceKey) {
+        return new SemanticFragmentItem(new Item.Properties().stacksTo(16), loreKey, sourceKey);
     }
 
-    private static ObserverModelItem observerModel() {
-        return new ObserverModelItem(new Item.Properties().stacksTo(1));
+    /** 观测模型物品：一律带默认模型数据，见上面的注释。 */
+    private static ObserverModelItem observerModel(ObserverModelData defaultData) {
+        return new ObserverModelItem(new Item.Properties().stacksTo(1)
+                .component(ModDataComponents.OBSERVER_MODEL_DATA.get(), defaultData));
     }
 
     private ModItems() {

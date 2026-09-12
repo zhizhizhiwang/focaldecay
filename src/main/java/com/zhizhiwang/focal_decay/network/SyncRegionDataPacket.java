@@ -23,10 +23,15 @@ public record SyncRegionDataPacket(ResourceKey<Level> dimension, List<PrototypeD
                                    long[] birthPositions, long[] birthPeriods)
         implements CustomPacketPayload {
 
-    /** 单个原型机的效果摘要（位置 + 半径 + 模型类型与训练目标 + 生物稳定能量 + 引导概念/完备度）。 */
+    /**
+     * 单个原型机的效果摘要（位置 + 半径 + 模型类型与训练目标 + 生物稳定能量 + 引导概念/完备度 + 复制代数）。
+     * <p>
+     * {@code copies} 是必需的：候选观测者的"是否练满"取决于它（副本需要更多训练量），
+     * 客户端要独立算出一致的保护判定，就必须知道代数。
+     */
     public record PrototypeData(long pos, int radius, String type,
                                 List<String> trainedTargets, List<String> trainedEntities,
-                                int bioEnergy, String concept, int progress, double q) {
+                                int bioEnergy, String concept, int progress, double q, int copies) {
         // 分量超过 composite 上限（6），手写编码
         public static final StreamCodec<ByteBuf, PrototypeData> STREAM_CODEC = StreamCodec.of(
                 (buf, p) -> {
@@ -39,6 +44,7 @@ public record SyncRegionDataPacket(ResourceKey<Level> dimension, List<PrototypeD
                     ByteBufCodecs.STRING_UTF8.encode(buf, p.concept());
                     buf.writeInt(p.progress());
                     buf.writeDouble(p.q());
+                    buf.writeInt(p.copies());
                 },
                 buf -> new PrototypeData(
                         buf.readLong(), buf.readInt(),
@@ -48,7 +54,8 @@ public record SyncRegionDataPacket(ResourceKey<Level> dimension, List<PrototypeD
                         buf.readInt(),
                         ByteBufCodecs.STRING_UTF8.decode(buf),
                         buf.readInt(),
-                        buf.readDouble()));
+                        buf.readDouble(),
+                        buf.readInt()));
     }
 
     public static final Type<SyncRegionDataPacket> TYPE = new Type<>(

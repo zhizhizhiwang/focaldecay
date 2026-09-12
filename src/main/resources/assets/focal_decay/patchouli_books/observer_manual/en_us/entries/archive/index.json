@@ -1,0 +1,22 @@
+{
+  "name": "General Provisions",
+  "category": "focal_decay:archive",
+  "icon": "focal_decay:observer_core",
+  "sortnum": 0,
+  "read_by_default": true,
+  "priority": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Special Containment Procedures:$() This manual is issued by the Site-CN-25 automated distribution system. The recipient is to carry it at all times until the refocus operation is complete or the recipient is no longer operational. Its contents are compiled from the archives of the previous iteration and are updated as field data is returned. Where the manual and field observation disagree, field observation prevails."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Description:$() The observer array went offline on 10/02/2021. Since then, defocus has continued to spread worldwide: the semantics of objects drift at random, expressed as irreversible changes of material form. The original classifier can no longer sustain consensus reality."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "This manual is intended to give the recipient the following capabilities:$(br)$(li)identify the stage characteristics and scope of defocus;$(br)$(li)deploy local reality stabilisation;$(br)$(li)collect and archive semantic fragments;$(br)$(li)execute the refocus operation once conditions allow.$(br2)You have about seven days."
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "focal_decay.manual.name",
+  "landing_text": "focal_decay.manual.landing",
+  "use_resource_pack": true,
+  "i18n": true,
+  "model": "focal_decay:observer_manual",
+  "book_texture": "patchouli:textures/gui/book_gray.png",
+  "crafting_texture": "patchouli:textures/gui/crafting.png",
+  "text_color": "2B2B2B",
+  "header_color": "1A1A1A",
+  "nameplate_color": "E8E8E8",
+  "link_color": "3B5A7A",
+  "link_hover_color": "6A8CAE",
+  "progress_bar_color": "9AA5A8",
+  "progress_bar_background": "D8D8D8",
+  "show_progress": false,
+  "pause_game": true,
+  "creative_tab": "focal_decay:focal_decay_tab",
+  "subtitle": "Site-CN-25 归档副本 · 5/CN-2999 级"
+}

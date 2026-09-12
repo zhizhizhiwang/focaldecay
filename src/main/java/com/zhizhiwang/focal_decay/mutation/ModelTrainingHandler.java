@@ -141,9 +141,11 @@ public final class ModelTrainingHandler {
         int progress = candidate ? data.progress() + 1 : data.progress();
         ObserverModelData newData = block
                 ? new ObserverModelData(data.type(), updated, data.trainedEntities(),
-                data.stabilityStrength(), data.concept(), progress, data.bioEnergy(), data.totalStability())
+                data.stabilityStrength(), data.concept(), progress, data.bioEnergy(), data.totalStability(),
+                data.copies())
                 : new ObserverModelData(data.type(), data.trainedTargets(), updated,
-                data.stabilityStrength(), data.concept(), progress, data.bioEnergy(), data.totalStability());
+                data.stabilityStrength(), data.concept(), progress, data.bioEnergy(), data.totalStability(),
+                data.copies());
         ObserverModelItem.setData(held, newData);
         // 立即同步手持物品到客户端（组件变化默认不会即时同步）
         if (player instanceof ServerPlayer serverPlayer) {

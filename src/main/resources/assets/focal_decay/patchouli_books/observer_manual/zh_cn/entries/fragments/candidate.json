@@ -1,0 +1,34 @@
+{
+  "name": "OBSR-3 候选观测者",
+  "category": "focal_decay:fragments",
+  "icon": "focal_decay:observer_model_candidate",
+  "sortnum": 8,
+  "read_by_default": true,
+  "priority": true,
+  "pages": [
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)描述：$()OBSR-3 是观测者的候选体。它不提供保护，不限制漂移，也不参与局部稳定作业，只负责积累语义，直到能自行完成一次观测。",
+      "title": "OBSR-3"
+    },
+    {
+      "type": "patchouli:crafting",
+      "recipe": "focal_decay:observer_model_candidate",
+      "title": "构造",
+      "text": "以$(l)已激活的 OBSR-EX$()为核心合成：上一迭代的完备分类器封在中间，四周仍是原型、末影之眼与下界之星。$(br2)合成会消耗那枚 OBSR-EX。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)积累方式：$()$(br2)$(li)一、手持 OBSR-3 右键方块或生物，记录其读数。$(br)$(li)二、将语义碎片与 OBSR-3 结合，把碎片中的语义直接写入候选体。$(br2)两种方式都计入进度，每个不重复的目标只计一次。",
+      "title": "积累方式"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "OBSR-3 不经过训练终端，也没有记录表上限。进度可在物品说明中查看。$(br2)碎片用于注入知识后会消耗。七枚碎片合计可提供可观进度，但不足以单独完成候选体。"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)完成态：$()进度填满后，OBSR-3 视为已完成。$(br2)$(li)它同时具备 OBSR-EX 的完全稳定效果，可直接置入基座使用；$(br)$(li)它是重聚焦作业唯一的执行部件。$(br2)OBSR-3 不可复制。"
+    }
+  ]
+}

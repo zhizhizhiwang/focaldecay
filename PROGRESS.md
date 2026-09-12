@@ -201,6 +201,142 @@
 - 彩蛋粒子（2026-08-27 已完成）：`FloatingText`（Text Display 实体 + @Invoker mixin 访问私有 setter）——训练完成时终端上方浮动 "42ms"、观测者核心安装成功时浮动 "完备语义分类"，无重力/透明背景/到点自动移除；王座中央核心激活后每 40 tick 漂浮蓝色 GLOW 光点
 - 测试与平衡调整
 
+### 13. 游戏内指引系统（Patchouli 手册 + JEI 信息页 + tooltip/GUI）
+- **定位**：三通道并行，互为补充——手册承载长流程与叙事，JEI 承载"手里拿着物品反查来源"，tooltip/GUI 提示"当下这一步"。
+- **风格定稿**：手册以 SCP-CN-2999《Observator Ex Machina》为范本，采用**上一迭代基金会档案**立场（公文腔 + 通信记录体），开放引用原文名句与事实设定。
+- **依赖（均为可选，不进 `mods.toml` 必需依赖）**：
+  - `compileOnly` + `localRuntime`，坐标 `mezz.jei:jei-1.21.1-neoforge:19.39.0.368`、`vazkii.patchouli:Patchouli:1.21.1-93-NEOFORGE`（API 用 `:api` classifier），仓库 `https://maven.blamejared.com`；版本号在 `gradle.properties` 的 `jei_version` / `patchouli_version`
+  - Patchouli 内容为纯 JSON，**代码零耦合**；`run/mods` 里手工放置的 JEI jar 已移至 `run/mods.disabled`（改由 gradle 提供，避免同名双份）
+- **已完成（2026-09-11，`compileJava` / `runData` / `build -x test` 通过，待实机验证）**：
+  1. **构建配置 + 依赖解析（阶段 0）**
+  2. **手册骨架与正文（阶段 1）**：`assets/focal_decay/patchouli_books/observer_manual/`
+     - 书**定义**在 `data/focal_decay/patchouli_books/observer_manual/book.json`；**内容**在 `assets/…/<locale>/`
+     - **`en_us/` 与 `zh_cn/` 两套齐全**，各 6 个分类 + 18 篇条目（`en_us` 是 Patchouli 的索引语言，缺则全书空白）
+     - `book.json`：`use_resource_pack`/`i18n`/`creative_tab: focal_decay:focal_decay_tab`/灰色书皮/`pause_game`
+     - `models/item/observer_manual.json`：`patchouli:item/book_gray` + 自定义手持 display 参数
+     - 6 个分类：档案 / 失焦现象 / 观测者基座 / 语义碎片 / 王座协议 / 重聚焦
+     - 18 篇条目：卷首总则、术语与级别、现象概述、附录·现场记录、构造与部署、型号规格、模型训练规程、碎片归档总表、七枚碎片各自条目、OBSR-3、现场位置、登座仪式、核心安装、附录·最后传输
+     - 动态数值策略：正文只描述机制并指向"现场界面"，不硬编码配置数字（避免配置一改文档即错）
+  3. **自动发书（阶段 2）**：
+     - `data/ModAdvancementProvider`：隐藏 advancement `focal_decay:grant_observer_manual`（**`minecraft:tick` 触发器**，无 display），奖励指向战利品表。**与背包内容无关**，创造模式新世界同样发书
+     - `data/focal_decay/loot_table/grant_observer_manual.json`：**手写资源**，发放 `patchouli:guide_book` + `patchouli:book` 组件，池级 `neoforge:conditions: [{condition: neoforge:mod_loaded, modid: patchouli}]` 门控
+     - `ModDataGenerator` 注册 `AdvancementProvider`
+     - **创造模式物品栏（2026-09-11 修复）**：`book.json` 的 `creative_tab` 必须写 **tab 的真实注册 ID**。Patchouli 的实现是
+       `if (evt.getTab() == CreativeModeTabRegistry.getTab(b.creativeTab)) evt.accept(book);`
+       本模组的 tab 注册名为 `focal_decay_tab`，先前误写成 `focal_decay:focal_decay` → 取不到 tab，书既不进自定义页也不进搜索页。此外 Patchouli 会把所有未设 `noBook` 的书加进**搜索页**，所以正确配好后生存/创造两种模式的搜索都能搜到
+  4. **阶段 3：手册位置锁（2026-09-11 完成）**——手册里写着"抵达现场后自动解密"，此前只是个说法（条目没挂 `advancement`，谁都能看）。现已补上真正的锁：
+     - `ModAdvancementProvider` 新增 `focal_decay:unlock_throne` / `focal_decay:unlock_core` 两个**无 display** 的 advancement，条件名 `unlocked`，触发器同为 `minecraft:tick`。
+       ⚠️ 该触发器**不会**在游戏里自动满足——它只在我们显式 `PlayerAdvancements.award(holder, "unlocked")` 时才判定通过，因此锁的推进完全由代码控制，无需注册自定义 criterion。
+     - `mutation/GuideAdvancementHandler`：每 20 tick 检查一次，玩家处于末地且距王座 32 格内即视为"抵达现场"，授予两个解锁条件（王座坐标由 `ThroneStructure.thronePos(seed)` 给出，与结构生成共用同一公式）。
+     - 四篇条目挂锁并隐藏（`"advancement"` + `"secret": true`）：`throne/site`、`throne/ritual`、`refocus/core`、`refocus/last_transmission`。`secret` 使锁定条目完全不显示、且不计入完成度。
+     - **手动兜底指令**：`/focaldecay unlock`（权限 2，仅玩家可执行），等价于"抵达王座"。
+     - 语言键：`message.focal_decay.unlock_done` / `unlock_needs_player`（中英都有）。
+  5. **文本修订（2026-09-11，按反馈）**：① 削减反例与"不是…而是…"句式，把**完备度 q 的解释改为实验记录体**（三次重复运行 + 记录表构成/覆盖 q/备注）；② 模糊化过细数据（王座位置不再给"650~905 格"，改为"末地主岛周边的虚空中"；硫酸铜碎片不再列铜块变种清单）；③ 删除纯修辞的语气强化句。
+  6. **两卷位置锁的触发条件修正（2026-09-11）**：解锁 advancement 的触发器从 `minecraft:tick` 改为 **`minecraft:impossible`**。
+     `minecraft:tick` 是由服务端**每 tick 主动触发**的（送书用的就是它），拿它当锁会让锁在玩家第一个 tick 自己解开；
+     `ImpossibleTrigger.addPlayerListener` 是空实现，永不自动满足，锁的推进只能靠 `ModAdvancementProvider.award()` 显式授予。
+     同时修掉 `isUnlocked()` 的隐患：原实现调用 Patchouli 的 `ClientAdvancements.hasDone()`，它在服务端（`Minecraft.getInstance().getConnection()` 为 null）会 NPE，改为只读服务端 `PlayerAdvancements` 进度。
+- **踩坑记录（重要，按踩到的顺序）**：
+  1. **`book.json` 必须放 `data/`，不能放 `assets/`**（最隐蔽的一个）。Patchouli 的 `BookRegistry.init()` 只扫描
+     `data/<modid>/patchouli_books/<bookname>/book.json`（`BOOKS_LOCATION = patchouli_books`，maxDepth=2）；
+     `assets/<ns>/patchouli_books/<book>/<locale>/…` 只放**内容**（categories/entries）。放错位置**完全不报错**，表现为：
+     书不进 BookRegistry → 创造栏/搜索栏都没有 → `/give` 出来的书 tooltip 显示 `guide_book.invalid`。
+     ⚠️ 日志里的 `BookContentResourceListenerLoader preloaded N jsons` 只证明**内容**被读到，**不代表书注册成功**，别被它误导。
+  2. **`en_us/` 是必需的语言集，不是可选项**（最致命的一个）。Patchouli 的 `BookContentResourceListenerLoader` 有两级机制：
+     - **索引阶段**只枚举 `en_us/`：`if (dir.equals(folder) && BookContentsBuilder.DEFAULT_LANG.equals(lang))`，而 `DEFAULT_LANG = "en_us"`；
+     - **加载阶段**先试 `file.getPath().replaceAll("en_us", ClientBookRegistry.currentLang)`，**取不到才回退 `en_us`**。
+     所以只放 `zh_cn/` 会导致**整本书空白**（只剩 name / landing_text / 空目录），而 `preloaded 26 jsons` 依然照常打印——极其误导。
+     正确做法：`en_us/` 与 `zh_cn/` 两套都提供（本项目已两套齐全，各 6 分类 + 18 条目）。
+  3. **`neoforge:conditions` 在前置门控上无效——它不是 vanilla 战利品条件**。`ModLoadedCondition` 属于 NeoForge **数据包条件**（注册在 `CONDITION_SERIALIZERS`），塞进 `pools[].neoforge:conditions` 会让**整张战利品表加载失败**：
+     `Couldn't parse element ...:focal_decay:grant_observer_manual - Input does not contain a key [type]`，全日志只有这一条 ERROR，表现为书完全发不出来。
+     正确做法：注册一个真正的 vanilla 条件类型——`ModLootConditions`（`focal_decay:patchouli_loaded`，注册到 `Registries.LOOT_CONDITION_TYPE`），写在标准的 `pools[].conditions[]` 里。
+  4. **战利品表不能走数据生成**：`LootTableProvider.run()` 写盘时统一用 vanilla `LootTable.DIRECT_CODEC` 重新编码，自定义条件键会被静默丢弃。故战利品表手写，advancement 仍走 datagen。
+  5. **发书触发器不能用 `has_items`**：新世界/创造模式背包为空，永远不满足 → 拿不到书。必须用 `PlayerTrigger.TriggerInstance.tick()`（即 `minecraft:tick`），它在玩家存在于世界中的第一个 tick 就满足。
+  6. **`creative_tab` 写错不会报错**，只是静默不进栏——排查时先核对 `ModCreativeTabs` 里 `register("...")` 的真实字符串（本项目是 `focal_decay_tab`）。
+  7. **物品模型纹理路径要全限定且带 `textures/`**：1.21 应写 `patchouli:item/book_gray`（对应 `assets/patchouli/textures/item/book_gray.png`）。写成 `patchouli:items/book_gray` 会静默变成紫黑方块。
+  8. **JSON ≠ SNBT**：条件编码结果不能用 `TagParser.parseTag` 解析（数组语法不同）。
+- **调试用 `/give` 写法（注意引号！）**：`/give Dev patchouli:guide_book[patchouli:book="focal_decay:observer_manual"]`
+  不加引号时参数解析器把无限定名按 `minecraft:` 命名空间补全 → 变成 `minecraft:focal_decay` → 书无效 → tooltip 触发 Patchouli 自身的崩溃（`item.patchouli.guide_book.invalid` 的传参 bug）。书 ID 是 **`focal_decay:observer_manual`**（= 目录名），不是 tab 名。
+- **手册贴图现状**：`assets/focal_decay/models/item/observer_manual.json` 用 `patchouli:item/book_gray`（灰色书壳）+ 自定义手持 display。想换成专属贴图只需放 `assets/focal_decay/textures/item/observer_manual.png` 并把 `layer0` 指向它。
+- **待做**：阶段 6（实机逐页核对手册排版与中文换行）
+- **阶段 4/5 已完成（2026-09-11）**：
+  1. **JEI 插件**（`compat/jei/`，仅 JEI 存在时由 JEI 发现并加载）。**核心原则：「怎么获得」用信息页，「能派生出什么」用自定义类别**：
+     - **信息页**（`addItemStackInfo`）：七枚碎片、原型、未激活 OBSR-EX、生物稳定模型、基座、训练终端。
+       这是 JEI 的原生语义——对物品按 R 就是"来源"，信息页直接挂在该物品的配方页里，
+       **不依赖催化剂方向**，因此不会被归到"用途(U)"。
+     - **「观测模型派生」类别**（`ModelDerivationCategory`）：原型 → 五个型号。结果模型放在**输出槽**，
+       对型号按 R 即可查到来路。⚠️ 若放成输入槽，JEI 会当成"用途"，方向就反了——这是上一版被归错的原因。
+     - 催化剂只挂训练终端与王座（派生实际发生的地方），**不再**挂到碎片/模型自己身上。
+     - 背景纯代码绘制（`GuiGraphics.fill`），不用贴图。
+  2. **新增配方**（`ModRecipeProvider`，2026-09-11）：
+     - **生物稳定模型**：`GRG / LOL / GAG`（G=玻璃 R=红色染料 L=拴绳 O=原型 A=紫水晶碎片）
+     - **训练终端**：`CRC / EBE / COC`（C=铜块 R=红石粉 E=末影之眼 B=书 O=原型）—— 此前该方块**完全没有配方**
+     - **候选观测者 OBSR-3**：`OEO / EXE / OSO`（O=原型 E=末影之眼 X=**已激活的 OBSR-EX** S=下界之星）。
+       以"工作中的 OBSR-EX"为材料，呼应主线；合成消耗那枚 EX。
+     - 手册同步：`fragments/candidate` 中英各加一页 `patchouli:crafting`「构造」，说明以已激活 OBSR-EX 为核心合成。
+  3. **JEI 派生类别的输入槽必须随条目变化**：`ModelDerivationCategory.Entry` 增加 `input` 字段。
+     早先把输入槽写死成原型，导致"OBSR-EX（工作中）"被关联到原型——实际它的起点是**未激活的 OBSR-EX**，
+     而 OBSR-3 的起点是**已激活的 EX**。写死输入槽会让整张派生图的箭头指向错误。
+  4. **OBSR-EX 复制损耗（2026-09-11）**——修掉一个严重的平衡漏洞：复制配方**不消耗原件**
+     （`assemble` 只设产物数量，输入扣除走原版 `getRemainingItems`，而它没被重写），
+     所以"已训练模型 + 空白模型 → 2 份副本"可以无限增殖，等于无限个半径 32 的硬保护场。
+     现在的规则：
+     - `ObserverModelData` 新增 `copies` 代数（`optionalFieldOf(..., 0)`，**旧存档模型自然读成原件**）；
+       所有构造点都透传 `copies`，避免训练/喂碎片/生物能量等流程把代数清零
+     - 半径随代数**加剧递减**：`32 → 22 → 12`（三角数损耗，`total_stability_copy_penalty` 默认 10）
+     - `total_stability_max_copies` 默认 2：二代之后不可再复制
+     - 用副本合成的 OBSR-3 训练量更高：`+50 / +150`（`total_stability_copy_train_penalty`，三角数递增）
+     - 未激活的 EX 不在可复制列表里 → **复制只能在王座仪式之后进行**；仪式产出的是新造原件（代数 0）
+     - "是否练满"的判定统一到 `ObserverModelData.candidateComplete()` / `requiredCandidatePoints(int)`，
+       **服务端与客户端共用**（客户端只有 `PrototypeData`，拿不到 ItemStack，两边各写一份必然漂移）；
+       `PrototypeData` 因此新增 `copies` 字段并同步
+     - tooltip 显示"第 N 代副本"；手册「型号规格」中英各加两页说明复制损耗
+  5. **JEI 兼容两个自定义序列化器的配方**（`SpecialRecipeCategory`）：复制模型、碎片知识注入。
+     这两条用 `CustomRecipe` 序列化器，**JEI 不会自动展示**，必须显式登记类别与配方，
+     否则玩家在 JEI 里看不到"模型可以复制""碎片可以喂给候选体"。碎片喂食用 `addItemStacks`
+     把七枚碎片放进同一个槽轮播。
+  3. **JEI 四个坑（都踩过，务必记住）**：
+     - **槽位坐标是图标中心**，不是左上角。按左上角传值会让图标整体偏左上约 8px。
+     - **文字宽度由布局包围盒决定，与类别宽度无关**：只在左侧放一个槽时文字区只有几像素可用 →
+       「一行 4 个字 + 省略号」。解法是放一个零尺寸空绘制物把右边界撑开；不能用空槽代替
+       （`IRecipeSlotBuilder` 没有可见性开关，空槽会连槽框一起画出来）。
+     - **`needsRecipeBorder()` 默认返回 `true`**：JEI 会再画一圈边框并向内占边距，与自绘边框叠成"两层灰框"，
+       还会盖掉贴图右边与下边。自绘背景必须重写为 `false`。
+     - **不要用 `IGuiHelper.createDrawable` 贴图做背景**：它走 JEI 的精灵/图集路径，实测 168×108 的图
+       只画出左上角约 112×44。结论：背景改为**纯代码绘制**，`textures/gui/source_page.png` 已删除。
+     - **关系方向**：JEI 的"用途(U)"来自催化剂，"来源(R)"来自"哪些配方把该物品作为输出"。
+       想让自己写的信息出现在 R 侧，就用物品信息页或把它放成输出槽。
+  3. **tooltip 指引**：碎片 tooltip 增加「来源」行（`SemanticFragmentItem` 新增 `sourceKey`，与 JEI 共用同一批文案 key）；
+     空白模型 tooltip 增加「训练三步」下一步指引
+  4. **中英 lang key 完全对齐**（各 121 条，脚本校验）
+- **实机待验证项**：~~Patchouli 与现有 JEI 共存加载~~（**已验证：共存正常**）；~~手册能否正常加载~~（**已验证：Patchouli 预加载 26 个 json 全部成功**）；~~创造栏与搜索可见~~（**已验证**）；~~进服发书~~（**已验证**）；~~两卷位置锁~~（**已验证：初始锁定、`/focaldecay unlock` 后可见**）；手册逐页排版与中文换行
+
+### 13.1 客户端启动卡死（2026-09-11 **已定位并绕过**，与本模组无关）
+- **症状**：`runClient` 在资源重载约 88% 处**卡死**（不是崩溃），窗口"无响应"，只能强杀进程。强杀后 Gradle 报退出码 `-805306369`（NTSTATUS `0xCFFFFFFF`）——**该码只是强杀的产物，不是错误信息**。日志停在 `Missing sound for event: minecraft:item.goat_horn.play`，无 Java 堆栈、无 crash-report、无 hs_err。
+- **定位手段**：`jstack <pid>` 抓线程转储（`jcmd` 附加会被拒，`jstack` 可用）。转储直接给出：
+  ```
+  "Render thread" RUNNABLE cpu=5421.88ms elapsed=61.65s
+    at org.lwjgl.openal.SOFTHRTF.nalcResetDeviceSOFT(SOFTHRTF.java:101)
+    at com.mojang.blaze3d.audio.Library.setHrtf(Library.java:135)
+    at com.mojang.blaze3d.audio.Library.init(Library.java:91)
+    at net.minecraft.client.sounds.SoundEngine.loadLibrary(SoundEngine.java:146)
+  ```
+- **根因**：主线程阻塞在 **OpenAL 的 `alcResetDeviceSOFT`（HRTF 初始化）**，永不返回。源码逻辑（`com/mojang/blaze3d/audio/Library.java`）：
+  ```java
+  this.setHrtf(alccapabilities.ALC_SOFT_HRTF && enableHrtf);   // enableHrtf=false 时依然调用
+  private void setHrtf(boolean enableHrtf) { if (ALC10.alcGetInteger(device, 6548) > 0) { SOFTHRTF.alcResetDeviceSOFT(...); } }
+  ```
+  **只要音频驱动声明支持 `ALC_SOFT_HRTF`，MC 就必定调用 `alcResetDeviceSOFT`，即使 `directionalAudio:false`（`options.txt` 里本来就是 false，照样卡）。** 属音频驱动/设备层问题，与模组、与游戏设置都无关。
+- **绕过方案（已验证可行）**：启动前设置环境变量 `ALSOFT_DRIVERS=null`（OpenAL Soft 走 null 后端，不碰真实音频设备）：
+  ```powershell
+  $env:ALSOFT_DRIVERS = 'null'; .\gradlew.bat runClient
+  ```
+  验证结果：**成功进入主菜单**（日志出现 `Minecraft: Stopping!`，即由玩家正常退出）。代价是**没有声音**。
+- **建议的根治方向**：更新/回滚音频驱动；在"声音设置"里换一个默认输出设备（很可能是当前默认设备——USB 耳机/虚拟声卡——的驱动在 HRTF 重置时不返回）；或干脆用 null 后端开发（本项目 `options.txt` 里 `soundCategory_master:0.0`，本来也没在听声音）。
+- **排除过程（三项对照，均复现同一卡死点）**：① `focal_decay + JEI + Patchouli`；② 摘掉 JEI/Patchouli；③ 再摘掉 mixin 配置（等价"无本模组"）。→ 证明与本模组、与 JEI/Patchouli 无关。
+- **顺带确认的好消息**：日志出现 `patchouli: BookContentResourceListenerLoader preloaded 26 jsons`，即 **6 个分类 + 18 篇条目 + book.json 全部被 Patchouli 成功加载**；JEI 与 Patchouli 共存加载也正常。
+- **保留的诊断设施**：所有运行配置注入 `-XX:ErrorFile=hs_err_pid%p.log`、`-XX:+HeapDumpOnOutOfMemoryError`、`-XX:+PrintCommandLineFlags`；另有运行配置 `runClientNoEarlyWindow`（禁用原生进度窗 + LWJGL 调试输出），用于区分原生层与游戏逻辑层问题。
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
@@ -209,3 +345,7 @@
 4. **数据生成**：改 `data/` 下 Provider 后跑 `.\gradlew.bat runData`，输出到 `src/generated/resources`
 5. **编译验证**：`.\gradlew.bat compileJava`；完整构建 `.\gradlew.bat build`
 6. **配置**：`FocalDecayConfig` 里的 Server 值在 `FocalDecayConfig.BASE_INTERVAL` 等处读取，末日阶段系统后续接入
+7. **兼容模组（Patchouli / JEI）**：均为可选依赖，坐标在 `gradle.properties`（`jei_version` / `patchouli_version`），仓库 `https://maven.blamejared.com`；JEI 用 `compileOnly` + `localRuntime`，Patchouli 另加 `:api` classifier。**不要**在 `run/mods` 里重复放这两个 jar（会与 gradle 提供的那份冲突），手工 jar 已归档到 `run/mods.disabled`
+8. **查 API 签名的可靠姿势**：`javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>`；查源码用同目录的 `neoforge-21.1.248-sources.jar`（含 MC 与 NeoForge 双方源码，可直接确认补丁点行为）
+9. **跑客户端前先设音频后端（本机必需）**：`$env:ALSOFT_DRIVERS = 'null'`，否则会卡死在 OpenAL 的 `alcResetDeviceSOFT`（HRTF 初始化），表现为"加载到 88% 无响应"，强杀后 Gradle 报 `-805306369`。详见 §13.1
+10. **卡死时怎么定位**：`jps -l` 找 `net.neoforged.devlaunch.Main` 的 pid → `jstack <pid>`（**`jcmd` 附加会被系统拒绝，`jstack` 可用**），直接看 `"Render thread"` 的栈

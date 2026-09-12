@@ -32,6 +32,47 @@ public class ModRecipeProvider extends RecipeProvider {
                 .unlockedBy("has_ender_eye", has(Items.ENDER_EYE))
                 .save(recipeOutput);
 
+        // ---- 生物稳定模型：G R G / L O L / G A G (G=玻璃 R=红色染料 L=拴绳 O=原型 A=紫水晶碎片) ----
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.BIO_STABILIZER_MODEL.get())
+                .pattern("GRG")
+                .pattern("LOL")
+                .pattern("GAG")
+                .define('G', Items.GLASS)
+                .define('R', Items.RED_DYE)
+                .define('L', Items.LEAD)
+                .define('O', ModItems.OBSERVER_MODEL_BLANK.get())
+                .define('A', Items.AMETHYST_SHARD)
+                .unlockedBy("has_observer_model_blank", has(ModItems.OBSERVER_MODEL_BLANK.get()))
+                .save(recipeOutput);
+
+        // ---- 训练终端：C R C / E B E / C O C (C=铜块 R=红石粉 E=末影之眼 B=书 O=原型) ----
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.TRAINING_TERMINAL.get())
+                .pattern("CRC")
+                .pattern("EBE")
+                .pattern("COC")
+                .define('C', Items.COPPER_BLOCK)
+                .define('R', Items.REDSTONE)
+                .define('E', Items.ENDER_EYE)
+                .define('B', Items.BOOK)
+                .define('O', ModItems.OBSERVER_MODEL_BLANK.get())
+                .unlockedBy("has_observer_model_blank", has(ModItems.OBSERVER_MODEL_BLANK.get()))
+                .save(recipeOutput);
+
+        // ---- 候选观测者 OBSR-3：O E O / E X E / O S O
+        //      (O=原型 E=末影之眼 X=已激活的 OBSR-EX S=下界之星) ----
+        // 以"工作中的 OBSR-EX"为材料，呼应主线：新观测者由上一迭代留下的完备分类器派生。
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.OBSERVER_MODEL_CANDIDATE.get())
+                .pattern("OEO")
+                .pattern("EXE")
+                .pattern("OSO")
+                .define('O', ModItems.OBSERVER_MODEL_BLANK.get())
+                .define('E', Items.ENDER_EYE)
+                .define('X', ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get())
+                .define('S', Items.NETHER_STAR)
+                .unlockedBy("has_total_stability_model_activated",
+                        has(ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get()))
+                .save(recipeOutput);
+
         // ---- 空白观测模型：书 + 金锭 + 青金石 + 铜锭（任意形状） ----
         ShapelessRecipeBuilder.shapeless(RecipeCategory.MISC, ModItems.OBSERVER_MODEL_BLANK.get())
                 .requires(Items.BOOK)
