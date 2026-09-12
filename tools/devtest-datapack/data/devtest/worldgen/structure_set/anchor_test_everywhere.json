@@ -1,0 +1,15 @@
+{
+  "structures": [
+    {
+      "structure": "devtest:anchor_test",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 1,
+    "separation": 0,
+    "salt": 20260912,
+    "frequency": 1.0
+  }
+}

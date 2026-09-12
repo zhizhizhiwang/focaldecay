@@ -18,6 +18,9 @@ public class GameRendererMixin {
 
     @Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V", at = @At("TAIL"))
     private void focaldecay$processObserverVeil(DeltaTracker deltaTracker, CallbackInfo ci) {
-        ClientRenderCache.INSTANCE.updateVeil(deltaTracker.getGameTimeDeltaTicks());
+        // 传"每帧真实时间"而不是 getGameTimeDeltaTicks()。
+        // 后者只在发生 tick 的那一帧非零（20 tick/s 下约每 3 帧跳一次），会让后处理动画
+        // 呈锯齿状推进，观感是"平滑一会儿、突变一下"，节拍约 1 秒。详见 ClientRenderCache#updateVeil。
+        ClientRenderCache.INSTANCE.updateVeil(deltaTracker.getRealtimeDeltaTicks());
     }
 }

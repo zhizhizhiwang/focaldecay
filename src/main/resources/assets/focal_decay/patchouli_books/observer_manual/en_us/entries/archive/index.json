@@ -16,7 +16,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "This manual is intended to give the recipient the following capabilities:$(br)$(li)identify the stage characteristics and scope of defocus;$(br)$(li)deploy local reality stabilisation;$(br)$(li)collect and archive semantic fragments;$(br)$(li)execute the refocus operation once conditions allow.$(br2)You have about seven days."
+      "text": "This manual is intended to give the recipient the following capabilities:$(br)$(li)identify the stage characteristics and scope of defocus;$(br)$(li)deploy local reality stabilisation;$(br)$(li)collect and archive semantic fragments;$(br)$(li)execute the refocus operation once conditions allow.$(br2)$(l)$(focal_decay:schedule)$()"
     }
   ]
 }

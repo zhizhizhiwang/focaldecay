@@ -76,6 +76,8 @@
   "message.focal_decay.unlock_done": "权限锁已解除——《王座协议》与《重聚焦》两卷已解密",
   "message.focal_decay.unlock_needs_player": "该指令只能由玩家执行",
   "message.focal_decay.inspect_empty": "主手需要拿着一件物品",
+  "message.focal_decay.trace_on": "诊断已开启：右键判定与渲染剔除统计会写入日志",
+  "message.focal_decay.trace_off": "诊断已关闭",
 
   "gui.focal_decay.jei.fragment_source": "语义碎片来源",
   "gui.focal_decay.jei.fragment_source.how": "获取方式",
@@ -127,6 +129,7 @@
   "tooltip.focal_decay.model_next_step": "训练：放入训练终端选择方向 → 手持右键方块/生物收集目标 → 回终端完成训练",
 
   "focal_decay.manual.name": "失焦事件现场作业手册",
+  "book.focal_decay.schedule": "你有大约 %s 天：第 %s 天起，失焦的频率、概率与范围第一次扩大。",
   "focal_decay.manual.landing": "观测者阵列于 10/02/2021 下线。$(br2)本手册由 Site-CN-25 自动分发系统下发，内容基于上一迭代归档资料汇编。$(br2)你有大约七天。",
 
   "tag.block.focal_decay.global_mutation_pool": "全局突变池（方块）",

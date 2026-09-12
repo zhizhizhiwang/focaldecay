@@ -1,11 +1,13 @@
 package com.zhizhiwang.focal_decay.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuideAdvancementHandler;
+import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.structure.ThroneStructure;
 import net.minecraft.commands.CommandSourceStack;
@@ -46,9 +48,29 @@ public final class ModCommands {
                         .executes(ctx -> queryThrone(ctx.getSource())))
                 .then(Commands.literal("inspect")
                         .executes(ctx -> inspectHeld(ctx.getSource())))
+                .then(Commands.literal("trace")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(ctx -> setTrace(ctx.getSource(), true))
+                        .then(Commands.argument("enabled", BoolArgumentType.bool())
+                                .executes(ctx -> setTrace(ctx.getSource(),
+                                        BoolArgumentType.getBool(ctx, "enabled")))))
                 .then(Commands.literal("unlock")
                         .requires(source -> source.hasPermission(2))
                         .executes(ctx -> unlockManual(ctx.getSource()))));
+    }
+
+    private static int setTrace(CommandSourceStack source, boolean enabled) {
+        InteractionHandler.traceEnabled = enabled;
+        // 客户端渲染侧诊断：只有客户端才有意义，用反射避免在专用服务器上触碰客户端类
+        try {
+            Class.forName("com.zhizhiwang.focal_decay.client.ClientRenderDebug")
+                    .getField("enabled").setBoolean(null, enabled);
+        } catch (Throwable ignored) {
+            // 专用服务器：没有客户端渲染，忽略
+        }
+        source.sendSuccess(() -> Component.translatable(
+                enabled ? "message.focal_decay.trace_on" : "message.focal_decay.trace_off"), true);
+        return 1;
     }
 
     /**

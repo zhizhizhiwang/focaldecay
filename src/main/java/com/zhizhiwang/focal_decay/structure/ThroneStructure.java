@@ -4,10 +4,13 @@ import com.mojang.serialization.MapCodec;
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureType;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -15,6 +18,10 @@ import java.util.Optional;
  * 每末地维度仅一个，位置由世界种子决定（方向 + 距离），生成于主岛与外岛之间的虚空环带，
  * 远离末影龙战斗半径。结构集（random_spread）会为很多候选区块调用本结构，
  * 但只有包含王座原点的区块返回生成点——天然保证"全维度唯一"。
+ * <p>
+ * <b>本体是数据驱动的结构模板</b>（{@code data/focal_decay/structure/end_throne.nbt}，
+ * 13×18×13，结构方块直接导出），不再由代码逐块摆放 —— 改外观只需在游戏里重搭再导出，
+ * 不用碰 Java。摆放位置见 {@link #TEMPLATE_OFFSET_X}。
  */
 public class ThroneStructure extends Structure {
     public static final MapCodec<ThroneStructure> CODEC = simpleCodec(ThroneStructure::new);
@@ -23,12 +30,33 @@ public class ThroneStructure extends Structure {
     private static final long THRONE_SALT = 0x5448524F4E45L;
     /** 基座平台中心所在 Y（末地虚空漂浮）。 */
     public static final int BASE_Y = 70;
-    /** 结构包围盒半宽（x/z）。 */
-    public static final int HALF_X = 7;
-    public static final int HALF_Z = 7;
-    /** 结构包围盒从 BASE_Y 向下/向上的范围。 */
-    public static final int BELOW = 1;
-    public static final int ABOVE = 19;
+
+    /** 结构模板 id（对应 {@code data/focal_decay/structure/end_throne.nbt}）。 */
+    public static final ResourceLocation TEMPLATE =
+            ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "end_throne");
+
+    /**
+     * 模板摆放偏移：把模板的"中心列"对齐到王座原点。
+     * <p>
+     * 模板是 13 宽（列 0..12），中心列是 6，所以整体左上移 6 格。
+     * 这样模板里的关键方块落点与旧代码版<b>完全一致</b>：
+     * <ul>
+     *   <li>{@code observer_core} 模板 (6,1,6) → 原点 +(0,1,0)</li>
+     *   <li>宝箱 模板 (6,1,8) → 原点 +(0,1,2)</li>
+     *   <li>四角柱顶末地棒 模板 (±6,17,±6) → 原点 +(±6,17,±6)</li>
+     * </ul>
+     * 因此 {@code ThroneRitualHandler}（{@code corePos = throne.offset(0,1,0)}）与
+     * {@code ThroneBeamRenderer}（四角 ±6、光束起点 +17）里的硬编码偏移都不用改。
+     * <b>重搭模板时必须保持这些相对位置</b>，否则要同步改那两处。
+     */
+    private static final int TEMPLATE_OFFSET_X = -6;
+    private static final int TEMPLATE_OFFSET_Z = -6;
+
+    /** 结构包围盒（= 模板实际占据范围，以原点为中心）。与 NBT 的 size 13×18×13 对应。 */
+    public static final int HALF_X = 6;
+    public static final int HALF_Z = 6;
+    public static final int BELOW = 0;
+    public static final int ABOVE = 17;
 
     public ThroneStructure(StructureSettings settings) {
         super(settings);
@@ -68,9 +96,13 @@ public class ThroneStructure extends Structure {
         if (chunk.x != pos.getX() >> 4 || chunk.z != pos.getZ() >> 4) {
             return Optional.empty();
         }
-        FocalDecay.LOGGER.info("End Throne structure start at {} (chunk {}, {}), seed {}",
-                pos.toShortString(), chunk.x, chunk.z, context.seed());
-        return Optional.of(new GenerationStub(pos, builder -> builder.addPiece(new ThronePiece(pos))));
+        // 无处理器：王座里没有观测者基座，不需要塞随机模型（2026-09-12 与用户确认）
+        BlockPos templatePos = pos.offset(TEMPLATE_OFFSET_X, 0, TEMPLATE_OFFSET_Z);
+        FocalDecay.LOGGER.info("End Throne structure start at {} (template at {}), chunk {}, {}, seed {}",
+                pos.toShortString(), templatePos.toShortString(), chunk.x, chunk.z, context.seed());
+        return Optional.of(new GenerationStub(pos, builder -> builder.addPiece(
+                new SingleTemplatePiece(context.structureTemplateManager(), TEMPLATE,
+                        Rotation.NONE, List.of(), templatePos))));
     }
 
     @Override

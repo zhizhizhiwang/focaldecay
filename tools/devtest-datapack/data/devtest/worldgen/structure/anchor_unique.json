@@ -1,0 +1,15 @@
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:sample_anchor",
+  "biomes": "#minecraft:is_overworld",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "y": 130,
+  "//": "验证唯一档（引导模型，带 concept 与 q）",
+  "processors": [
+    {
+      "processor_type": "focal_decay:anchor_model",
+      "loot_table": "focal_decay:structure/anchor_model/unique"
+    }
+  ]
+}

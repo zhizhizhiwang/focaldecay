@@ -1,0 +1,15 @@
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:sample_anchor",
+  "biomes": "#minecraft:is_overworld",
+  "step": "surface_structures",
+  "terrain_adaptation": "beard_thin",
+  "spawn_overrides": {},
+
+  "//": "参考样本。processors 是默认值，写出来只是为了示范；删掉这一项效果相同，写成 [] 则不放模型。",
+  "processors": [
+    {
+      "processor_type": "focal_decay:anchor_model"
+    }
+  ]
+}

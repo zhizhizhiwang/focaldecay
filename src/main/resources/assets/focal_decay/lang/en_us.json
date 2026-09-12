@@ -76,6 +76,8 @@
   "message.focal_decay.unlock_done": "Clearance lock released - the Throne Protocol and Refocus volumes are declassified",
   "message.focal_decay.unlock_needs_player": "This command can only be run by a player",
   "message.focal_decay.inspect_empty": "You need to hold an item in your main hand",
+  "message.focal_decay.trace_on": "Diagnostics on: right-click decisions and render culling stats will be logged",
+  "message.focal_decay.trace_off": "Diagnostics off",
 
   "gui.focal_decay.jei.fragment_source": "Semantic Fragment Sources",
   "gui.focal_decay.jei.fragment_source.how": "How to obtain",
@@ -127,6 +129,7 @@
   "tooltip.focal_decay.model_next_step": "Training: insert into the Training Terminal and pick a direction -> right-click blocks/creatures to record targets -> return to finish training",
 
   "focal_decay.manual.name": "Focal Decay Field Manual",
+  "book.focal_decay.schedule": "You have about %s days: on day %s, the frequency, probability and scope of defocus widen for the first time.",
   "focal_decay.manual.landing": "The observer array went offline on 10/02/2021.$(br2)This manual is issued by the Site-CN-25 automated distribution system and compiled from the archives of the previous iteration.$(br2)You have about seven days.",
 
   "tag.block.focal_decay.global_mutation_pool": "Global Mutation Pool (Blocks)",

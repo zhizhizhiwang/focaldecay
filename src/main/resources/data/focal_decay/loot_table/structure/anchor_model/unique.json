@@ -1,0 +1,41 @@
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "focal_decay:guided_mutation_model",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_components",
+              "components": {
+                "focal_decay:observer_model_data": {
+                  "type": "guided",
+                  "stabilityStrength": 0.75,
+                  "concept": "focal_decay:concept/stone",
+                  "trainedTargets": [
+                    "minecraft:stone",
+                    "minecraft:cobblestone",
+                    "minecraft:mossy_cobblestone",
+                    "minecraft:smooth_stone",
+                    "minecraft:stone_bricks",
+                    "minecraft:deepslate",
+                    "minecraft:cobbled_deepslate",
+                    "minecraft:andesite",
+                    "minecraft:polished_andesite",
+                    "minecraft:diorite",
+                    "minecraft:polished_diorite",
+                    "minecraft:granite"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,41 +1,42 @@
 package com.zhizhiwang.focal_decay.structure;
 
-import com.zhizhiwang.focal_decay.block.ModBlocks;
-import com.zhizhiwang.focal_decay.item.ModItems;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.StructureManager;
 import net.minecraft.world.level.WorldGenLevel;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.chunk.ChunkGenerator;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.StructurePiece;
 import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceSerializationContext;
 
 /**
- * 末地王座结构部件：黑曜石基座 + 四角/四边"末地水晶"柱 + 中央空基座 + 北侧王座。
- * 在末地虚空带中漂浮（BASE_Y），全部绝对坐标生成，只放置在本区块包围盒内。
+ * <b>旧版王座的部件类型，现在只用于让旧存档还能反序列化。</b>
+ * <p>
+ * 2026-09-12 起王座本体改成数据驱动的结构模板（{@code end_throne.nbt}），
+ * 由 {@link SingleTemplatePiece} 摆放，本类不再参与生成。
+ * <p>
+ * 那为什么不直接删掉？因为已经生成过王座的存档，区块 NBT 里存着
+ * {@code focal_decay:end_throne_piece} 这个 id；把它从注册表里摘掉的话，
+ * 载入那些区块时 {@code StructureStart.loadStaticStart} 会抛异常并刷
+ * "Failed Start with id focal_decay:end_throne" 的错误日志。
+ * 留一个空壳（放着不管就行，反正旧结构不会再被重新生成）代价最低。
  */
 public class ThronePiece extends StructurePiece {
-    private static final BlockState THRONE_BLOCK = ModBlocks.THRONE_BLOCK.get().defaultBlockState();
-    private static final BlockState END_ROD = Blocks.END_ROD.defaultBlockState();
 
     public ThronePiece(BlockPos origin) {
-        super(ModStructures.END_THRONE_PIECE.get(), 0, makeBox(origin));
+        super(ModStructures.END_THRONE_PIECE.get(), 0, new BoundingBox(
+                origin.getX() - ThroneStructure.HALF_X,
+                origin.getY() - ThroneStructure.BELOW,
+                origin.getZ() - ThroneStructure.HALF_Z,
+                origin.getX() + ThroneStructure.HALF_X,
+                origin.getY() + ThroneStructure.ABOVE,
+                origin.getZ() + ThroneStructure.HALF_Z));
     }
 
     public ThronePiece(CompoundTag tag) {
         super(ModStructures.END_THRONE_PIECE.get(), tag);
-    }
-
-    private static BoundingBox makeBox(BlockPos origin) {
-        return new BoundingBox(
-                origin.getX() - ThroneStructure.HALF_X, origin.getY() - ThroneStructure.BELOW, origin.getZ() - ThroneStructure.HALF_Z,
-                origin.getX() + ThroneStructure.HALF_X, origin.getY() + ThroneStructure.ABOVE, origin.getZ() + ThroneStructure.HALF_Z);
     }
 
     @Override
@@ -46,86 +47,6 @@ public class ThronePiece extends StructurePiece {
     @Override
     public void postProcess(WorldGenLevel level, StructureManager structureManager, ChunkGenerator generator,
                             RandomSource random, BoundingBox chunkBox, ChunkPos chunkPos, BlockPos anchor) {
-        BlockPos origin = new BlockPos(
-                this.boundingBox.minX() + ThroneStructure.HALF_X,
-                this.boundingBox.minY() + ThroneStructure.BELOW,
-                this.boundingBox.minZ() + ThroneStructure.HALF_Z);
-        int minX = Math.max(this.boundingBox.minX(), chunkBox.minX());
-        int maxX = Math.min(this.boundingBox.maxX(), chunkBox.maxX());
-        int minY = Math.max(this.boundingBox.minY(), chunkBox.minY());
-        int maxY = Math.min(this.boundingBox.maxY(), chunkBox.maxY());
-        int minZ = Math.max(this.boundingBox.minZ(), chunkBox.minZ());
-        int maxZ = Math.min(this.boundingBox.maxZ(), chunkBox.maxZ());
-
-        for (int y = minY; y <= maxY; y++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                for (int x = minX; x <= maxX; x++) {
-                    BlockState state = stateAt(x - origin.getX(), y - origin.getY(), z - origin.getZ());
-                    if (state != null) {
-                        level.setBlock(new BlockPos(x, y, z), state, 3);
-                    }
-                }
-            }
-        }
-
-        // 王座基座宝箱：固定产出"碎片·王座"（非随机，探索发现即得）
-        BlockPos chestPos = origin.offset(0, 1, 2);
-        if (chunkBox.isInside(chestPos) && level.getBlockState(chestPos).isAir()) {
-            level.setBlock(chestPos, Blocks.CHEST.defaultBlockState(), 3);
-            if (level.getBlockEntity(chestPos) instanceof ChestBlockEntity chest) {
-                chest.setItem(0, new net.minecraft.world.item.ItemStack(ModItems.FRAGMENT_THRONE.get()));
-            }
-        }
-    }
-
-    /** 本地坐标（dx,dy,dz，原点 = 基座中心）到方块的映射；null 表示留空。 */
-    private static BlockState stateAt(int dx, int dy, int dz) {
-        // 中央空基座：观测者核心（前任观测者遗骸/插座，供安装候选观测者）
-        if (dx == 0 && dy == 1 && dz == 0) {
-            return ModBlocks.OBSERVER_CORE.get().defaultBlockState();
-        }
-        // 基座：y=0 整层黑曜石，y=1 环带 + 中央空基座围边
-        if (dy == 0) {
-            return Math.abs(dx) <= ThroneStructure.HALF_X && Math.abs(dz) <= ThroneStructure.HALF_Z ? THRONE_BLOCK : null;
-        }
-        if (dy == 1) {
-            boolean rim = Math.max(Math.abs(dx), Math.abs(dz)) == ThroneStructure.HALF_X;
-            // boolean innerRing = Math.abs(dx) == 3 || Math.abs(dz) == 3;
-            boolean seat = dz == -4 && Math.abs(dx) <= 1;
-            boolean armrest = dz == -4 && Math.abs(dx) == 2;
-            if (rim || seat || armrest) {
-                return THRONE_BLOCK;
-            }
-            return null;
-        }
-        // 王座靠背与扶手（北侧）
-        if (dz == -5 && Math.abs(dx) <= 1 && dy >= 2 && dy <= 3) {
-            return THRONE_BLOCK;
-        }
-        if (dz == -4 && Math.abs(dx) == 2 && dy == 2) {
-            return THRONE_BLOCK;
-        }
-        if (dz == -5 && dx == 0 && dy == 4) {
-            return END_ROD;
-        }
-        // 四角高柱（"末地水晶"）
-        if (Math.abs(dx) == ThroneStructure.HALF_X && Math.abs(dz) == ThroneStructure.HALF_Z) {
-            if (dy >= 0 && dy <= 17) {
-                return THRONE_BLOCK;
-            }
-            if (dy == 18) {
-                return END_ROD;
-            }
-        }
-        // 四边中柱
-        if ((dx == 0 && Math.abs(dz) == ThroneStructure.HALF_Z) || (Math.abs(dx) == ThroneStructure.HALF_X && dz == 0)) {
-            if (dy >= 0 && dy <= 13) {
-                return THRONE_BLOCK;
-            }
-            if (dy == 14) {
-                return END_ROD;
-            }
-        }
-        return null;
+        // 旧版在这里逐块摆放王座；现在什么也不做（新结构走 SingleTemplatePiece）。
     }
 }

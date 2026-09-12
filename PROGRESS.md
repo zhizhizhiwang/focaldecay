@@ -337,6 +337,222 @@
 - **顺带确认的好消息**：日志出现 `patchouli: BookContentResourceListenerLoader preloaded 26 jsons`，即 **6 个分类 + 18 篇条目 + book.json 全部被 Patchouli 成功加载**；JEI 与 Patchouli 共存加载也正常。
 - **保留的诊断设施**：所有运行配置注入 `-XX:ErrorFile=hs_err_pid%p.log`、`-XX:+HeapDumpOnOutOfMemoryError`、`-XX:+PrintCommandLineFlags`；另有运行配置 `runClientNoEarlyWindow`（禁用原生进度窗 + LWJGL 调试输出），用于区分原生层与游戏逻辑层问题。
 
+3. **可选依赖必须做"类加载级"隔离**（2026-09-12，**曾导致未装 Patchouli 时整个 mod 构造失败**）：
+   手册宏最初直接写在 `ClientSetup` 里，结果未装 Patchouli 的整合包启动即崩：
+   ```
+   Failed to register automatic subscribers. ModID: focal_decay
+   java.lang.NoClassDefFoundError: vazkii/patchouli/api/IStyleStack
+   → Failed to wait for future Mod Construction, 1 errors found
+   → 后续满屏 "Cowardly refusing to send event ... broken mod state"
+   ```
+   **根因在字节码层面**：javac 把 lambda 编译成合成方法 `lambda$xxx$0(IStyleStack)`，签名里带着
+   Patchouli 的类型；而 `ClientSetup` 挂着 `@EventBusSubscriber`，**NeoForge 会无条件加载它**，
+   JVM 校验该类时就必须解析 `IStyleStack`。于是：
+   - **`ModList.isLoaded(...)` 判断和 `try/catch` 都拦不住** —— 它们运行在方法体内，
+     而失败发生在方法被调用之前的<b>类加载/校验阶段</b>；
+   - 这类问题不会在开发环境暴露（我们总是装了 Patchouli）。
+   **正确做法**：把引用可选依赖的代码放进<u>只在确认该依赖存在后才会被加载</u>的独立类
+   （本项目：`compat/patchouli/GuideMacroCompat`、`compat/jei/*`），调用方只保留
+   字符串形式的 modid 检查 + 一次静态方法调用。
+   **验证方式**（已实测通过）：临时注释掉 `localRuntime`，`runClient` 启动到主菜单，
+   日志无 `NoClassDefFoundError`。另可用 `javap -c` 扫描字节码，确认宿主类里不残留第三方类型。
+   同类扫描结果：目前仅 4 个类引用可选依赖 —— `GuideMacroCompat`（Patchouli）与
+   JEI 的三个类（由 JEI 自己的插件扫描器加载，不装 JEI 不会加载），全部已隔离。
+
+### 13.2 实机反馈修复（2026-09-11 第二轮）
+1. **右键交互按可见目标响应**（`InteractionHandler.onRightClickBlock`，`EventPriority.HIGHEST`）：
+   此前工作台、切石机、织布机这类"完整立方体 + 有右键行为 + **无方块实体**"的方块，
+   视觉上已变形成别的方块，右键却仍打开原有界面。现在与挖掘同一思路——先真实转换，再让**目标方块**
+   接管这次右键（`ServerPlayerGameMode.useItemOn` 重派发）。副作用：右键也会把方块变掉，这是刻意取向。
+   - ⚠️ **创造模式不能跳过右键转换**（2026-09-12 二修）：客户端的幽灵预览对**所有游戏模式**都生效，
+     所以只在生存模式转换会让创造模式玩家看到"显示成石头、右键却打开合成台"的前后不一致。
+     挖掘那边可以跳过是因为创造挖掘本就不产生掉落、无需转换；右键没有这层理由。
+     （第一版照抄了挖掘的 `isCreative()` 早退，导致创造模式下右键行为完全没变——而测试正是在创造模式做的。）
+   - ⚠️ **日志一律用 ASCII**：本项目控制台是 GBK，日志里写中文会变成乱码，反而看不出关键信息
+     （正是乱码掩盖了 `creative=true` 这一决定性线索）。
+   - ⚠️ **必须显式设置取消结果**（2026-09-12 修复；第一版漏了，是"工作台照旧打开"的真正原因）：
+     `RightClickBlock.cancellationResult` 默认是 `InteractionResult.PASS`，而
+     `ServerPlayerGameMode#useItemOn` 写的是 `if (event.isCanceled()) return event.getCancellationResult();`
+     —— 只 cancel 不设结果等于告诉原版"我没处理，继续走"。后果两层：① 它**已抓取的 blockstate**
+     （转换前的方块）继续走 `useWithoutItem` → 合成台照旧打开；② 返回非 `consumesAction()` 后
+     还会尝试 `stack.useOn(...)`，顺手放置手里的方块。现在在 `setCanceled(true)` **之后**调用
+     `setCancellationResult(InteractionResult.FAIL)`（顺序重要：`setCanceled` 会重置结果）。
+   - 重派发会再次触发 `RightClickBlock`，用 `ThreadLocal` 旁路标志防无限递归
+   - 创造模式跳过（与挖掘一致，不执行转换）；只手主手处理，避免双手重复转换
+   - 顺带把 `onLeftClickBlock` 里重复的"观测者在线 / 当前阶段"判定抽成 `mutationsActive` / `currentStage`
+   - 诊断：`/focaldecay trace true` 打印右键判定链（真实方块 / 是否转换源 / 可见目标 / 是否转换）
+2. **"六面被遮挡就跳过材质替换"的判据错了**（`ClientRenderCache.isExposed`，2026-09-12 修正）：
+   该优化本身是对的——方块六面都被挡住时不必替换材质，省性能。但判据用的是
+   `neighbor.isAir() || !neighbor.canOcclude()`，而 **`canOcclude()` 只是"有能力遮挡"的开关**：
+   雪片（高度 2/16）、半砖都是 true，却只挡住相邻面的一小部分。于是这类方块围住的目标
+   被判为"不可见"、不参与材质替换，而玩家明明看得见 —— 表现为"被雪覆盖的方块看起来没突变"。
+   - 也不能用 `isSolidRender`：它要求**碰撞形状**填满整格（`canOcclude && 形状是完整方块`），
+     雪片同样为 false，一刀切掉太多。
+   - 正确判据是**邻面遮挡形状是否为完整面**（`coversFaceFully`）：用
+     `state.getFaceOcclusionShape(level, pos, face.getOpposite())` 的包围盒判断是否覆盖整面。
+     这正是原版 `Block.shouldRenderFace` 所用的口径，因此与游戏自身的剔除判定一致。
+   - 顺带**撤掉了上一轮加在 `SectionCompilerMixin` 里的 `isSolidRender` 重定向**：那是基于错误诊断加的
+     （我当时以为是可见性图的问题）。它不仅多余，还会在"目标形状与原始形状不同"时剔掉真正可见的邻面，
+     属于引入新问题的修法。该 mixin 现在只保留 `getBlockState` 一处重定向——它已经覆盖了编译期所有读取，
+     包括 `Block.shouldRenderFace` 内部的 `level.getBlockState`（因为 `level` 就是 `RenderChunkRegion`）。
+3. **手册阶段日程改为动态取配置**：正文原先把"你有大约七天"硬编码（中英各一处），改 config 就与事实不符。
+   现在正文写 `$(focal_decay:schedule)`，由 `ClientSetup` 注册的 Patchouli 宏在渲染时读
+   `stage2_day / stage3_day`（挂在 `RegisterMenuScreensEvent` 上：早于书内容构建、晚于配置加载）。
+   文案 key `book.focal_decay.schedule`。未装 Patchouli 时整段跳过（方法引用也会触发类加载，必须先查 `ModList`）。
+
+### 13.3 后处理动画的抽动感（2026-09-12 修好，历经四轮）
+用户的两次观察直接锁定了根因：**"突变间隔约 1 秒"** 与 **"Time 一秒内从 0 到 1 再重置"**。
+
+1. **`Time` 是内置且每帧被覆写的 uniform，且它每秒硬回绕 —— 这是本质约束。**
+   `PostChain`：
+   ```java
+   this.time += partialTicks;
+   while (this.time > 20.0F) { this.time -= 20.0F; }
+   postpass.process(this.time / 20.0F);      // -> Time ∈ [0,1)，每秒（20 tick）回绕
+   ```
+   shader 里写 `sin(... + Time * TAU * f)` 时，回绕点的相位差是 `2π·f` ——
+   **只有 f 取整数才连续**。换言之：**用内置 `Time` 就永远做不出周期长于 1 秒的平滑动画**，
+   最慢的非零平滑周期就是 1 秒。（`EffectInstance` 只注册 program JSON `uniforms` 数组里的 uniform，
+   `Time` 在其中，所以 `setUniform("Time", …)` 必然被覆盖，是无效代码。）
+   - 我先用 `Time * 3.0`（相位跳 3.0 弧度），后来改成 `Time * TAU * 0.35`，
+     **两者都不连续** —— 后者只是把跳变换了幅度，数学上同样不成立。
+   - **正确的修法：自建连续时间**。program JSON 与 post chain JSON 都声明 `TotalTime`（float 1），
+     Java 每帧 `setUniform("TotalTime", veilTime)`，shader 用它算相位。vsh/fsh 里只依赖这个自建值。
+2. **`getRealtimeDeltaTicks()` 的单位是 tick，不是秒**：源码 `(time - lastUiMs) / msPerTick`，
+   `msPerTick = 1000/20 = 50ms`，60fps 下一帧 0.333，即每秒累加 20。
+   当秒用会让所有周期快 20 倍（"20 秒呼吸"实际 1 秒，恰好与 `Time` 回绕周期重合）。
+   现在显式 `/ 20.0F`。
+3. **时间源要用「每帧真实时间」**而非 `getGameTimeDeltaTicks()`（后者只在 tick 帧非零，相位呈锯齿）。
+
+**最终参数**：呼吸 20 秒（`0.85 ± 0.15`，cos）；波纹 `0.35` 与 `0.20` 周期/秒
+（周期约 2.9s / 5.0s，非整数无妨，因为 `TotalTime` 不回绕）；空间频率 `13.0` / `5.0`；
+幅度 `0.0007 / 0.0003`（合计约 0.85px@1920）；色散 `0.0007`；偏色 `0.08`。
+**判据：看得出波纹在"走"就是太强**，目标是"感觉画面不安定，但说不出哪里在动"。
+
+> **通用教训**：引擎内置的 uniform / API 语义（取值域、回绕、单位、是否被覆写）**必须读源码确认**。
+> 这个 bug 连修四轮，前三轮都是凭命名推测 `Time` 与 `getRealtimeDeltaTicks()` 的含义，
+> 而两次关键突破都来自用户的实际观察。
+
+### 13.4 结构里的观测者基座随机塞模型（2026-09-12，已端到端验证）
+
+**目标**：玩家用结构方块搭好的结构，放下去时基座里就自带一个随机稳定模型（开箱即取）。
+
+**为什么用 `StructureProcessor` 而不是"直接改方块实体"**：
+`StructureProcessor.process` 在方块**真正放置之前**被调用，此时方块实体还不存在，改不到它。
+正确做法是**返回带 NBT 的 `StructureTemplate.StructureBlockInfo`** —— 原版"宝箱自带战利品"
+就是这个机制。（`StructureModifier` 是定义期改结构元数据的，做不到这件事。）
+
+**已实现**：
+- `structure/AnchorModelProcessor.java`（处理器，注册名 `focal_decay:anchor_model`）
+- `structure/SingleTemplateStructure.java` + `SingleTemplatePiece.java`
+  （结构类型 `focal_decay:single_template`：一份 JSON = 一个 NBT 模板 + 内联处理器，
+  不需要 template_pool / processor_list；**默认自带** `AnchorModelProcessor`）
+- `ModStructures.PROCESSOR_TYPES` / `SINGLE_TEMPLATE_PIECE` / `SINGLE_TEMPLATE`，均已在主类注册
+- `AnchorPrototypeBlockEntity.TAG_MODEL` 提升为 `public`
+- 战利品表 5 个：`structure/anchor_model.json`（权重 6/3/1 三档嵌套引用）
+  + `common`（空白 ×3 / 生物稳定 ×1）、`rare`（语义锁 ×1，8 个石质目标，强度 1.0）、
+  `unique`（引导 ×1，q=0.75，`focal_decay:concept/stone`）
+- 参考结构 `focal_decay:sample_anchor`（7×7 基座 + 中心锚），NBT 在
+  `data/focal_decay/structure/sample_anchor.nbt`
+- 验证脚手架：`tools/`（见 `tools/README.md`）
+
+**读源码确认的关键点（都是踩过就白干的地方）**：
+1. 嵌套引用条目的类型是 **`minecraft:loot_table`**（类名 `NestedLootTable`，不是 `LootTable`），
+   字段名是 **`value`**（`Codec.either(ResourceKey, LootTable)`），权重/条件来自 `singletonFields`。
+   原版先例：`chests/trial_chambers/reward.json`。
+2. **处理器回调里 `relativeBlockInfo.pos()` 已经是世界坐标**（`processBlockInfos` 里
+   = 相对坐标 + offset），`blockInfo` 才是模板原始坐标。返回值决定最终放置位置，别搞反。
+3. `ItemStack.saveOptional()` 在 NeoForge 里返回 **`Tag`**（不是 `CompoundTag`）；
+   用 `saveOptional` 与方块实体的读写保持一致。
+4. 引导模型的 **`stabilityStrength` 就是存起来的完备度 q**，`concept` 是**方块标签 id**；
+   `trainedTargets` 只在训练时参与解析、以及 tooltip 显示，运行时不再用。
+   语义锁的 `trainedTargets` 才是"锁定哪些方块"的真数据。
+5. `LootTable.getRandomItems` **不校验参数集**，所以表里写 `"type": "minecraft:generic"`
+   而用 `LootContextParamSets.COMMAND`（只需 ORIGIN）建上下文是安全的。
+6. **`StructureSettings` 的 `spawn_overrides` 是必填**（`fieldOf` 而非 `optionalFieldOf`）。
+   漏了会报 `No key spawn_overrides in MapLike` 并**拒绝加载整个存档**，空对象 `{}` 即可。
+7. **结构模板 NBT 的 `size` 与每个方块的 `pos` 必须是 `TAG_List<TAG_Int>`，不是 `[I; ...]`。**
+   写成 int 数组时 `CompoundTag.getList("pos", 3)` 返回空列表 → 所有方块**静默堆到 (0,0,0)**，
+   `/place template` 还照样报成功。这个坑没有任何报错，只能靠探针发现。
+8. **函数里抛异常会中断整个函数**：`/data get block`、`execute if data block` 在目标位置没有
+   方块实体时抛 `CommandSyntaxException`，后面命令全不执行 —— "函数跑一半停了"先怀疑它。
+
+**用法（数据侧）**：结构 JSON 写
+```json
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:自己的模板名",
+  "biomes": "#minecraft:is_overworld",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "y_offset": 0
+}
+```
+`processors` 默认就是 `[{"processor_type": "focal_decay:anchor_model"}]`，不用写；
+要换战利品表就显式写出来并加 `"loot_table": "命名空间:路径"`，写 `[]` 则完全不放模型。
+`y`（绝对高度）与 `y_offset`（相对地表）二选一，`y` 优先。
+NBT 放 `data/<命名空间>/structure/<模板名>.nbt`。
+
+**验证结论（2026-09-12，无头开发服务器实跑，全部通过）**：
+A 模板本体加载/坐标正确 → B `/place structure` 放下且锚里有模型（空白档）→
+C 处理器的 `loot_table` 字段生效、`set_components` 的语义锁数据（type / strength / targets）正确 →
+D 引导档（type + concept）正确 → **E 真实世界生成（`WorldGenRegion` 路径）同样注入成功**。
+跑法与坑见 `tools/README.md`。
+
+> **注意 `/place template` 测不出处理器**：`PlaceCommand` 只在 `integrity < 1.0` 时才
+> `clearProcessors().addProcessor(new BlockRotProcessor(...))`，**永远不会带上自定义处理器**。
+> 验证必须走 `/place structure`（会走 `StructurePlaceSettings`）或真实世界生成。
+>
+> 另外**王座结构已改为数据驱动模板**（见 §13.5），处理器对它同样不生效
+> —— 王座里没有观测者基座（2026-09-12 与用户确认），本来也不需要。
+
+### 13.5 末地王座改为 NBT 模板（2026-09-12，已端到端验证）
+
+用户重新搭了王座并导出 `throne.nbt`（13×18×13），要求**替换掉原来的代码版结构**。
+里面没有 `anchor_prototype`（用户明确选择不加），但保留了 `observer_core`。
+
+**做法**：`ThroneStructure` 继续作为结构类型（`focal_decay:end_throne` 的 JSON 不用动，
+datagen 也不用重跑），只把"加什么部件"从 `ThronePiece` 换成 `SingleTemplatePiece`：
+
+```java
+BlockPos templatePos = pos.offset(-6, 0, -6);   // 模板中心列对齐王座原点
+new SingleTemplatePiece(ctx.structureTemplateManager(), TEMPLATE, Rotation.NONE, List.of(), templatePos)
+```
+
+**为什么是 −(6,0,6)**：模板 13 宽，中心列是 6。这样模板里的关键方块落点与旧代码版**完全相同**：
+
+| 方块 | 模板坐标 | 世界坐标 |
+|------|----------|----------|
+| 信标（原点那一格） | (6,0,6) | 原点 +(0,0,0) |
+| `observer_core` | (6,1,6) | 原点 +(0,1,0) |
+| 王座碎片箱 | (6,1,8) | 原点 +(0,1,2) |
+| 四角柱顶末地棒 | (±6,17,±6) | 原点 +(±6,17,±6) |
+
+于是 `ThroneRitualHandler`（`corePos = throne.offset(0,1,0)`、`isThroneBase` 的 ±2 判定）
+和 `ThroneBeamRenderer`（四角 ±6、光束起点 +17）**一行都不用改**。
+`HALF_X/HALF_Z/BELOW/ABOVE` 更新为 6/6/0/17（= 模板真实范围）。
+
+**改动的文件**：
+- `ThroneStructure`：加 `TEMPLATE` / `TEMPLATE_OFFSET_X|Z`，`findGenerationPoint` 改用模板部件
+- `ThronePiece`：**降级为空壳**，只保留反序列化（旧存档区块里存着 `focal_decay:end_throne_piece`
+  这个 id，从注册表摘掉会让那些区块刷 "Failed Start" 错误）。旧几何代码已删
+- `ThroneBeamRenderer`：判定从"原点是 throne_block"改成"原点上方一格是 observer_core"
+  （新模板原点那格是信标）
+- 新增 `data/focal_decay/structure/end_throne.nbt`
+
+**验证（无头服务器 + 固定种子 20260912，`tools/structuregen/ThronePos.java` 预算坐标）**：
+日志 `End Throne structure start at -752, 70, 45 (template at -758, 70, 39), chunk -47, 2`
+与预算完全一致；F 段探针全绿：原点信标 ✓、核心在原点+(0,1,0) ✓、箱子在原点+(0,1,2) 且装着
+`focal_decay:semantic_fragment_throne` ✓、两根角柱顶末地棒在 ±6/+17 ✓、
+**旧代码版的整片 `throne_block` 平台确认不再出现** ✓。
+结构跨 4 个区块（-48/-47 × 2/3）也正确摆放，说明跨区块裁剪没问题。
+
+> **注意：新王座的平台是可破坏的。** 旧版整片用 `focal_decay:throne_block`
+> （`strength(-1.0F, MAX_VALUE)`，等同基岩，且无掉落物），新版构成是
+> `throne_block` 95 + 黑曜石 77 + 紫水晶块 26 + 哭泣的黑曜石 26 —— 后三者玩家能挖。
+> 代码里本来也没有强制保护（`ThroneStructure.insideThrone` 声明了但**从未被调用**）。
+> 要把平台锁死的话，把 NBT 里那三种方块换成 `focal_decay:throne_block` 即可。
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
@@ -346,6 +562,14 @@
 5. **编译验证**：`.\gradlew.bat compileJava`；完整构建 `.\gradlew.bat build`
 6. **配置**：`FocalDecayConfig` 里的 Server 值在 `FocalDecayConfig.BASE_INTERVAL` 等处读取，末日阶段系统后续接入
 7. **兼容模组（Patchouli / JEI）**：均为可选依赖，坐标在 `gradle.properties`（`jei_version` / `patchouli_version`），仓库 `https://maven.blamejared.com`；JEI 用 `compileOnly` + `localRuntime`，Patchouli 另加 `:api` classifier。**不要**在 `run/mods` 里重复放这两个 jar（会与 gradle 提供的那份冲突），手工 jar 已归档到 `run/mods.disabled`
+   - ⚠️ **引用可选依赖的代码必须放进 `compat/` 下的独立类**，宿主类里只留字符串 modid 检查 + 静态方法调用。
+     否则 `@EventBusSubscriber` 类的加载会被第三方类型拖垮（详见 §13.1 第 3 条）
+   - 加入新的可选依赖引用后，用 `javap -c -p -classpath build/classes/java/main <宿主类>` 确认字节码里
+     不残留第三方类型；必要时临时注释 `localRuntime` 跑一次 `runClient` 实测
 8. **查 API 签名的可靠姿势**：`javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>`；查源码用同目录的 `neoforge-21.1.248-sources.jar`（含 MC 与 NeoForge 双方源码，可直接确认补丁点行为）
 9. **跑客户端前先设音频后端（本机必需）**：`$env:ALSOFT_DRIVERS = 'null'`，否则会卡死在 OpenAL 的 `alcResetDeviceSOFT`（HRTF 初始化），表现为"加载到 88% 无响应"，强杀后 Gradle 报 `-805306369`。详见 §13.1
 10. **卡死时怎么定位**：`jps -l` 找 `net.neoforged.devlaunch.Main` 的 pid → `jstack <pid>`（**`jcmd` 附加会被系统拒绝，`jstack` 可用**），直接看 `"Render thread"` 的栈
+11. **数据文件不要靠"看起来对"**：跑 `.\gradlew.bat runServer` 让开发服务器加载一遍数据包，
+    日志里会直接给出 codec 错误（例如 `No key spawn_overrides in MapLike`）。
+    结构相关的端到端验证用 `tools/` 里的脚手架，跑法与坑见 `tools/README.md`。
+    `run/eula.txt` 已置 `eula=true`（用户已同意）

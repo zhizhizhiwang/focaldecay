@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:loot_table",
+          "value": "focal_decay:structure/anchor_model/common",
+          "weight": 6
+        },
+        {
+          "type": "minecraft:loot_table",
+          "value": "focal_decay:structure/anchor_model/rare",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:loot_table",
+          "value": "focal_decay:structure/anchor_model/unique",
+          "weight": 1
+        }
+      ]
+    }
+  ]
+}

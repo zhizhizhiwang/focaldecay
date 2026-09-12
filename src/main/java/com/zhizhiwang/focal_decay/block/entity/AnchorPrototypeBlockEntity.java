@@ -26,7 +26,8 @@ import net.minecraft.world.level.block.state.BlockState;
  * 存储插入的观测模型；模型效果在里程碑 3 接入。
  */
 public class AnchorPrototypeBlockEntity extends BlockEntity implements MenuProvider, Container {
-    private static final String TAG_MODEL = "Model";
+    /** 模型所在的 NBT 标签名。结构处理器（{@code AnchorModelProcessor}）也用它，故为 public。 */
+    public static final String TAG_MODEL = "Model";
 
     private ItemStack modelStack = ItemStack.EMPTY;
 

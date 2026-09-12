@@ -11,6 +11,10 @@
                 {
                     "name": "Fade",
                     "values": [ 0.0 ]
+                },
+                {
+                    "name": "TotalTime",
+                    "values": [ 0.0 ]
                 }
             ]
         },

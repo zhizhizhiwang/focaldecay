@@ -1,12 +1,16 @@
 package com.zhizhiwang.focal_decay.mutation;
 
+import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.attachment.BreakData;
 import com.zhizhiwang.focal_decay.attachment.ModAttachments;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.item.ModItems;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
@@ -25,6 +29,39 @@ import java.util.List;
  */
 public class InteractionHandler {
 
+    /**
+     * 重派发右键交互的旁路标志。
+     * <p>
+     * 转换后我们会调用 {@code ServerPlayerGameMode#useItemOn} 让<b>目标方块</b>接管这次右键，
+     * 而那个方法会再次触发 {@link PlayerInteractEvent.RightClickBlock}。没有这个标志就会无限递归。
+     * 用 ThreadLocal 而不是玩家标记：重派发是同线程同步调用，作用域天然只覆盖这一次调用，
+     * 也不会在异常路径上留下脏状态。
+     */
+    private static final ThreadLocal<Boolean> REDISPATCHING = ThreadLocal.withInitial(() -> false);
+
+    /**
+     * 诊断开关（{@code /focaldecay trace true}）。开启后右键判定会打日志，
+     * 用于定位"交互没按可见目标响应"这类只能实机复现的问题。
+     */
+    public static boolean traceEnabled;
+
+    private static void trace(String message) {
+        if (traceEnabled) {
+            FocalDecay.LOGGER.info("[trace] {}", message);
+        }
+    }
+
+    /** 当前是否允许失焦转换（观测者在线时一切转换停止）。 */
+    private static boolean mutationsActive(ServerLevel level) {
+        return !FocalDecayWorldData.get(level.getServer()).isObserverOnline();
+    }
+
+    /** 当前阶段。 */
+    private static int currentStage(ServerLevel level) {
+        long days = FocalDecayWorldData.get(level.getServer()).getDays();
+        return MutationHelper.currentStage(days);
+    }
+
     /** 挖掘开始，记录锁定数据。 */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
@@ -38,13 +75,12 @@ public class InteractionHandler {
         BlockPos pos = event.getPos();
         BlockState state = serverLevel.getBlockState(pos);
         BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
-        if (FocalDecayWorldData.get(serverLevel.getServer()).isObserverOnline()) {
+        if (!mutationsActive(serverLevel)) {
             breakData.clear(); // 失焦终止：清掉可能的陈旧锁定
             return; // 失焦终止：不再锁定突变目标
         }
 
-        long days = FocalDecayWorldData.get(serverLevel.getServer()).getDays();
-        int stage = MutationHelper.currentStage(days);
+        int stage = currentStage(serverLevel);
 
         // 带方块实体的方块、空气、黑名单、非本阶段转换源：不参与转换
         if (!MutationHelper.isConversionSource(state, serverLevel, pos, stage)) {
@@ -56,6 +92,80 @@ public class InteractionHandler {
         long periodIndex = MutationHelper.blockPeriod(serverLevel.getGameTime());
         BlockState target = MutationTargets.resolveServer(serverLevel, pos, state);
         breakData.start(target, periodIndex, pos);
+    }
+
+    /**
+     * 右键交互：失焦中的方块按<b>可见目标</b>响应。
+     * <p>
+     * 不做这件事的后果：工作台、切石机、织布机这类"完整立方体 + 有右键行为 + 无方块实体"的方块
+     * 在视觉上已经变成别的方块，右键却仍然打开原有界面。这里按与挖掘相同的思路处理——
+     * 先把方块真的转换成可见目标，再让<b>目标方块</b>接管这次右键（设计取向 A：你操作的是你看到的那个东西）。
+     * <p>
+     * <b>创造模式同样处理</b>：客户端的幽灵预览对所有游戏模式都生效，如果只在生存模式转换，
+     * 创造模式玩家就会看到"显示成石头、右键却打开合成台"这种前后不一致。挖掘那边可以跳过是因为
+     * 创造挖掘本就不产生掉落、无需转换；右键没有这层理由。
+     */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+        if (REDISPATCHING.get()) {
+            return; // 这是我们自己重派发出来的那一次，交给原版正常处理
+        }
+        if (!(event.getLevel() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        if (event.getHand() != InteractionHand.MAIN_HAND) {
+            return; // 双手各处理一次会重复转换
+        }
+        if (!mutationsActive(serverLevel)) {
+            return; // 失焦终止
+        }
+
+        BlockPos pos = event.getPos();
+        BlockState state = serverLevel.getBlockState(pos);
+        int stage = currentStage(serverLevel);
+        boolean conversionSource = MutationHelper.isConversionSource(state, serverLevel, pos, stage);
+        BlockState target = conversionSource ? MutationTargets.resolveServer(serverLevel, pos, state) : state;
+        boolean convert = conversionSource && target.getBlock() != state.getBlock();
+
+        // 诊断日志一律用 ASCII：控制台是 GBK，写中文会变成乱码
+        trace("right-click " + pos.toShortString() + " real=" + id(state)
+                + " hand=" + event.getHand() + " creative=" + player.isCreative()
+                + " observerOnline=" + !mutationsActive(serverLevel)
+                + " conversionSource=" + conversionSource
+                + " target=" + id(target) + " convert=" + convert);
+
+        if (!convert) {
+            return; // 非转换源，或本周期没抽中：方块没变，走原版交互
+        }
+
+        // 先真实转换（flag 3 = 通知客户端 + 触发邻块更新），再让目标方块接管这次右键
+        serverLevel.setBlock(pos, target, 3);
+
+        REDISPATCHING.set(true);
+        try {
+            player.gameMode.useItemOn(player, serverLevel, player.getMainHandItem(),
+                    event.getHand(), event.getHitVec());
+        } finally {
+            REDISPATCHING.set(false);
+        }
+        trace("  dispatched interaction to target " + id(target));
+
+        // ⚠️ 关键：取消事件后必须显式设置取消结果。
+        // RightClickBlock 的 cancellationResult 默认是 InteractionResult.PASS，而
+        // ServerPlayerGameMode#useItemOn 的写法是 `if (event.isCanceled()) return event.getCancellationResult();`
+        // —— 于是"取消"等于告诉原版"我没处理，继续走"。后果有两层：
+        //   1) 它已抓取的 blockstate（转换前的方块）会继续走 useWithoutItem → 打开原有界面（合成台照旧打开）；
+        //   2) 拿到 !consumesAction() 后还会去尝试 stack.useOn(...)，即顺手放置手里的方块。
+        // FAIL 会干净地终止整条后续流程：方块已由我们转换、交互已由目标方块处理完毕。
+        event.setCanceled(true);
+        event.setCancellationResult(InteractionResult.FAIL);
+    }
+
+    private static String id(BlockState state) {
+        return net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
     }
 
     /** 方块破坏：执行真实转换。 */

@@ -1,0 +1,15 @@
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:sample_anchor",
+  "biomes": "#minecraft:is_overworld",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+  "y": 110,
+  "//": "验证处理器的 loot_table 字段 + set_components 稀有档",
+  "processors": [
+    {
+      "processor_type": "focal_decay:anchor_model",
+      "loot_table": "focal_decay:structure/anchor_model/rare"
+    }
+  ]
+}

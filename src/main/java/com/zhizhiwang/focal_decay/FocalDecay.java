@@ -54,6 +54,8 @@ public final class FocalDecay {
         ModStructures.STRUCTURE_TYPES.register(modEventBus);
         ModStructures.PIECE_TYPES.register(modEventBus);
         ModStructures.PLACEMENT_TYPES.register(modEventBus);
+        // 结构处理器（给结构里的基座塞随机模型，见 AnchorModelProcessor）
+        ModStructures.PROCESSOR_TYPES.register(modEventBus);
         // 战利品条件类型（手册发放表的前置门控，见 ModLootConditions）
         ModLootConditions.LOOT_CONDITION_TYPES.register(modEventBus);
 

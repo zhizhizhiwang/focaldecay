@@ -26,12 +26,13 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.TagKey;
 import net.minecraft.util.RandomSource;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RenderShape;
@@ -40,6 +41,7 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import org.slf4j.Logger;
@@ -134,7 +136,25 @@ public final class ClientRenderCache {
     private PostChain veil;
     private Object veilResourceManager;
     private float veilTime;
+    /**
+     * 一次呼吸循环的时长（秒）。20 秒：足够慢，让"浓度变化"像潮汐而不是脉动。
+     * <p>
+     * 调参记录：实际 1 秒（单位换算错误所致，像脉动）→ 20 秒。中间试过"12 秒""15 秒"，
+     * 但那时单位是错的，数值没有参考价值。
+     */
+    private static final float VEIL_CYCLE_SECONDS = 20.0F;
+    /**
+     * 呼吸幅度。0.85 ± 0.15 是"能察觉在变、但不会去数它"的档位；
+     * 更大的幅度（0.75 ± 0.25）配合波纹会显得一下一下地脉动。
+     */
+    private static final float VEIL_BREATHE_MID = 0.85F;
+    private static final float VEIL_BREATHE_AMPLITUDE = 0.15F;
     private boolean veilLoadFailed;
+
+    /** 呼吸曲线：cos 使往复两端平滑（速度为零），节拍均匀。 */
+    private static float breatheFor(float phase) {
+        return VEIL_BREATHE_MID + VEIL_BREATHE_AMPLITUDE * Mth.cos(phase * Mth.TWO_PI);
+    }
     private int veilWidth;
     private int veilHeight;
 
@@ -301,8 +321,13 @@ public final class ClientRenderCache {
         }
     }
 
-    /** 每帧渲染世界结束时调用：推进 observer_veil 后处理。 */
-    public void updateVeil(float partialTick) {
+    /**
+     * 每帧渲染世界结束时调用：推进 observer_veil 后处理。
+     *
+     * @param frameDeltaTicks <b>每帧真实时间</b>增量（{@code DeltaTracker#getRealtimeDeltaTicks}），
+     *                        不是 {@code getGameTimeDeltaTicks}。见下方动画计时的说明。
+     */
+    public void updateVeil(float frameDeltaTicks) {
         Minecraft mc = Minecraft.getInstance();
         if (!FocalDecayConfig.POST_PROCESS_ENABLED.get()
                 || mc.level == null
@@ -348,11 +373,32 @@ public final class ClientRenderCache {
             veilHeight = windowHeight;
         }
 
-        veilTime += partialTick;
+        // ── 动画计时 ─────────────────────────────────────────────────────────
+        // 时间源与单位，两个都必须正确：
+        //
+        // 1) 用「每帧真实时间」而不是游戏 tick 时间。累加 DeltaTracker#getGameTimeDeltaTicks() 时，
+        //    它只在发生 tick 的那一帧返回 1、其余帧返回 0，相位呈锯齿状推进。
+        //
+        // 2) getRealtimeDeltaTicks() 的单位是 <b>tick</b>，不是秒：源码是
+        //    (time - lastUiMs) / msPerTick，而 msPerTick = 1000/20 = 50ms。
+        //    60fps 下一帧 16.7ms → 0.333，即每秒累加 20。换算成秒要 / 20。
+        float frameSeconds = Mth.clamp(frameDeltaTicks, 0.0F, 2.0F) / 20.0F;
+        veilTime += frameSeconds;
+        float phase = (veilTime / VEIL_CYCLE_SECONDS) % 1.0F;
+
         float intensity = FocalDecayConfig.POST_INTENSITY.get().floatValue();
-        float breathe = 0.75F + 0.25F * (float) Math.sin(veilTime * 0.05);
-        veil.setUniform("Fade", Math.max(0.0F, Math.min(1.0F, intensity * breathe)));
-        veil.process(partialTick);
+        veil.setUniform("Fade", Mth.clamp(intensity * breatheFor(phase), 0.0F, 1.0F));
+
+        // ⚠️ 波纹必须用自建的连续时间 uniform，<b>不能用内置的 Time</b>。
+        // PostChain 每帧把 Time 归一化到 [0,1) 并在满 20 tick 时硬回绕：
+        //     this.time += partialTicks;
+        //     while (this.time > 20.0F) { this.time -= 20.0F; }
+        //     postpass.process(this.time / 20.0F);
+        // 于是 shader 里任何 `Time * f` 在回绕点的相位差都是 2π·f —— 只有 f 取整数才连续。
+        // 换句话说：<b>用 Time 就永远做不出周期长于 1 秒的平滑动画</b>。
+        // 我们自己累计一个只增不回绕的秒数，周期就能任意取。
+        veil.setUniform("TotalTime", veilTime);
+        veil.process(frameDeltaTicks);
         // 与原版 postEffect.process 后一致：恢复主渲染目标绑定，供后续手部/UI 使用
         mc.getMainRenderTarget().bindWrite(true);
     }
@@ -732,25 +778,55 @@ public final class ClientRenderCache {
                 && target.getFluidState().isEmpty();
     }
 
+    /**
+     * 是否暴露（能看见）。
+     * <p>
+     * <b>判据必须是"邻面遮挡形状是否为完整面"，不能只看 {@code canOcclude()}</b>。
+     * {@code canOcclude()} 只是"这个方块有能力遮挡"的开关，雪片（高度 2/16）、半砖都是 true，
+     * 但它们只挡住相邻面的一小部分——玩家明明看得见，方块却被判为不可见、不参与材质替换，
+     * 于是"被雪覆盖的方块看起来没有突变"。
+     * <p>
+     * 也不能用 {@code isSolidRender}：那要求<b>碰撞形状</b>填满整格（{@code canOcclude && 形状是完整方块}），
+     * 对雪片同样返回 false，一刀切掉太多。{@link #coversFaceFully} 才是这一面真正被挡住的判据。
+     */
     private static boolean isExposed(ClientLevel level, BlockPos pos) {
+        return isExposed(level, pos, level);
+    }
+
+    /** Mixin 路径用区块编译区域的 3x3 chunk 副本判断暴露面，避免跨线程读主世界。 */
+    private static boolean isExposed(RenderChunkRegion region, BlockPos pos) {
+        return isExposed(region, pos, region);
+    }
+
+    private static boolean isExposed(BlockGetter getter, BlockPos pos, BlockGetter shapeSource) {
         for (Direction direction : DIRECTIONS) {
-            BlockState neighbor = level.getBlockState(pos.relative(direction));
-            if (neighbor.isAir() || !neighbor.canOcclude()) {
+            BlockState neighbor = getter.getBlockState(pos.relative(direction));
+            if (neighbor.isAir() || !coversFaceFully(neighbor, shapeSource, pos.relative(direction), direction)) {
                 return true;
             }
         }
         return false;
     }
 
-    /** Mixin 路径用区块编译区域的 3x3 chunk 副本判断暴露面，避免跨线程读主世界。 */
-    private static boolean isExposed(RenderChunkRegion region, BlockPos pos) {
-        for (Direction direction : DIRECTIONS) {
-            BlockState neighbor = region.getBlockState(pos.relative(direction));
-            if (neighbor.isAir() || !neighbor.canOcclude()) {
-                return true;
-            }
+    /**
+     * 该方块是否把朝向 {@code face} 的那一面<b>完全</b>挡住。
+     * <p>
+     * 用"邻面遮挡形状"而非碰撞形状：前者正是原版 {@code Block.shouldRenderFace} 所用的判据，
+     * 因此与游戏自身的剔除口径一致——雪片/半砖返回不完整面 → 判为挡不住 → 邻块保持可见。
+     */
+    private static boolean coversFaceFully(BlockState state, BlockGetter level, BlockPos pos, Direction face) {
+        if (!state.canOcclude()) {
+            return false;
         }
-        return false;
+        VoxelShape shape = state.getFaceOcclusionShape(level, pos, face.getOpposite());
+        if (shape.isEmpty()) {
+            return false;
+        }
+        AABB box = shape.bounds();
+        double eps = 1.0E-4;
+        return box.minX <= eps && box.maxX >= 1.0 - eps
+                && box.minY <= eps && box.maxY >= 1.0 - eps
+                && box.minZ <= eps && box.maxZ >= 1.0 - eps;
     }
 
     // ------------------------------------------------------------------

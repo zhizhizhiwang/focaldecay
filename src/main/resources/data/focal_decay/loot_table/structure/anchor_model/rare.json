@@ -1,0 +1,36 @@
+{
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "focal_decay:semantic_lock_model",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_components",
+              "components": {
+                "focal_decay:observer_model_data": {
+                  "type": "semantic_lock",
+                  "stabilityStrength": 1.0,
+                  "trainedTargets": [
+                    "minecraft:stone",
+                    "minecraft:cobblestone",
+                    "minecraft:deepslate",
+                    "minecraft:andesite",
+                    "minecraft:diorite",
+                    "minecraft:granite",
+                    "minecraft:tuff",
+                    "minecraft:calcite"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

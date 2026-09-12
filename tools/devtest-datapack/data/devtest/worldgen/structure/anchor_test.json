@@ -1,0 +1,10 @@
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:sample_anchor",
+  "biomes": "#minecraft:is_overworld",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+
+  "//": "仅供自动验证：固定 y=100，锚必然落在 3 101 3，方便 /data get 定点检查。",
+  "y": 100
+}
