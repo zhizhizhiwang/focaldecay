@@ -32,6 +32,9 @@ bin/
 ### proxy AI ###
 .proxyai/
 
+### dsh ###
+.dsh-session-import
+
 
 ### Mac OS ###
 .DS_Store

@@ -1,6 +1,9 @@
 package com.zhizhiwang.focal_decay.client;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
+import com.zhizhiwang.focal_decay.block.entity.ModBlockEntities;
+import com.zhizhiwang.focal_decay.client.particle.ObserverSparkParticle;
+import com.zhizhiwang.focal_decay.particle.ModParticles;
 import com.zhizhiwang.focal_decay.client.screen.AnchorPrototypeScreen;
 import com.zhizhiwang.focal_decay.client.screen.ObserverCoreScreen;
 import com.zhizhiwang.focal_decay.client.screen.TrainingTerminalScreen;
@@ -9,7 +12,10 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
 
 /** 客户端 Mod 总线事件（屏幕注册、可选依赖的客户端钩子等）。 */
 @EventBusSubscriber(modid = FocalDecay.MODID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.MOD)
@@ -18,6 +24,26 @@ public final class ClientSetup {
     private static boolean guideMacrosRegistered;
 
     private ClientSetup() {
+    }
+
+    @SubscribeEvent
+    public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        event.registerBlockEntityRenderer(ModBlockEntities.OBSERVER_CORE.get(), ObserverCoreRenderer::new);
+    }
+
+    /**
+     * 转子模型不挂在 blockstate 上（底座才挂），必须显式注册成"附加模型"，
+     * BER 才能从模型管理器里取到它。
+     */
+    @SubscribeEvent
+    public static void registerAdditionalModels(ModelEvent.RegisterAdditional event) {
+        event.register(ObserverCoreRenderer.ROTOR_IDLE_MODEL);
+        event.register(ObserverCoreRenderer.ROTOR_ACTIVE_MODEL);
+    }
+
+    @SubscribeEvent
+    public static void registerParticleProviders(RegisterParticleProvidersEvent event) {
+        event.registerSpriteSet(ModParticles.OBSERVER_SPARK.get(), ObserverSparkParticle.Provider::new);
     }
 
     @SubscribeEvent

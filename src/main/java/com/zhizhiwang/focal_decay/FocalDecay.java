@@ -12,6 +12,7 @@ import com.zhizhiwang.focal_decay.item.ModCreativeTabs;
 import com.zhizhiwang.focal_decay.item.ModItems;
 import com.zhizhiwang.focal_decay.menu.ModMenus;
 import com.zhizhiwang.focal_decay.network.ModNetwork;
+import com.zhizhiwang.focal_decay.particle.ModParticles;
 import com.zhizhiwang.focal_decay.structure.ModStructures;
 import com.zhizhiwang.focal_decay.attachment.ModAttachments;
 import com.zhizhiwang.focal_decay.command.ModCommands;
@@ -51,6 +52,7 @@ public final class FocalDecay {
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
         ModMenus.MENUS.register(modEventBus);
         ModDataComponents.DATA_COMPONENT_TYPES.register(modEventBus);
+        ModParticles.PARTICLE_TYPES.register(modEventBus);
         ModStructures.STRUCTURE_TYPES.register(modEventBus);
         ModStructures.PIECE_TYPES.register(modEventBus);
         ModStructures.PLACEMENT_TYPES.register(modEventBus);

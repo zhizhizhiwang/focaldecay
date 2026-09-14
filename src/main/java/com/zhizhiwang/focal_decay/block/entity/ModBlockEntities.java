@@ -19,6 +19,10 @@ public final class ModBlockEntities {
             BLOCK_ENTITY_TYPES.register("training_terminal", () ->
                     BlockEntityType.Builder.of(TrainingTerminalBlockEntity::new, ModBlocks.TRAINING_TERMINAL.get()).build(null));
 
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ObserverCoreBlockEntity>> OBSERVER_CORE =
+            BLOCK_ENTITY_TYPES.register("observer_core", () ->
+                    BlockEntityType.Builder.of(ObserverCoreBlockEntity::new, ModBlocks.OBSERVER_CORE.get()).build(null));
+
     private ModBlockEntities() {
     }
 }

@@ -243,6 +243,18 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.BooleanValue POST_PROCESS_ENABLED;
     public static final ModConfigSpec.IntValue SURFACE_UPDATE_FREQUENCY;
     public static final ModConfigSpec.IntValue MAX_RENDER_DISTANCE;
+    public static final ModConfigSpec.DoubleValue OBSERVER_CORE_SPIN_SPEED;
+    public static final ModConfigSpec.DoubleValue OBSERVER_CORE_SPIN_PEAK_SPEED;
+    public static final ModConfigSpec.IntValue OBSERVER_CORE_SPIN_EASE_TICKS;
+    public static final ModConfigSpec.DoubleValue OBSERVER_CORE_BOB_AMPLITUDE;
+    public static final ModConfigSpec.IntValue OBSERVER_CORE_BOB_PERIOD_TICKS;
+    public static final ModConfigSpec.IntValue OBSERVER_CORE_PARTICLE_INTERVAL;
+    public static final ModConfigSpec.IntValue OBSERVER_CORE_PARTICLE_MIN;
+    public static final ModConfigSpec.IntValue OBSERVER_CORE_PARTICLE_MAX;
+    public static final ModConfigSpec.DoubleValue OBSERVER_CORE_PARTICLE_RADIUS;
+    public static final ModConfigSpec.DoubleValue OBSERVER_CORE_PARTICLE_TILT;
+    public static final ModConfigSpec.DoubleValue OBSERVER_CORE_PARTICLE_SWEEP;
+    public static final ModConfigSpec.IntValue OBSERVER_CORE_PARTICLE_LIFETIME;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -259,6 +271,51 @@ public final class FocalDecayConfig {
         MAX_RENDER_DISTANCE = builder
                 .comment("Maximum chunk radius for surface scanning.")
                 .defineInRange("max_render_distance", 16, 2, 32);
+        OBSERVER_CORE_SPIN_SPEED = builder
+                .comment("Steady rotation speed of the Observer Core rotor, in degrees per tick."
+                        + " 3.0 = one full turn every 6 seconds.")
+                .defineInRange("observer_core_spin_speed", 3.0, 0.0, 360.0);
+        OBSERVER_CORE_SPIN_PEAK_SPEED = builder
+                .comment("Rotation speed at the moment the Observer Core activates, in degrees per tick."
+                        + " It decays towards observer_core_spin_speed, giving a fast start that settles"
+                        + " into a constant spin.")
+                .defineInRange("observer_core_spin_peak_speed", 12.0, 0.0, 360.0);
+        OBSERVER_CORE_SPIN_EASE_TICKS = builder
+                .comment("Time constant (ticks) of the spin-up decay. Larger = the fast start lasts longer."
+                        + " The spin-down on deactivation uses the same constant, so start and stop stay symmetric.")
+                .defineInRange("observer_core_spin_ease_ticks", 10, 1, 200);
+        OBSERVER_CORE_BOB_AMPLITUDE = builder
+                .comment("Vertical bobbing amplitude of the Observer Core rotor, in blocks."
+                        + " 0.0625 = 1 pixel. 0 disables bobbing.")
+                .defineInRange("observer_core_bob_amplitude", 0.0625, 0.0, 1.0);
+        OBSERVER_CORE_BOB_PERIOD_TICKS = builder
+                .comment("Ticks for one full up-and-down bob cycle.")
+                .defineInRange("observer_core_bob_period_ticks", 40, 2, 600);
+        OBSERVER_CORE_PARTICLE_INTERVAL = builder
+                .comment("Ticks between Observer Core particle bursts while the core is active."
+                        + " Lower = denser.")
+                .defineInRange("observer_core_particle_interval", 4, 1, 200);
+        OBSERVER_CORE_PARTICLE_MIN = builder
+                .comment("Minimum particles spawned per burst.")
+                .defineInRange("observer_core_particle_min", 3, 0, 64);
+        OBSERVER_CORE_PARTICLE_MAX = builder
+                .comment("Maximum particles spawned per burst. Values below the minimum are clamped up.")
+                .defineInRange("observer_core_particle_max", 6, 0, 64);
+        OBSERVER_CORE_PARTICLE_RADIUS = builder
+                .comment("Radius (blocks) of the tilted ring the sparks orbit on."
+                        + " The rotor's half-diagonal is about 0.265, so keep this above that.")
+                .defineInRange("observer_core_particle_radius", 0.55, 0.0, 4.0);
+        OBSERVER_CORE_PARTICLE_TILT = builder
+                .comment("Tilt (radians) of the orbit plane around the X axis. 0 = flat, 0.35 = about 20 degrees.")
+                .defineInRange("observer_core_particle_tilt", 0.35, -1.5, 1.5);
+        OBSERVER_CORE_PARTICLE_SWEEP = builder
+                .comment("Angle (radians) a single spark travels along the ring over its whole lifetime."
+                        + " Together with the lifetime this sets how fast the sparks drift.")
+                .defineInRange("observer_core_particle_sweep", 0.9, 0.0, 6.28);
+        OBSERVER_CORE_PARTICLE_LIFETIME = builder
+                .comment("Lifetime of a single spark in ticks (20 ticks = 1 second)."
+                        + " Each spark gets up to +50% random spread on top of this.")
+                .defineInRange("observer_core_particle_lifetime", 60, 1, 1200);
 
         builder.pop();
         CLIENT_SPEC = builder.build();
