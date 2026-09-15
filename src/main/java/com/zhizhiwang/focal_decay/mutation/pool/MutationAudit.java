@@ -1,6 +1,9 @@
 package com.zhizhiwang.focal_decay.mutation.pool;
 
+import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
+import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationStateMapper;
 import net.minecraft.core.BlockPos;
@@ -8,6 +11,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -297,11 +301,245 @@ public final class MutationAudit {
                 + bench(index, source, pos, seed, 0.01) + " ns");
         out.add("[selftest]   chance=0.01, stairs + state transfer: "
                 + bench(index, Blocks.OAK_STAIRS, pos, seed, 0.01) + " ns");
+        out.addAll(mapperStressTest(index));
         return out;
     }
 
     /** 基准采样次数。 */
     private static final int BENCH_ITERATIONS = 1_000_000;
+
+    // ------------------------------------------------------------------
+    // 并发压力测试
+    // ------------------------------------------------------------------
+
+    /** 并发压力测试的等待上限（秒）。超时即判 FAIL——退化回共享缓存时线程会死转，不能无限等。 */
+    private static final int STRESS_TIMEOUT_SECONDS = 10;
+
+    /**
+     * {@link MutationStateMapper} 的并发压力测试（2026-09-16 新增，起因是一次真实崩溃）。
+     * <p>
+     * 线上崩过：
+     * <pre>
+     *   ArrayIndexOutOfBoundsException: Index 8192 out of bounds for length 4097
+     *     at Long2ObjectOpenHashMap.rehash -> put -> MutationStateMapper.map
+     *     at SectionRenderDispatcher$RenderSection$RebuildTask.doTask   // ForkJoinPool worker
+     * </pre>
+     * 区块编译并发跑在 ForkJoinPool 上，而那个缓存当时是全局共享的非线程安全表。
+     * 修法是把缓存改成每线程一份；这个测试就是钉住它：
+     * <b>多线程并发调用必须既不抛异常，也不给出与单线程不同的结果</b>。
+     * <p>
+     * 之所以值得放进常规自检：这类错误只在多人/多核的真实编译负载下偶发，
+     * 光看代码（"映射是纯函数，缓存不影响正确性"）很容易漏掉。
+     */
+    public static List<String> mapperStressTest(MutationIndex index) {        List<String> out = new ArrayList<>();
+        // 样本：带属性的方块状态 × 同形态类的候选。状态数够多，才能把哈希表撑到反复扩容。
+        List<BlockState> sources = new ArrayList<>();
+        for (Block block : new Block[]{
+                Blocks.OAK_STAIRS, Blocks.OAK_LOG, Blocks.STONE_SLAB, Blocks.OAK_FENCE,
+                Blocks.COBBLESTONE_WALL, Blocks.OAK_TRAPDOOR, Blocks.WHITE_CARPET,
+                Blocks.GLASS_PANE, Blocks.OAK_FENCE_GATE, Blocks.WHITE_GLAZED_TERRACOTTA}) {
+            for (BlockState state : block.getStateDefinition().getPossibleStates()) {
+                sources.add(state);
+            }
+        }
+        if (sources.isEmpty()) {
+            out.add("[stress] state mapper: no sample states  FAIL");
+            return out;
+        }
+
+        List<BlockState> from = new ArrayList<>();
+        List<Block> to = new ArrayList<>();
+        for (BlockState source : sources) {
+            int shapeClass = index.shapeClass(source.getBlock());
+            Block[] local = index.localCandidates(source.getBlock());
+            ClassifiedPool wild = index.wild();
+            int wildCount = wild.count(shapeClass);
+            int limit = Math.min(64, local.length + wildCount);
+            for (int i = 0; i < limit; i++) {
+                from.add(source);
+                to.add(i < local.length ? local[i] : wild.get(shapeClass, i - local.length));
+            }
+        }
+        if (from.isEmpty()) {
+            out.add("[stress] state mapper: no sample pairs  FAIL");
+            return out;
+        }
+
+        // 单线程参考结果：并发跑出来的必须逐位相同（映射是纯函数）
+        BlockState[] expected = new BlockState[from.size()];
+        for (int i = 0; i < from.size(); i++) {
+            expected[i] = MutationStateMapper.get().map(from.get(i), to.get(i));
+        }
+
+        // 线程数与迭代量刻意开大：缓存是有上限的（超了会整体清空重来），
+        // 只有"并发地不断插入新键 + 反复清空"才会真正踩到扩容/清空与插入交叠的窗口。
+        // 规模太小的话（比如把键空间限制在缓存容量以内）测试会一片绿却什么都没验到——
+        // 这一点是实测出来的：第一版压力测试就是这么假通过的。
+        int threads = Math.max(4, Math.min(16, Runtime.getRuntime().availableProcessors()));
+        int perThread = 40_000;
+        java.util.concurrent.atomic.AtomicInteger mismatches = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure = new java.util.concurrent.atomic.AtomicReference<>();
+        Thread[] workers = new Thread[threads];
+        long startedAt = System.nanoTime();
+        for (int t = 0; t < threads; t++) {
+            final int index0 = t;
+            workers[t] = new Thread(() -> {
+                RandomSource random = RandomSource.create(index0 * 7919L + 13L);
+                try {
+                    for (int i = 0; i < perThread; i++) {
+                        int slot = random.nextInt(from.size());
+                        BlockState got = MutationStateMapper.get().map(from.get(slot), to.get(slot));
+                        if (got != expected[slot]) {
+                            mismatches.incrementAndGet();
+                        }
+                    }
+                } catch (Throwable e) {
+                    failure.compareAndSet(null, e);
+                }
+            }, "focaldecay-mapper-stress-" + t);
+            // 守护线程：万一真的退化回"共享表被写坏"，fastutil 会在探测循环里死转，
+            // 非守护线程会把 JVM 一起拖住不退出。
+            workers[t].setDaemon(true);
+            workers[t].start();
+        }
+
+        // 有上限地等待。**不能直接 join()**：表被写坏时线程会在
+        // Long2ObjectOpenHashMap.find 的探测循环里永远转下去（实测过，会把服务器
+        // 拖到看门狗超时被杀）。这里超时就报 FAIL，把"卡死"变成一个可读的失败信号。
+        long deadline = startedAt + java.util.concurrent.TimeUnit.SECONDS.toNanos(STRESS_TIMEOUT_SECONDS);
+        for (Thread worker : workers) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) {
+                break;
+            }
+            try {
+                worker.join(Math.max(1L, remaining / 1_000_000L));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        int stuck = 0;
+        for (Thread worker : workers) {
+            if (worker.isAlive()) {
+                stuck++;
+            }
+        }
+        long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
+        if (stuck > 0) {
+            out.add("[stress] state mapper: " + threads + " threads x " + perThread + " ops over "
+                    + from.size() + " pairs: FAIL (" + stuck + " thread(s) still spinning after "
+                    + STRESS_TIMEOUT_SECONDS + "s)");
+            out.add("[stress]   a corrupted shared cache spins forever in fastutil's probe loop;"
+                    + " the cache must stay per-thread");
+            return out;
+        }
+
+        Throwable thrown = failure.get();
+        out.add("[stress] state mapper: " + threads + " threads x " + perThread
+                + " ops over " + from.size() + " pairs: "
+                + (thrown == null && mismatches.get() == 0 ? "PASS" : "FAIL")
+                + " (" + elapsedMs + " ms)");
+        if (thrown != null) {
+            out.add("[stress]   threw " + thrown);
+        }
+        if (mismatches.get() != 0) {
+            out.add("[stress]   " + mismatches.get() + " results differed from the single-threaded reference");
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------------------
+    // 调试时钟自测（/focaldecay period selftest）
+    // ------------------------------------------------------------------
+
+    /**
+     * 失焦时钟的自测：把 {@code /focaldecay period} 的每一档都验一遍。
+     * <p>
+     * 分两类断言：
+     * <ol>
+     *   <li><b>管道正确性</b>（算术，精确）：默认档位下显示刻必须与存储刻<b>逐位相同</b>
+     *       ——这是"加了调试功能但没有改变现有行为"的唯一证据；倍率/偏移/冻结各自映射到预期的刻。</li>
+     *   <li><b>端到端</b>：冻结在当前刻时抽出来的目标，必须与不冻结时完全一致
+     *       （冻结只是停住指针，不该改变指针指向的那一刻长什么样）；
+     *       并且同一个过去刻重复访问给出同一个状态——这就是"回滚可寻址、可重放"。</li>
+     * </ol>
+     * 结束时一定恢复原档位（{@code finally}），否则会把世界留在冻结状态。
+     */
+    public static List<String> periodSelfTest(ServerLevel level, BlockPos pos) {
+        List<String> out = new ArrayList<>();
+        MutationIndex index = MutationIndexes.get(level.dimension());
+        FocalDecayWorldData data = FocalDecayWorldData.get(level.getServer());
+        double savedSpeed = data.getClockSpeed();
+        long savedOffset = data.getClockOffset();
+        long gameTime = level.getGameTime();
+        long interval = Math.max(1L, FocalDecayConfig.BASE_INTERVAL.get());
+        try {
+            // ---- 1. 管道正确性 ----
+            data.setClock(1.0, 0L);
+            long storage = MutationEventHandler.storagePeriodIndex(level);
+            long display = MutationEventHandler.displayPeriodIndex(level);
+            out.add("[period] default clock is identity (display == storage): "
+                    + (display == storage ? "PASS" : "FAIL " + display + " != " + storage));
+
+            data.setClock(4.0, 0L);
+            long fast = MutationEventHandler.displayPeriodIndex(level);
+            long expectedFast = Math.floorDiv((long) Math.floor(gameTime * 4.0), interval);
+            out.add("[period] speed 4 -> " + fast + " (expected " + expectedFast + "): "
+                    + (fast == expectedFast ? "PASS" : "FAIL"));
+
+            data.setClock(0.5, 0L);
+            long slow = MutationEventHandler.displayPeriodIndex(level);
+            long expectedSlow = Math.floorDiv((long) Math.floor(gameTime * 0.5), interval);
+            out.add("[period] speed 0.5 -> " + slow + " (expected " + expectedSlow + "): "
+                    + (slow == expectedSlow ? "PASS" : "FAIL"));
+
+            long frozenAt = storage - 37;
+            data.setClock(0.0, frozenAt);
+            long frozen = MutationEventHandler.displayPeriodIndex(level);
+            out.add("[period] speed 0 + offset " + frozenAt + " freezes at that period: "
+                    + (frozen == frozenAt ? "PASS" : "FAIL -> " + frozen));
+
+            long rewound = storage - 50;
+            data.setClock(-1.0, rewound);
+            long rewind = MutationEventHandler.displayPeriodIndex(level);
+            out.add("[period] speed -1 rewinds (advances backwards): "
+                    + (rewind <= rewound ? "PASS" : "FAIL -> " + rewind));
+
+            // ---- 2. 端到端：冻结不改变"那一刻长什么样" ----
+            Block source = Blocks.STONE_BRICKS;
+            data.setClock(1.0, 0L);
+            long livePeriod = MutationEventHandler.displayPeriodIndex(level);
+            BlockState live = sample(index, source, pos, level.getSeed(), livePeriod);
+            data.setClock(0.0, livePeriod);
+            BlockState frozenLive = sample(index, source, pos, level.getSeed(),
+                    MutationEventHandler.displayPeriodIndex(level));
+            out.add("[period] freezing at the live period keeps the picture: "
+                    + (frozenLive == live ? "PASS" : "FAIL " + live + " -> " + frozenLive));
+
+            // ---- 3. 回滚可重放：同一个过去刻 → 同一个状态；不同刻能翻出不同世界 ----
+            long past = livePeriod - 37;
+            data.setClock(0.0, past);
+            BlockState first = sample(index, source, pos, level.getSeed(),
+                    MutationEventHandler.displayPeriodIndex(level));
+            data.setClock(0.0, past);
+            BlockState again = sample(index, source, pos, level.getSeed(),
+                    MutationEventHandler.displayPeriodIndex(level));
+            out.add("[period] revisiting period " + past + " replays the same state: "
+                    + (again == first ? "PASS" : "FAIL " + first + " -> " + again));
+
+            Set<Block> distinct = new HashSet<>();
+            for (int back = 0; back < 16; back++) {
+                distinct.add(sample(index, source, pos, level.getSeed(), livePeriod - back).getBlock());
+            }
+            out.add("[period] rolling back 16 periods reaches " + distinct.size()
+                    + " distinct states: " + (distinct.size() >= 4 ? "PASS" : "FAIL"));
+        } finally {
+            data.setClock(savedSpeed, savedOffset);
+        }
+        out.add("[period] clock restored to speed=" + data.getClockSpeed() + " offset=" + data.getClockOffset());
+        return out;
+    }
 
     /** 单点热路径耗时；返回值用异或累加防止整段被优化掉。 */
     private static long bench(MutationIndex index, Block source, BlockPos pos, long seed, double chance) {

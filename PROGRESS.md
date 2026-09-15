@@ -936,6 +936,127 @@ new SingleTemplatePiece(ctx.structureTemplateManager(), TEMPLATE, Rotation.NONE,
 **未经自动化验证的**：淡出动画本身要用眼睛看。进游戏执行 `/focaldecay refocus` 即可复现
 （2.5 秒内遮罩消失，日志出现 `observer veil removed after refocus`）。
 
+### 13.10 失焦时钟调试命令（2026-09-16，已端到端验证）
+
+用户要两个测试命令：① 控制当前失焦刻、实现世界状态回滚；② 加速失焦进程（像 `randomTickSpeed`
+那样的加速/减速，且不改 config）。并明确要求：**涉及修改原有实现逻辑的先讨论**。
+
+**先讨论的部分**：把设计摆出来后确认了三件事（用户全部选了推荐项）——
+加速范围（方块刻 **+** 实体/天气节拍，不动末日天数）、倍率是否允许 0 与负值（允许）、
+档位是否落盘（**不落盘**，重启即恢复）。同时明确了一个边界：这是**失焦外观**的回滚，不是真实世界回滚。
+
+**为什么回滚不需要保存历史**：失焦是 `(pos, worldSeed, period)` 的纯函数，没有逐方块存档，
+所以"世界此刻长什么样"完全由 period 一根指针决定。拨指针 = 回滚。这是 §13.7 那套设计的直接红利。
+
+**关键设计：两根时钟**（详见 PROXYAI §5.0）
+
+| 时钟 | 受调试倍率影响 | 用途 |
+|---|---|---|
+| 存储时钟 `blockPeriod(gameTick)` | ✗ | 出生周期的记录与剪枝 |
+| 显示时钟 `displayPeriod(gameTick, speed, offset)` | ✓ | 失焦解析 + 锚固化 |
+
+```
+scaled = floor(gameTick * speed)
+period = floorDiv(scaled, base_interval) + offset
+```
+
+- **先乘后除**：`speed = 1` 时 `floor(gameTick * 1.0) == gameTick`，于是与存储时钟**逐位相同**，
+  默认档位下这个函数完全不改变现有行为。写成 `floor(gameTick * speed / interval)` 则会在整除边界上
+  有浮点少 1 的风险。
+- `Math.floorDiv` 而不是 `/`：负倍率倒带时除法要向负无穷取整，否则 `-250/100` 截断成 `-2` 而不是 `-3`，倒带会出现台阶。
+- 出生周期记在存储时钟上，否则"回滚之后后来放置的方块显示为原样"就不成立。
+- 剪枝也走存储时钟：地平线按真实时间推进，保守且与倍率无关。
+
+**实体/天气**：原来是 `serverTick - last >= interval`，改成**累加器**（每 tick 加 `speed`，满 `interval`
+触发并清零，夹在 `[0, interval]`）。用累加器而不是 `interval / speed`，是因为倍率可以是分数（0.5 倍），
+整除截断会让 0.5 倍和 1 倍没区别。`speed = 1` 时与旧实现等价。负倍率下夹在 0（= 停住）——
+实体转换是真实的世界改动，没有"倒带"可言。
+
+**命令面**（权限 2）：`period` / `period speed <x>` / `period offset <n>` / `period set <n>` /
+`period reset` / `period selftest`。`set` 是 `speed 0 + offset n` 的糖，不引入第三种状态。
+
+**同步**：`SyncWorldDataPacket` 扩展为"世界级时钟状态"（天数 + 观测者在线 + 调试时钟），
+因为它们满足同一个条件：两端必须逐位一致，否则预览与真实转换会对不上。
+
+**验证**（`/focaldecay period selftest`，无头服务器，devtest 数据包自动跑）：
+
+```
+Focal Decay period: storage=52 display=52 speed=1.0 offset=0     ← 默认档位 identity
+
+[period] default clock is identity (display == storage): PASS
+[period] speed 4 -> 208 (expected 208): PASS
+[period] speed 0.5 -> 26 (expected 26): PASS
+[period] speed 0 + offset 15 freezes at that period: PASS
+[period] speed -1 rewinds (advances backwards): PASS
+[period] freezing at the live period keeps the picture: PASS      ← 冻结不改变"那一刻长什么样"
+[period] revisiting period 15 replays the same state: PASS        ← 回滚可寻址、可重放
+[period] rolling back 16 periods reaches 12 distinct states: PASS ← 时间线确实在变
+[period] clock restored to speed=0.0 offset=5000                  ← finally 恢复调用前档位
+```
+
+同一轮里既有的突变自检全部照旧通过（`frozen=0 asymmetric=0 crossClass=0 OK`，selftest 十项全 PASS，
+热路径 39 / 197 ns），跑完 `period reset` 后再次查询确认世界回到 `speed=1.0 offset=0`。
+
+**已知边界（写进命令帮助与 PROXYAI §10.4）**：
+- 只回滚失焦外观；玩家真实放置/破坏、锚固化、右键转换都是真实世界改动，无法回退。
+- 实体/天气不倒带，负倍率下它们停住。
+- 偏移超过 -128 时，超出剪枝地平线的出生周期已不存在，那些位置会显示为已崩坏而不是原样。
+
+### 13.11 崩溃修复：状态迁移缓存的数据竞争（2026-09-16）
+
+**用户报告的崩溃**（客户端，进入世界约 23 秒后）：
+
+```
+java.lang.ArrayIndexOutOfBoundsException: Index 8192 out of bounds for length 4097
+	at Long2ObjectOpenHashMap.rehash -> insert -> put
+	at MutationStateMapper.map(MutationStateMapper.java:72)
+	at MutationHelper.resolve -> ClientRenderCache.computeTarget -> ghostState
+	at Block.redirect$...$focaldecay$ghostNeighbor -> Block.shouldRenderFace
+	at ForkJoinPool$WorkQueue.topLevelExec          ← 区块编译的 worker 线程
+	at SectionRenderDispatcher$RenderSection$RebuildTask.doTask
+```
+
+**根因**：`MutationStateMapper` 的映射缓存写成了一张**全局共享的 `Long2ObjectOpenHashMap`**，
+而区块编译是**并发**跑在 ForkJoinPool 上的（32 核，多个区块节同时编译）。
+多个 worker 同时 put → 扩容/清空与插入交叠 → 内部数组被写坏 → 越界。
+
+这是纯粹的疏忽：`ClientRenderCache` 里到处用 `ConcurrentHashMap` 就是因为知道这条路是多线程的，
+新加的 mapper 却忘了。**§13.7 那次重构引入的，与 §13.8 / §13.9 无关。**
+
+**修法**：缓存改成**每线程一份**（`ThreadLocal<Long2ObjectOpenHashMap<BlockState>>`），
+每线程上限也从 65536 降到 4096（现在是"每线程"，不能按全局量级开）。
+为什么不用 `ConcurrentHashMap`：键是 `long`，每次 get/put 都要装箱成 `Long`，
+而这里正是逐方块的编译热路径，等于把刚在 §13.7 消掉的分配又加回来。
+映射是纯函数，所以线程各存一份没有任何一致性代价。
+
+**回归测试**：`/focaldecay mutation selftest` 新增 `[stress]` 一项——多线程并发调用 `map`，
+断言**既不抛异常、也不给出与单线程参考不同的结果**。
+
+**这个测试本身返工了两次，两次都值得记下来**：
+
+1. **第一版是假通过**。它先用单线程预热了全部样本对，于是并发阶段全是**命中**（不插入、不扩容、
+   不竞争），对着有 bug 的实现跑出 PASS。修法是把键空间放大到远超缓存上限
+   （4624 → 27368 对，缓存上限 4096），迫使并发阶段不断插入新键并反复清空。
+   **教训：压力测试的规模如果落在缓存容量以内，它就什么都没验。**
+2. **第二版会把服务器搞死**。有 bug 的实现不再抛 AIOOBE，而是在 fastutil 的探测循环里
+   **死转**（`find`/`put` 里 `while` 找空槽永远找不到）→ 主线程 `join()` 卡住 → 看门狗 60 秒超时
+   把服务器杀了。于是加了"有上限地等待"：worker 设为守护线程，`join(timeout)` 10 秒，
+   超时就报 FAIL 并给出解释，不再无限等。
+
+**验证（三跑，都是无头服务器）**：
+
+| 版本 | 结果 |
+|---|---|
+| 修复后 | `[stress] state mapper: 16 threads x 40000 ops over 27368 pairs: PASS (67 ms)` |
+| 退回共享表（第一次） | `BUILD FAILED` + 看门狗杀服务器：<br>`ServerHangWatchdog detected that a single server tick took 60000532.00 seconds`，<br>线程转储显示 16 个 `focaldecay-mapper-stress-*` 卡在 `Long2ObjectOpenHashMap.find` |
+| 退回共享表（加了超时之后） | `[stress] ... FAIL (16 thread(s) still spinning after 10s)` + 说明行，**服务器存活** |
+
+也就是说：**测试确实能抓到这个 bug（不是假通过），而且退化时是"可读的 FAIL"而不是"服务器卡死"。**
+
+**没有自动化验证的**：修复后的真实客户端编译路径。这个崩溃只在真实世界里编译区块时才发生
+（前面几次 `runClient` 只开到主菜单，没有世界，所以没暴露出来）。
+用户下次进世界正常游玩即可确认。
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
@@ -960,3 +1081,15 @@ new SingleTemplatePiece(ctx.structureTemplateManager(), TEMPLATE, Rotation.NONE,
     `NumberProvider`（`set_count` 的 `count` 等）用 `min`/`max`。JSON 形状一样，
     写错会让整张战利品表**静默不加载**（只有 `LootDataType` 一条 ERROR，引用方只报
     "loot table is missing"）。详见 §13.6 第 3 条
+13. **区块编译是多线程的**（2026-09-16 用一次真实崩溃换来的）：
+    `SectionCompiler.compile` 跑在 ForkJoinPool 的 worker 上，**多个区块节同时编译**，
+    而编译路径会调用 `MutationHelper.resolve` → `MutationStateMapper` 等。
+    所以：**任何被编译线程碰到的缓存/状态都必须是线程安全或每线程一份**
+    （`ClientRenderCache` 里用 `ConcurrentHashMap` 就是这个原因）。
+    踩过的坑：`MutationStateMapper` 的缓存最初是一张全局共享的 `Long2ObjectOpenHashMap`，
+    并发 put 把内部数组写坏 → 线上崩 `ArrayIndexOutOfBoundsException` 于 `rehash`，
+    而在测试里则表现为 `fastutil` 探测循环**死转**（把服务器拖到看门狗超时）。
+    纯函数 + 每线程缓存（`ThreadLocal`）是这里的标准解：无锁、无竞争，
+    而且键是 `long`，用 `ConcurrentHashMap` 反而要把刚消掉的装箱分配加回来。
+    回归防线是 `/focaldecay mutation selftest` 里的 `[stress]` 一项，
+    它的**规模**很关键（见 §13.11）。

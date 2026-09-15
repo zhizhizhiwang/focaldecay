@@ -90,8 +90,8 @@ public class InteractionHandler {
             return;
         }
 
-        // 统一入口抽取目标（与右键训练、渲染预览、锚固化同一公式）
-        long periodIndex = MutationHelper.blockPeriod(serverLevel.getGameTime());
+        // 统一入口抽取目标（与右键训练、渲染预览、锚固化同一公式，显示时钟）
+        long periodIndex = MutationEventHandler.displayPeriodIndex(serverLevel);
         BlockState target = MutationTargets.resolveServer(serverLevel, pos, state);
         breakData.start(target, periodIndex, pos);
         trace("left-click " + pos.toShortString() + " stage=" + stage + " real=" + id(state)
@@ -149,10 +149,10 @@ public class InteractionHandler {
         // 先真实转换（flag 3 = 通知客户端 + 触发邻块更新），再让目标方块接管这次右键
         serverLevel.setBlock(pos, target, 3);
 
-        // 转换后给方块重新记一个"诞生周期"：目标现在是这个位置的新身份，
-        // 本周期内不再按新身份重掷（否则客户端下一帧就会显示下一个目标，
-        // 表现为"右键一次变一次"的抖动），下一个周期才继续漂移。
-        long birthPeriod = MutationEventHandler.currentPeriodIndex(serverLevel);
+        // 转换后给方块重新记一个"诞生周期"（存储时钟：真实时间轴上它此刻是新的身份）：
+        // 目标现在是这个位置的新身份，本周期内不再按新身份重掷（否则客户端下一帧就会显示
+        // 下一个目标，表现为"右键一次变一次"的抖动），下一个周期才继续漂移。
+        long birthPeriod = MutationEventHandler.storagePeriodIndex(serverLevel);
         MutationPoolManager.get(serverLevel).setBlockBirthPeriod(pos, birthPeriod);
         ModNetwork.sendBirthPeriod(serverLevel, pos, birthPeriod);
 

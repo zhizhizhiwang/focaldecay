@@ -39,17 +39,40 @@ public final class MutationStateMapper {
     /** 不迁移的属性名。 */
     private static final Set<String> EXCLUDED = Set.of("waterlogged", "in_wall");
 
-    /** 缓存条目上限；超出直接清空重建，避免无限增长。 */
-    private static final int CACHE_LIMIT = 1 << 16;
+    /**
+     * 每个线程的缓存条目上限；超出直接清空重建，避免无限增长。
+     * <p>
+     * 这是<b>每线程</b>的上限，所以别开太大：客户端 32 核时同时干活的编译线程可能有一二十个。
+     * 实际上单个线程见到的不同 (源状态, 目标方块) 组合通常只有几百到几千个。
+     */
+    private static final int CACHE_LIMIT = 1 << 12;
 
     private static final MutationStateMapper INSTANCE = new MutationStateMapper();
 
-    private final Long2ObjectOpenHashMap<BlockState> cache = new Long2ObjectOpenHashMap<>();
+    /**
+     * 缓存必须<b>每线程一份</b>（2026-09-16 修复崩溃）。
+     * <p>
+     * 原先这里是一张全局共享的 {@code Long2ObjectOpenHashMap}，结果线上崩了：
+     * <pre>
+     *   ArrayIndexOutOfBoundsException: Index 8192 out of bounds for length 4097
+     *     at Long2ObjectOpenHashMap.rehash -> put -> MutationStateMapper.map
+     *     at SectionRenderDispatcher$RenderSection$RebuildTask.doTask   // ForkJoinPool worker
+     * </pre>
+     * <b>区块编译是并发跑在 ForkJoinPool 上的</b>：多个 worker 同时编译不同区块节，
+     * 也就同时往这张表里 put，扩容时把内部数组写坏。（{@code ClientRenderCache} 里到处用
+     * {@code ConcurrentHashMap} 就是因为知道这条路是多线程的，这里当时漏了。）
+     * <p>
+     * 为什么用 ThreadLocal 而不是 ConcurrentHashMap：一是无锁无竞争；二是键是 {@code long}，
+     * ConcurrentHashMap 每次 get/put 都要装箱成 {@code Long}，而这里正是逐方块的编译热路径，
+     * 又要把刚消掉的分配加回来。映射是纯函数，所以线程各存一份不会有任何一致性代价。
+     */
+    private final ThreadLocal<Long2ObjectOpenHashMap<BlockState>> cache =
+            ThreadLocal.withInitial(Long2ObjectOpenHashMap::new);
 
     private MutationStateMapper() {
     }
 
-    /** 全局实例（映射无状态，缓存可跨维度共享）。 */
+    /** 全局实例（映射无状态，缓存按线程隔离）。 */
     public static MutationStateMapper get() {
         return INSTANCE;
     }
@@ -58,18 +81,19 @@ public final class MutationStateMapper {
     public BlockState map(BlockState source, Block target) {
         BlockState base = target.defaultBlockState();
         if (source.getProperties().isEmpty()) {
-            return base; // 快速路径：没有任何可迁移的属性
+            return base; // 快速路径：没有任何可迁移的属性，连缓存都不用碰
         }
+        Long2ObjectOpenHashMap<BlockState> local = cache.get();
         long key = key(source, target);
-        BlockState cached = cache.get(key);
+        BlockState cached = local.get(key);
         if (cached != null) {
             return cached;
         }
         BlockState mapped = transfer(source, base);
-        if (cache.size() >= CACHE_LIMIT) {
-            cache.clear();
+        if (local.size() >= CACHE_LIMIT) {
+            local.clear();
         }
-        cache.put(key, mapped);
+        local.put(key, mapped);
         return mapped;
     }
 

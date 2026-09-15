@@ -29,10 +29,18 @@ import java.util.List;
  *  - 每阶段周期对实体（Mob）与掉落物（ItemEntity）执行确定性转换。
  */
 public final class DoomsdayHandler {
-    // 服务器 tick 从 0 开始。不要用 Long.MIN_VALUE 做"未初始化"标记：
-    // serverTick - MIN_VALUE 会溢出成负数，周期判断恒为假，实体突变永远不会执行。
-    private static long lastEntityMutationTick = 0;
-    private static long lastWeatherMutationTick = 0;
+    /**
+     * 实体 / 天气突变的节拍累加器（单位：失焦时钟的刻）。
+     * <p>
+     * 用累加器而不是 {@code serverTick - last >= interval}，是因为倍率可以是分数（0.5 倍速）：
+     * 写成 {@code interval / speed} 会被整除截断，0.5 倍和 1 倍就没区别了。
+     * {@code speed = 1} 时每 tick 加 1、满 interval 触发并清零，与旧实现等价。
+     * <p>
+     * 为什么受调试倍率影响：{@code /focaldecay period speed} 的语义是"失焦进程整体的流速"，
+     * 实体和天气同属这个过程（用户选择），所以一起吃倍率。
+     */
+    private static double entityClockAccumulator;
+    private static double weatherClockAccumulator;
 
     private DoomsdayHandler() {
     }
@@ -42,26 +50,39 @@ public final class DoomsdayHandler {
         MinecraftServer server = event.getServer();
         FocalDecayWorldData worldData = FocalDecayWorldData.get(server);
         worldData.tick(server);
+        double clockSpeed = worldData.getClockSpeed();
         if (worldData.isObserverOnline()) {
-            lastEntityMutationTick = server.getTickCount(); // 失焦终止：跳过实体突变
+            // 失焦终止：跳过实体突变。累加器归零，重新上线时不会立刻补一发。
+            entityClockAccumulator = 0.0;
+            weatherClockAccumulator = 0.0;
             return;
         }
 
         long serverTick = server.getTickCount();
         int stage = MutationHelper.currentStage(worldData.getDays());
         long interval = MutationHelper.intervalForStage(stage);
-        if (serverTick - lastEntityMutationTick >= interval) {
-            lastEntityMutationTick = serverTick;
+
+        // 倍率为 0（冻结）时累加器不动 → 实体/天气也停；负倍率下夹在 0，
+        // 因为实体转换是真实的世界改动，没有"倒带"可言（能倒带的只有方块失焦外观）。
+        entityClockAccumulator = advanceClock(entityClockAccumulator, clockSpeed, interval);
+        if (entityClockAccumulator >= interval) {
+            entityClockAccumulator = 0.0;
             for (ServerLevel level : server.getAllLevels()) {
                 mutateEntities(level, serverTick, stage);
             }
         }
-        if (serverTick - lastWeatherMutationTick >= interval) {
-            lastWeatherMutationTick = serverTick;
+        weatherClockAccumulator = advanceClock(weatherClockAccumulator, clockSpeed, interval);
+        if (weatherClockAccumulator >= interval) {
+            weatherClockAccumulator = 0.0;
             for (ServerLevel level : server.getAllLevels()) {
                 mutateWeather(level, serverTick, stage);
             }
         }
+    }
+
+    /** 推进节拍累加器：夹在 [0, interval]，因此正负倍率都不会把它推到荒唐的位置。 */
+    private static double advanceClock(double accumulator, double clockSpeed, long interval) {
+        return Math.min(interval, Math.max(0.0, accumulator + clockSpeed));
     }
 
     /**

@@ -211,6 +211,10 @@
   用原版 `Property#getName(T)` + `Property#getValue(String)` 实现，**完全不需要强转**。
   排除 `waterlogged`（目标保持干燥，否则会被渲染层的流体检查挡掉，造成两端不一致）与
   `in_wall`（栅栏贴墙的下沉标记，真实方块更新会自动修正，预览路径不会）。
+  **缓存必须每线程一份**（2026-09-16 修崩溃）：区块编译并发跑在 ForkJoinPool 上，多个 worker 同时调用本类；
+  原先全局共享一张 `Long2ObjectOpenHashMap`，并发 put 把内部数组写坏，线上崩在 `rehash` 的越界上
+  （详见 PROGRESS §13.11）。用 `ThreadLocal` 而不是 `ConcurrentHashMap`：键是 `long`，
+  后者每次 get/put 都要装箱，而这里是逐方块的编译热路径；映射是纯函数，各存一份无一致性代价。
 
 #### 4.1.4 不变式：对称 + 永不冻结（结构保证）
 构建期对每个（池 × 形态类）切片施加一条规则：**成员少于 2 个就整体作废**。由此可得：
@@ -288,6 +292,29 @@ public final class MutationIndex {          // mutation/pool/MutationIndex.java
 ---
 
 ## 5. 确定性随机与目标计算
+
+### 5.0 两根时钟：存储时钟 vs 显示时钟（2026-09-16）
+失焦是 `(pos, worldSeed, period)` 的**纯函数**，没有逐方块的存档——所以"世界此刻长什么样"
+完全由 `period` 一根指针决定。`/focaldecay period` 拨的就是这根指针，因此**回滚不需要保存任何历史**。
+
+| 时钟 | 函数 | 用途 | 受调试倍率影响 |
+|---|---|---|---|
+| 存储时钟 | `MutationHelper.blockPeriod(gameTick)` | 出生周期的记录与剪枝 | ✗ |
+| 显示时钟 | `MutationHelper.displayPeriod(gameTick, speed, offset)` | 失焦解析（服务端 + 客户端预览）与锚固化 | ✓ |
+
+```
+scaled = floor(gameTick * speed)
+period = floorDiv(scaled, base_interval) + offset
+```
+- **先乘后除**：`speed = 1` 时 `floor(gameTick * 1.0) == gameTick`，于是 `floorDiv(gameTick, interval)`
+  与存储时钟逐位相同 —— 默认档位下这个函数**完全不改变现有行为**（`/focaldecay period selftest` 会实测这一点）。
+  写成 `floor(gameTick * speed / interval)` 则会在整除边界上有浮点少 1 的风险。
+- 用 `Math.floorDiv`：负倍率倒带时除法要向负无穷取整，否则 `-250/100` 会被截断成 `-2` 而不是 `-3`，倒带出现台阶。
+- **出生周期必须记在存储时钟上**，否则"回滚之后后来放置的方块显示为原样"这件事就不成立
+  （回滚后的时间线里它本来就还没被放下去）。
+- 锚固化用显示时钟：它固化的是"当前看得见的样子"，必须和客户端预览同一根指针。
+- 剪枝用存储时钟：地平线按真实时间推进，保守且与倍率无关（不会因为一次大负偏移就把还有用的记录删掉）。
+- 调试档位**不落盘**（见 §10.4），重启即恢复 `speed=1, offset=0`。
 
 ### 5.1 算法（2026-09-15 重写）
 ```java
@@ -491,6 +518,11 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
 ## 8. 网络通信
 
 ### 8.1 数据包设计
+- **SyncWorldDataPacket**（S→C，2026-09-16 扩展）：
+  - 末日天数、观测者在线状态、**调试时钟（失焦倍率 / 偏移）**。
+  - 三样放同一个包，因为它们满足同一个条件：<b>服务端与客户端必须逐位一致</b>——
+    任何一项两端不同，失焦预览就会和真实转换对不上（客户端显示 A、服务端给 B）。
+  - 在玩家登录、切换维度、天数变化、核心激活、`/focaldecay period` 变化时发送。
 - **SyncRegionDataPacket**（S→C）：
   - 维度ID、**有效原型机**列表（位置 + 半径 + 模型效果摘要：语义锁定目标 / 引导概念 / 生物稳定 / 完全稳定）、方块诞生周期表（位置 → 周期）（2026-08-10/2026-08-13 已实现锚与诞生周期；2026-08-19 起改为原型机/模型数据，覆盖区域为引导模型的实现载体）。
   - 在玩家登录、切换维度、原型机放置/破坏/换模时发送（**整表**）。
@@ -574,6 +606,21 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
 - `/focaldecay days`：查询当前末日天数与阶段。
 - `/focaldecay days <n>`：手动设定天数（权限 2），`FocalDecayWorldData.setDays` 落盘并通过 `SyncWorldDataPacket` 广播，客户端立即按新阶段重算（周期/概率/影响范围）。
 - `/focaldecay mutation audit | selftest | at`：突变查表自检 / 运行期自测 / 脚下位置诊断，见 §4.1.4。
+- `/focaldecay period [speed <x> | offset <n> | set <n> | reset | selftest]`（2026-09-16，权限 2）：
+  拨动"失焦刻"这根指针（见 §5.0）。
+  - `speed <x>`：失焦进程的流速倍率。**1 = 正常，>1 = 加速，0.5 = 减速，0 = 冻结，负 = 倒带**（上限 ±64）。
+    方块失焦刻与实体/天气节拍一起乘倍率（用户选择）；**末日天数不受影响**（跳阶段用 `days`）。
+  - `offset <n>`：在当前时间轴上前/后平移 n 刻，**负数就是回滚**。
+  - `set <n>`：冻结在第 n 刻（= `speed 0` + `offset n` 的糖；不再引入第三种状态）。
+    冻结之后用 `offset` 就能逐刻前后步进，看崩坏怎么一步一步长出来。
+  - `reset`：回到 `speed 1 / offset 0`。
+  - `selftest`：把每一档都验一遍（默认档位逐位等价、各档位映射正确、冻结不改变画面、回滚可重放），
+    **结束时恢复调用前的档位**。
+  - **边界**：只回滚"失焦外观"；玩家真实放置/破坏的方块、锚固化写进世界的方块、右键转换过的方块
+    都是真实的世界改动，没有历史可以回退。实体/天气也不倒带（它们的转换同样是真实改动），
+    负倍率下它们的节拍夹在 0（= 停住）。
+  - **深回滚的已知偏差**：出生周期表有 128 刻的剪枝地平线，偏移超过 -128 之后那些被剪掉的位置
+    会退化成"世界原生方块"，显示为已崩坏而不是原样。
 - `/focaldecay refocus [true|false]`（2026-09-16，权限 2）：强制翻转"观测者在线"状态。
   走的是和核心激活完全相同的 `FocalDecayWorldData.setObserverOnline`，所以看到的就是真实行为；
   存在的理由是重聚焦之后有一堆只在那一刻生效的表现（客户端遮罩淡出、失焦预览清空、实体突变停止）
@@ -588,6 +635,8 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
   - 有效原型机效果列表（位置 + 半径 + 模型数据，含引导模型固化的概念标签与 q；瞬态，由方块实体放置/加载/换模时重建）
   - 方块诞生周期表 `Map<BlockPos, Long>`（玩家放置的方块，放置时记录 periodIndex，破坏时移除）
 - **末日计时**：`FocalDecayWorldData`，存储游戏天数，独立维护，每20分钟游戏日更新一次, 服务端运行时在玩家数为0时暂停计时。
+  同时承载调试时钟（失焦倍率/偏移），**刻意不落盘**（`setClock` 不调 `setDirty`）：测试档位忘了 reset
+  会让世界看起来"卡住了"，那是最难查的一类假 bug。
 - **玩家挖掘数据**：使用 NeoForge Capability `BreakData`，自动同步。
 
 ---
@@ -619,4 +668,4 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
   - 实体类型：`entity_mutation_pool_passive` / `_neutral` / `_hostile`
 - 着色器：`observer_veil`
 - 包网络：`sync_region_data`, `sync_birth_period`, `sync_world_data`, `core_activate`, `throne_ritual`
-- 命令：`/focaldecay days|throne|inspect|trace|unlock|refocus|mutation audit|mutation selftest|mutation at`
+- 命令：`/focaldecay days|throne|inspect|trace|unlock|refocus|period|mutation audit|mutation selftest|mutation at`

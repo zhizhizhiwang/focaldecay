@@ -11,3 +11,13 @@ say [devtest] refocus toggle
 focaldecay refocus true
 focaldecay refocus false
 say [devtest] refocus toggle done
+# Period clock (2026-09-16): query, every knob, then the self-test which restores the clock itself.
+say [devtest] period clock
+focaldecay period
+focaldecay period speed 4
+focaldecay period offset -20
+focaldecay period set 5000
+focaldecay period selftest
+focaldecay period reset
+focaldecay period
+say [devtest] period clock done

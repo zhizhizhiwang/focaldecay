@@ -217,11 +217,40 @@ public final class MutationHelper {
     }
 
     /**
-     * 方块突变的周期基准：固定为 base_interval，与阶段无关。
+     * 方块突变的周期基准（**存储时钟**）：固定为 base_interval，与阶段、与调试倍率都无关。
+     * <p>
      * 旧实现用各阶段 interval（100/60/40）计算周期，阶段切换时周期编号跳变，
      * 导致全图方块目标瞬间重排；固定基准后阶段切换只改变概率门控与影响范围。
+     * <p>
+     * <b>出生周期用的是这一支，不是 {@link #displayPeriod}</b>：出生周期记录的是"真实时间轴上
+     * 这个方块何时出现"，只有存真实轴，"回滚之后后来放置的方块显示为原样"才有意义。
      */
     public static long blockPeriod(long gameTick) {
         return gameTick / Math.max(1L, FocalDecayConfig.BASE_INTERVAL.get());
+    }
+
+    /**
+     * 失焦解析用的周期（**显示时钟**，2026-09-16）：带调试倍率与偏移，
+     * 也就是 {@code /focaldecay period} 能拨动的那根指针。
+     * <p>
+     * <pre>
+     *   scaled = floor(gameTick * speed)
+     *   period = floorDiv(scaled, base_interval) + offset
+     * </pre>
+     * <b>先乘后除是刻意的</b>：{@code speed = 1.0} 时 {@code floor(gameTick * 1.0) == gameTick}
+     * （gameTick 远小于 2^53，double 精确），于是 {code floorDiv(gameTick, interval)} 与
+     * {@link #blockPeriod} 逐位相同 —— 默认档位下这个函数<b>完全不改变现有行为</b>。
+     * 如果写成 {@code floor(gameTick * speed / interval)}，浮点除法会在"整除边界"上有少 1 的风险。
+     * <p>
+     * 用 {@link Math#floorDiv} 而不是 {@code /}：负倍率（倒带）时除法要向负无穷取整，
+     * 否则 {@code -250/100} 会被截断成 {@code -2} 而不是 {@code -3}，倒带会出现台阶。
+     * 正值下两者相同，所以不影响默认档位。
+     *
+     * @param speed  流速倍率：1 = 正常，0 = 冻结（配合 offset 逐刻步进），负 = 倒带，&gt;1 = 加速
+     * @param offset 偏移（刻）：负数 = 回滚
+     */
+    public static long displayPeriod(long gameTick, double speed, long offset) {
+        long scaled = (long) Math.floor(gameTick * speed);
+        return Math.floorDiv(scaled, Math.max(1L, FocalDecayConfig.BASE_INTERVAL.get())) + offset;
     }
 }

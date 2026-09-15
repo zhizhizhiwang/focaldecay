@@ -32,7 +32,7 @@ public final class MutationTargets {
         MutationIndex index = MutationIndexes.get(level.dimension());
         MutationPoolManager manager = MutationPoolManager.get(level);
         return MutationHelper.resolve(state, pos, level.getSeed(),
-                MutationHelper.blockPeriod(level.getGameTime()), index,
+                MutationEventHandler.displayPeriodIndex(level), index,
                 MutationHelper.mutationChance(stage), manager.getGuidedBias(pos, state, stage),
                 manager.protectionInfo(pos, state, stage), manager.getBlockBirthPeriod(pos));
     }

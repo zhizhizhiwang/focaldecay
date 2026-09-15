@@ -43,15 +43,17 @@ public final class ModNetwork {
         PacketDistributor.sendToPlayersInDimension(level, regionDataPacket(level));
     }
 
-    /** 向单个玩家发送当前全局末日天数。 */
+    /** 向单个玩家发送当前全局末日天数与调试时钟。 */
     public static void sendWorldData(ServerPlayer player) {
         FocalDecayWorldData data = FocalDecayWorldData.get(player.server);
-        PacketDistributor.sendToPlayer(player, new SyncWorldDataPacket(data.getDays(), data.isObserverOnline()));
+        PacketDistributor.sendToPlayer(player, new SyncWorldDataPacket(
+                data.getDays(), data.isObserverOnline(), data.getClockSpeed(), data.getClockOffset()));
     }
 
-    /** 广播全局末日天数与观测者状态给所有玩家（天数/激活变化时调用）。 */
-    public static void sendWorldDataToAll(long days, boolean observerOnline) {
-        PacketDistributor.sendToAllPlayers(new SyncWorldDataPacket(days, observerOnline));
+    /** 广播全局末日天数、观测者状态与调试时钟给所有玩家（任一变化时调用）。 */
+    public static void sendWorldDataToAll(long days, boolean observerOnline, double clockSpeed, long clockOffset) {
+        PacketDistributor.sendToAllPlayers(
+                new SyncWorldDataPacket(days, observerOnline, clockSpeed, clockOffset));
     }
 
     /** 向所有玩家广播（王座仪式状态 / 观测者核心激活动画）。 */

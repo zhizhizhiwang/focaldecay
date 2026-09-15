@@ -95,6 +95,26 @@ Select-String -Path run\logs\latest.log -Pattern 'devtest\]|mutation\]|selftest\
 > 本模组自己的命令（`/focaldecay mutation ...`）走 `ModCommands#report`：
 > 执行者是玩家就发聊天栏，没有玩家（函数/控制台）就写服务器日志，因此两者都能拿到结果。
 
+### 失焦时钟怎么拨（回滚 / 加速）
+
+失焦是 `(pos, worldSeed, period)` 的纯函数，没有逐方块存档，所以"世界此刻长什么样"全由 period
+决定，拨指针就等于回滚——不需要保存任何历史。
+
+```
+/focaldecay period                 # 查询：storage=真实刻 display=显示刻 speed offset
+/focaldecay period speed 4         # 四倍速（0.5 = 半速，0 = 冻结，负 = 倒带），上限 ±64
+/focaldecay period offset -200     # 回滚 200 刻（时间继续走）
+/focaldecay period set 5000        # 冻结在第 5000 刻；再用 offset 逐刻步进
+/focaldecay period reset           # 回到 speed 1 / offset 0
+/focaldecay period selftest        # 自测每一档，结束时自动恢复原档位
+```
+
+- 倍率同时作用于**方块失焦刻**与**实体/天气节拍**；**末日天数不受影响**（跳阶段用 `/focaldecay days`）。
+- 档位**不落盘**，重启即恢复 `speed=1 / offset=0`。
+- 只回滚"失焦外观"：玩家真实放置/破坏的方块、锚固化写进世界的方块、右键转换过的方块都回不去；
+  实体/天气也不倒带（负倍率下它们停住）。
+- 偏移超过 -128 时，超出出生周期表剪枝地平线的位置会显示成已崩坏而不是原样。
+
 ### H 段：突变系统自检
 
 `/focaldecay mutation audit` 量的是**结构性质**，全为 0 才算通过：
@@ -111,9 +131,16 @@ Select-String -Path run\logs\latest.log -Pattern 'devtest\]|mutation\]|selftest\
 `/focaldecay mutation at` 打印脚下位置的真实方块、形态类、候选数量与当前可见目标，
 排查"这个方块为什么不变 / 为什么变成了那个"时最直接。
 
+`[stress]` 一项是**并发**压力测试（16 线程并发调用状态迁移映射，断言不抛异常、结果与单线程一致）。
+它的规模是有讲究的：键空间必须**远超**缓存上限，否则并发阶段全是命中、什么都不验
+（第一版就是这么假通过的）。有上限地等待 10 秒，退化时给出可读的 FAIL 而不是把服务器拖死。
+
 同一段里还会跑一次 `/focaldecay refocus true` + `refocus false`：
 用来确认这条调试命令已注册、翻转观测者状态不会抛异常。
 **末尾故意回到 false**，所以不会把开发世界留在"已重聚焦"状态（那会让后续的失焦探针全部失效）。
+
+以及 `/focaldecay period` 的各档 + `period selftest`，最后 `period reset`：
+自测内部有 `finally` 恢复原档位，外面再 reset 一次，双保险不让开发世界留在冻结状态。
 
 ### G 段：Site-CN-25 地下站点
 

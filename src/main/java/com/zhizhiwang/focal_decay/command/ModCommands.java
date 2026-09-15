@@ -2,6 +2,7 @@ package com.zhizhiwang.focal_decay.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
@@ -9,6 +10,7 @@ import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuideAdvancementHandler;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
+import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationPoolManager;
 import com.zhizhiwang.focal_decay.mutation.MutationTargets;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationAudit;
@@ -68,6 +70,31 @@ public final class ModCommands {
                                 .executes(ctx -> selfTestMutation(ctx.getSource())))
                         .then(Commands.literal("at")
                                 .executes(ctx -> mutationAt(ctx.getSource()))))
+                .then(Commands.literal("period")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(ctx -> queryPeriod(ctx.getSource()))
+                        .then(Commands.literal("speed")
+                                .then(Commands.argument("speed", DoubleArgumentType.doubleArg(
+                                                -FocalDecayWorldData.CLOCK_SPEED_LIMIT,
+                                                FocalDecayWorldData.CLOCK_SPEED_LIMIT))
+                                        .executes(ctx -> setPeriodClock(ctx.getSource(),
+                                                DoubleArgumentType.getDouble(ctx, "speed"), null))))
+                        .then(Commands.literal("offset")
+                                .then(Commands.argument("offset", IntegerArgumentType.integer(
+                                                -FocalDecayWorldData.CLOCK_OFFSET_LIMIT,
+                                                FocalDecayWorldData.CLOCK_OFFSET_LIMIT))
+                                        .executes(ctx -> setPeriodClock(ctx.getSource(), null,
+                                                (long) IntegerArgumentType.getInteger(ctx, "offset")))))
+                        .then(Commands.literal("set")
+                                .then(Commands.argument("period", IntegerArgumentType.integer(
+                                                -FocalDecayWorldData.CLOCK_OFFSET_LIMIT,
+                                                FocalDecayWorldData.CLOCK_OFFSET_LIMIT))
+                                        .executes(ctx -> freezePeriod(ctx.getSource(),
+                                                IntegerArgumentType.getInteger(ctx, "period")))))
+                        .then(Commands.literal("reset")
+                                .executes(ctx -> resetPeriod(ctx.getSource())))
+                        .then(Commands.literal("selftest")
+                                .executes(ctx -> selfTestPeriod(ctx.getSource()))))
                 .then(Commands.literal("refocus")
                         .requires(source -> source.hasPermission(2))
                         .executes(ctx -> setRefocus(ctx.getSource(), true))
@@ -144,6 +171,74 @@ public final class ModCommands {
      * 而重聚焦之后有一堆只在那一刻才生效的表现（客户端遮罩淡出、失焦预览清空、实体突变停止）需要反复看。
      * 走的是和核心激活完全相同的 {@code FocalDecayWorldData.setObserverOnline}，所以看到的就是真实行为。
      */
+    /**
+     * 失焦时钟查询（{@code /focaldecay period}）。
+     * <p>
+     * 打印"真实刻"和"显示刻"两个数：前者是存档里那根不会回头的时间轴（出生周期记在它上面），
+     * 后者是失焦解析实际用的那一根（被倍率与偏移改写）。测试时最常看的就是这两个的差。
+     */
+    private static int queryPeriod(CommandSourceStack source) {
+        ServerLevel level = source.getLevel();
+        FocalDecayWorldData data = FocalDecayWorldData.get(source.getServer());
+        long storage = MutationEventHandler.storagePeriodIndex(level);
+        long display = MutationEventHandler.displayPeriodIndex(level);
+        report(source, "Focal Decay period: storage=" + storage + " display=" + display
+                + " speed=" + data.getClockSpeed() + " offset=" + data.getClockOffset());
+        report(source, "  speed 1 = normal, 0 = frozen (pair with offset to step),"
+                + " negative = rewind, >1 = fast forward");
+        return (int) display;
+    }
+
+    /**
+     * 设定失焦时钟。{@code speed} 与 {@code offset} 传 null 表示该项不变。
+     * <p>
+     * 只影响"失焦外观"（方块显示成什么）与实体/天气的节拍；<b>不还原</b>玩家真实放置/破坏的方块、
+     * 锚固化写进世界的方块、右键转换过的方块——那些是真实的世界改动，没有历史可以回退。
+     */
+    private static int setPeriodClock(CommandSourceStack source, Double speed, Long offset) {
+        FocalDecayWorldData data = FocalDecayWorldData.get(source.getServer());
+        double newSpeed = speed != null ? speed : data.getClockSpeed();
+        long newOffset = offset != null ? offset : data.getClockOffset();
+        boolean changed = data.setClock(newSpeed, newOffset);
+        report(source, "Focal Decay period clock: speed=" + data.getClockSpeed()
+                + " offset=" + data.getClockOffset()
+                + (changed ? "" : " (unchanged)")
+                + "  — storage clock unaffected, restart resets it");
+        return changed ? 1 : 0;
+    }
+
+    /**
+     * 冻结在第 {@code period} 刻：等价于 {@code speed 0} + {@code offset period}。
+     * <p>
+     * 之所以做成糖而不是第三份状态：冻结就是"流速为零"，不必再引入一个"绝对刻"的概念。
+     * 冻结之后用 {@code period offset <n>} 就能逐刻前后步进，观察崩坏是怎么一步一步长出来的。
+     */
+    private static int freezePeriod(CommandSourceStack source, int period) {
+        FocalDecayWorldData data = FocalDecayWorldData.get(source.getServer());
+        data.setClock(0.0, period);
+        report(source, "Focal Decay period frozen at " + period
+                + " (speed=0, offset=" + period + "); step with /focaldecay period offset <n>,"
+                + " resume with /focaldecay period reset");
+        return 1;
+    }
+
+    private static int resetPeriod(CommandSourceStack source) {
+        FocalDecayWorldData data = FocalDecayWorldData.get(source.getServer());
+        data.setClock(1.0, 0L);
+        report(source, "Focal Decay period clock reset (speed=1, offset=0)");
+        return 1;
+    }
+
+    /** 失焦时钟自测：默认档位逐位等价、各档位映射正确、冻结不改变画面、回滚可重放。 */
+    private static int selfTestPeriod(CommandSourceStack source) {
+        ServerLevel level = source.getLevel();
+        BlockPos pos = BlockPos.containing(source.getPosition());
+        for (String line : MutationAudit.periodSelfTest(level, pos)) {
+            report(source, line);
+        }
+        return 1;
+    }
+
     private static int setRefocus(CommandSourceStack source, boolean online) {
         FocalDecayWorldData.get(source.getServer()).setObserverOnline(online);
         report(source, "Focal Decay observerOnline = " + online

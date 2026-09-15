@@ -142,6 +142,9 @@ public final class ClientRenderCache {
     private volatile Frustum frustum;
     private volatile ClientLevel level;
     private volatile long worldDays;
+    /** 调试时钟（由 SyncWorldDataPacket 同步）：失焦刻的流速倍率与偏移。 */
+    private volatile double clockSpeed = 1.0;
+    private volatile long clockOffset;
     /** 观测者核心已激活：失焦终止，不再生成/保留幽灵预览。 */
     private volatile boolean observerOnline;
     /**
@@ -497,12 +500,15 @@ public final class ClientRenderCache {
         this.frustum = frustum;
     }
 
-    /** 服务端同步末日天数；阶段变化会改变周期/概率/影响范围，需要清缓存重算。 */
-    public void setWorldData(long days, boolean observerOnline) {
-        boolean changed = this.worldDays != days || this.observerOnline != observerOnline;
+    /** 服务端同步的末日天数、观测者状态与调试时钟；变化会清缓存重算。 */
+    public void setWorldData(long days, boolean observerOnline, double clockSpeed, long clockOffset) {
+        boolean changed = this.worldDays != days || this.observerOnline != observerOnline
+                || this.clockSpeed != clockSpeed || this.clockOffset != clockOffset;
         if (changed) {
             this.worldDays = days;
             this.observerOnline = observerOnline;
+            this.clockSpeed = clockSpeed;
+            this.clockOffset = clockOffset;
             clearCache();
         }
     }
@@ -913,8 +919,12 @@ public final class ClientRenderCache {
         return best == null ? GuidedBias.NONE : best;
     }
 
+    /**
+     * 当前"显示刻"（失焦解析用）。必须与服务端 {@code MutationEventHandler#displayPeriodIndex} 同源：
+     * 同一个 gameTime、同一组调试参数、同一个公式。
+     */
     private long currentPeriod(ClientLevel level) {
-        return MutationHelper.blockPeriod(level.getGameTime());
+        return MutationHelper.displayPeriod(level.getGameTime(), clockSpeed, clockOffset);
     }
 
     private int currentStage() {

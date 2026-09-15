@@ -51,8 +51,8 @@ public class MutationEventHandler {
             manager.updatePrototypeEffect(serverLevel, pos, model);
             ModNetwork.sendRegionDataToDimension(serverLevel);
         } else {
-            // 记录玩家放置方块的诞生周期：从放置那一刻重新开始计算崩坏
-            long period = currentPeriodIndex(serverLevel);
+            // 记录玩家放置方块的诞生周期：从放置那一刻重新开始计算崩坏（存储时钟）
+            long period = storagePeriodIndex(serverLevel);
             manager.setBlockBirthPeriod(pos, period);
             ModNetwork.sendBirthPeriod(serverLevel, pos, period);
         }
@@ -97,7 +97,9 @@ public class MutationEventHandler {
         }
         lastBirthPruneTick = tick;
         for (ServerLevel level : event.getServer().getAllLevels()) {
-            long period = currentPeriodIndex(level);
+            // 剪枝用存储时钟：地平线按真实时间推进，与调试倍率/偏移无关（保守，且不会因为
+            // 一次大负偏移就把还有用的记录删掉）。
+            long period = storagePeriodIndex(level);
             if (period < MutationHelper.CUMULATIVE_SCAN_CAP) {
                 continue; // 地平线还没过 0，没有任何记录可以删
             }
@@ -140,7 +142,7 @@ public class MutationEventHandler {
         if (FocalDecayWorldData.get(level.getServer()).isObserverOnline()) {
             return; // 失焦终止：无需固化
         }
-        long periodIndex = currentPeriodIndex(level);
+        long periodIndex = displayPeriodIndex(level);
         int stage = MutationHelper.currentStage(FocalDecayWorldData.get(level.getServer()).getDays());
         long worldSeed = level.getSeed();
         double chance = MutationHelper.mutationChance(stage);
@@ -164,8 +166,24 @@ public class MutationEventHandler {
                 });
     }
 
-    /** 服务端当前周期的 periodIndex（与客户端预览同公式）。 */
-    public static long currentPeriodIndex(ServerLevel level) {
+    /**
+     * <b>存储时钟</b>：出生周期记录用的周期，只跟真实 gameTime 走，不受 {@code /focaldecay period} 影响。
+     * <p>
+     * 为什么必须分开：出生周期记的是"真实时间轴上这个方块何时出现"。只有存真实轴，
+     * "回滚之后后来放置的方块显示为原样"才有意义——回滚后的时间线里它本来就还没被放下去。
+     * 顺带一提，剪枝也走这一支（按真实时间推进地平线，保守且与倍率无关）。
+     */
+    public static long storagePeriodIndex(ServerLevel level) {
         return MutationHelper.blockPeriod(level.getGameTime());
+    }
+
+    /**
+     * <b>显示时钟</b>：失焦解析用的周期，带调试倍率与偏移，也就是 {@code /focaldecay period} 拨的指针。
+     * 锚固化范围必须用它——固化的是"当前看得见的样子"，得和客户端预览同一根指针。
+     */
+    public static long displayPeriodIndex(ServerLevel level) {
+        FocalDecayWorldData worldData = FocalDecayWorldData.get(level.getServer());
+        return MutationHelper.displayPeriod(level.getGameTime(),
+                worldData.getClockSpeed(), worldData.getClockOffset());
     }
 }
