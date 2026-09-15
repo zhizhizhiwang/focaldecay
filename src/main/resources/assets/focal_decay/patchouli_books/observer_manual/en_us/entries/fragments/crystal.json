@@ -7,12 +7,12 @@
   "pages": [
     {
       "type": "patchouli:text",
-      "text": "$(italic)\"A small piece of Dr. Kacper Darlin\"$()$(br2)This record is a physical substance rather than a text: the crystal itself is part of Dr. Darlin's body.$(br2)Of the seven fragments, this is the only one recovered from a defocus product.",
+      "text": "$(italic)\"A small piece of Dr. Kacper Darlin\"$()$(br2)This one's carrier is matter: the crystal itself belongs to Dr. Darlin's body.$(br2)Of the seven fragments, this is the only one recovered from a defocus product.",
       "title": "Fragment: Copper Sulfate Crystal"
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Event:$() at some moment, a researcher became copper sulfate.$(br2)$(bold)Collection:$() cause a copper block to drift; it drops with a chance when the break is settled."
+      "text": "$(bold)Event:$() at some moment, a researcher became copper sulfate.$(br2)$(bold)Collection:$() a copper block defocuses; it drops with a chance when broken."
     }
   ]
 }

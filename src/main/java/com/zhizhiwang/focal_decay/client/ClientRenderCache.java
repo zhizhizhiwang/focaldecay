@@ -3,15 +3,15 @@ package com.zhizhiwang.focal_decay.client;
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
-import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import com.zhizhiwang.focal_decay.mixin.client.LevelRendererAccessor;
 import com.zhizhiwang.focal_decay.mixin.client.RenderChunkRegionAccessor;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
-import com.zhizhiwang.focal_decay.mutation.MutationPool;
-import com.zhizhiwang.focal_decay.mutation.MutationTargets;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
+import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.PostChain;
@@ -22,13 +22,11 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.tags.TagKey;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
@@ -63,7 +61,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 职责：
  * <ul>
  *   <li>维护 {@code targetCache}：方块位置 -> 突变目标 BlockState（仅存"有变化"的暴露方块）；</li>
- *   <li>维护 {@code visibleSurfaces}：当前判定为暴露面的方块集合；</li>
+ *   <li>维护 {@code evaluated}：本周期已经判定过的位置（负缓存，供面剔除路径做 O(1) 查询）；</li>
  *   <li>按 {@code surface_update_frequency} 帧用 Frustum 裁剪后扫描附近区块，更新缓存并触发区块重编译；</li>
  *   <li>突变周期切换时清空缓存并让受影响区块重编译；</li>
  *   <li>管理 observer_veil 后处理着色器（阶段强度淡化）。</li>
@@ -107,14 +105,31 @@ public final class ClientRenderCache {
 
     /** 客户端侧原型机效果镜像。 */
     private record ClientPrototype(BlockPos center, int radius, String type,
-                                   Set<String> trainedTargets, Set<String> trainedEntities,
+                                   Set<Block> trainedBlocks, Set<String> trainedEntities,
                                    int bioEnergy, String concept, int progress, double q, int copies) {
+    }
+
+    /**
+     * 引导模型的渲染期形态：概念邻域池 + 半径 + 强度。
+     * 每次扫描一个区块节时从 {@link RegionData} 解析一次，循环体内只做半径比较和
+     * 一次 {@code boolean[]} 成员判定——旧实现是逐方块解析标签 ID 再线性扫标签成员。
+     */
+    private record GuidedModel(BlockPos center, int radius, ClassifiedPool pool, double strength) {
     }
 
     /** pos.asLong() -> 突变目标（含所属周期，防止跨周期读到旧值）。 */
     private final ConcurrentHashMap<Long, Entry> targetCache = new ConcurrentHashMap<>();
-    /** pos.asLong()：当前已知暴露面的方块。 */
-    private final Set<Long> visibleSurfaces = ConcurrentHashMap.newKeySet();
+    /**
+     * 本周期已经"判定过"的位置（有幽灵的、以及判定为没有幽灵的都在里面）。
+     * <p>
+     * 这是给面剔除路径用的<b>负缓存</b>：{@code BlockShouldRenderFaceMixin} 每个可见方块要问 6 次
+     * "邻居显示成什么"，而绝大多数邻居是没有幽灵的。只靠 {@link #targetCache} 的话，
+     * 每次未命中都要重跑一遍完整判定（阶段 1 一个方块 ~200 ns），6 次 × 4096 个方块就是毫秒级；
+     * 有了这张表，重复查询退化成一次哈希查找。
+     * <p>
+     * 与 {@link #targetCache} 一起在周期边界 / 标签变化 / 观测者状态变化时整体清空。
+     */
+    private final Set<Long> evaluated = ConcurrentHashMap.newKeySet();
     /** SectionPos.asLong()：当前存在幽灵方块的节。 */
     private final Set<Long> activeSections = ConcurrentHashMap.newKeySet();
     /** 每节幽灵方块数量，保证 activeSections 精确回收。 */
@@ -126,11 +141,16 @@ public final class ClientRenderCache {
 
     private volatile Frustum frustum;
     private volatile ClientLevel level;
-    private volatile MutationPool pool = MutationPool.empty(0);
     private volatile long worldDays;
     /** 观测者核心已激活：失焦终止，不再生成/保留幽灵预览。 */
     private volatile boolean observerOnline;
-    private long lastPeriodIndex = Long.MIN_VALUE;
+    /**
+     * 当前周期编号。编译线程要读它（面剔除的快路径），所以必须是 volatile。
+     * 在 {@link #tick()} 里随缓存清空一起更新。
+     */
+    private volatile long lastPeriodIndex = Long.MIN_VALUE;
+    /** 上次扫描所用的突变查表实例；标签更新会让它换新，此时必须丢弃整份幽灵缓存。 */
+    private volatile MutationIndex lastIndex;
     private int scanCooldown;
 
     private PostChain veil;
@@ -168,12 +188,18 @@ public final class ClientRenderCache {
     /**
      * 区块编译时决定某个位置实际渲染的方块状态。
      * 未命中缓存时惰性计算并写回，保证首次编译即有预览。
+     * <p>
+     * 所有"判定结果为不替换"的分支都会写进 {@link #evaluated}（负缓存），
+     * 否则面剔除路径上每个邻居查询都要把整套判定重跑一遍。
      */
     public BlockState resolve(RenderChunkRegion region, BlockPos pos, BlockState original) {
+        long key = pos.asLong();
         if (isProtected(pos, original, currentStage())) {
+            evaluated.add(key);
             return original;
         }
         if (observerOnline) {
+            evaluated.add(key);
             return original;
         }
         if (!(region instanceof RenderChunkRegionAccessor accessor)) {
@@ -184,11 +210,12 @@ public final class ClientRenderCache {
         }
 
         int stage = currentStage();
-        if (!isCandidate(original, clientLevel, pos, stage)) {
+        MutationIndex index = MutationIndexes.get(clientLevel.dimension());
+        if (!isCandidate(original, index)) {
+            evaluated.add(key);
             return original;
         }
 
-        long key = pos.asLong();
         long period = currentPeriod(clientLevel);
         Entry entry = targetCache.get(key);
         if (entry != null && entry.period == period) {
@@ -199,12 +226,34 @@ public final class ClientRenderCache {
             decrSection(pos);
         }
 
-        BlockState target = computeTarget(clientLevel, pos, original);
+        BlockState target = computeTarget(clientLevel, pos, original, index, resolveGuidedModels());
         if (target == original || !isRenderableTarget(target) || !isExposed(region, pos)) {
+            evaluated.add(key);
             return original;
         }
         putEntry(pos, target, period);
         return target;
+    }
+
+    /**
+     * 面剔除路径的"邻居显示成什么"（由 {@code BlockShouldRenderFaceMixin} 调用，跑在区块编译线程上）。
+     * <p>
+     * 网格用的是幽灵状态，剔除判据也必须用幽灵状态，否则两边对不上：真实石头（幽灵玻璃）旁边的方块
+     * 会把朝玻璃的那一面剔掉，而那一面在原版语义里是要画的——结果就是透过玻璃看进方块内部，像破了个洞。
+     * <p>
+     * 代价控制：这个函数对每个可见方块要被问 6 次，所以顺序是
+     * ①正缓存命中 → ②负缓存命中 → ③才做完整判定。绝大多数邻居落在前两种。
+     */
+    public BlockState ghostState(RenderChunkRegion region, BlockPos pos, BlockState real) {
+        long key = pos.asLong();
+        Entry entry = targetCache.get(key);
+        if (entry != null && entry.period == lastPeriodIndex) {
+            return entry.state;
+        }
+        if (evaluated.contains(key)) {
+            return real; // 本周期已判定过，确定没有幽灵
+        }
+        return resolve(region, pos, real);
     }
 
     /**
@@ -223,7 +272,8 @@ public final class ClientRenderCache {
             return original; // 空气无法拾取
         }
         int stage = currentStage();
-        if (!isCandidate(original, level, pos, stage)) {
+        MutationIndex index = MutationIndexes.get(level.dimension());
+        if (!isCandidate(original, index)) {
             return original;
         }
         long key = pos.asLong();
@@ -232,7 +282,7 @@ public final class ClientRenderCache {
         if (entry != null && entry.period == period) {
             return entry.state;
         }
-        BlockState target = computeTarget(level, pos, original);
+        BlockState target = computeTarget(level, pos, original, index, resolveGuidedModels());
         if (target != original && isRenderableTarget(target)) {
             return target;
         }
@@ -253,7 +303,8 @@ public final class ClientRenderCache {
             return original;
         }
         int stage = currentStage();
-        if (!isCandidate(original, level, pos, stage)) {
+        MutationIndex index = MutationIndexes.get(level.dimension());
+        if (!isCandidate(original, index)) {
             return original;
         }
         long key = pos.asLong();
@@ -266,7 +317,7 @@ public final class ClientRenderCache {
             targetCache.remove(key, entry);
             decrSection(pos);
         }
-        BlockState target = computeTarget(level, pos, original);
+        BlockState target = computeTarget(level, pos, original, index, resolveGuidedModels());
         if (target == original || !isRenderableTarget(target) || !isExposed(level, pos)) {
             return original;
         }
@@ -289,7 +340,6 @@ public final class ClientRenderCache {
             worldDays = 0;
             observerOnline = false;
             level = null;
-            pool = MutationPool.empty(0);
             lastPeriodIndex = Long.MIN_VALUE;
             return;
         }
@@ -297,10 +347,15 @@ public final class ClientRenderCache {
         if (current != level) {
             level = current;
             clearCache();
-            rebuildPool(current);
+            lastIndex = null;
             lastPeriodIndex = Long.MIN_VALUE;
-        } else if (pool.isEmpty()) {
-            rebuildPool(current); // 标签同步晚于世界加载时的自愈
+        }
+        // 标签/配置变化会换掉整个查表实例（MutationIndexes 在 TagsUpdatedEvent 时清空缓存），
+        // 此时旧幽灵全部作废：候选集与源门控都可能已经变了。
+        MutationIndex index = MutationIndexes.get(current.dimension());
+        if (index != lastIndex) {
+            lastIndex = index;
+            clearCache();
         }
 
         long period = currentPeriod(current);
@@ -446,7 +501,7 @@ public final class ClientRenderCache {
         for (SyncRegionDataPacket.PrototypeData p : prototypes) {
             prototypeList.add(new ClientPrototype(
                     BlockPos.of(p.pos()), p.radius(), p.type(),
-                    Set.copyOf(p.trainedTargets()), Set.copyOf(p.trainedEntities()), p.bioEnergy(),
+                    parseBlocks(p.trainedTargets()), Set.copyOf(p.trainedEntities()), p.bioEnergy(),
                     p.concept(), p.progress(), p.q(), p.copies()));
         }
 
@@ -475,6 +530,64 @@ public final class ClientRenderCache {
 
         regionData.put(dimension, new RegionData(prototypeList, newBirths));
         refreshRegionData(changed);
+    }
+
+    /**
+     * 收到<b>单条</b>诞生周期变化（{@link com.zhizhiwang.focal_decay.network.SyncBirthPeriodPacket}）。
+     * {@code period < 0} 表示删除。放置/破坏/交互转换都只发这一条，
+     * 取代了旧实现"每次变化都重发整张表"的做法。
+     */
+    public void applyBirthPeriod(ResourceKey<Level> dimension, long packedPos, long period) {
+        RegionData old = regionData.get(dimension);
+        if (old == null) {
+            return; // 整表还没到，等下一次全量同步即可
+        }
+        BlockPos pos = BlockPos.of(packedPos);
+        Map<BlockPos, Long> births = new HashMap<>(old.birthPeriods);
+        if (period < 0) {
+            births.remove(pos);
+        } else {
+            births.put(pos, period);
+        }
+        regionData.put(dimension, new RegionData(old.prototypes, births));
+        refreshBirths(Set.of(pos));
+    }
+
+    /**
+     * 只有诞生周期变化时用：只清理这几个位置，不做整表扫描。
+     * <p>
+     * 放置/破坏方块是高频操作，而"保护范围可能变了"的整表扫描是 O(幽灵数) 的，
+     * 不能挂在每一次放置上。真正的整表扫描留给 {@link #applyRegionData}（原型机变化/登录）。
+     */
+    private void refreshBirths(Set<BlockPos> changed) {
+        if (targetCache.isEmpty() || changed.isEmpty()) {
+            return;
+        }
+        Set<Long> dirty = new HashSet<>();
+        for (BlockPos pos : changed) {
+            long key = pos.asLong();
+            if (targetCache.remove(key) != null) {
+                decrSection(pos);
+                evaluated.remove(key);
+                dirty.add(SectionPos.asLong(pos));
+            }
+        }
+        for (long sectionKey : dirty) {
+            markSectionDirty(SectionPos.of(sectionKey));
+        }
+    }
+
+    /** 把同步来的方块 ID 列表解析成方块集合（保护判定要在热路径上做 O(1) 命中）。 */
+    private static Set<Block> parseBlocks(List<String> ids) {
+        Set<Block> blocks = new HashSet<>(ids.size());
+        for (String id : ids) {
+            try {
+                blocks.add(BuiltInRegistries.BLOCK.get(ResourceLocation.parse(id)));
+            } catch (Exception ignored) {
+                // 非法 ID 忽略（与服务端解析一致）
+            }
+        }
+        return blocks;
     }
 
     /** 当前客户端所在维度的保护数据；未同步或无保护返回 null。 */
@@ -511,8 +624,7 @@ public final class ClientRenderCache {
                 return MutationHelper.Protection.HARD; // 已完成候选 = 完全稳定
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(prototype.type())) {
-                String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
-                if (!prototype.trainedTargets().contains(id)) {
+                if (!prototype.trainedBlocks().contains(state.getBlock())) {
                     continue;
                 }
                 if (stage >= 3) {
@@ -541,6 +653,12 @@ public final class ClientRenderCache {
                         Math.abs(pos.getZ() - prototype.center().getZ()))) <= prototype.radius();
     }
 
+    private static boolean withinRadius(BlockPos pos, GuidedModel model) {
+        return Math.max(Math.abs(pos.getX() - model.center().getX()),
+                Math.max(Math.abs(pos.getY() - model.center().getY()),
+                        Math.abs(pos.getZ() - model.center().getZ()))) <= model.radius();
+    }
+
     /** 该方块的诞生周期；未同步或世界原生返回 -1。 */
     public long getBlockBirthPeriod(BlockPos pos) {
         RegionData data = currentRegionData();
@@ -561,7 +679,7 @@ public final class ClientRenderCache {
             if (isProtected(pos, real, currentStage()) || changedBirths.contains(pos)) {
                 targetCache.remove(key, entry);
                 decrSection(pos);
-                visibleSurfaces.remove(key);
+                evaluated.remove(key);
                 dirty.add(SectionPos.asLong(pos));
             }
         });
@@ -649,6 +767,9 @@ public final class ClientRenderCache {
         BlockPos min = section.origin();
         long period = currentPeriod(level);
         int stage = currentStage();
+        // 逐节取一次查表和引导模型：4096 个方块共用，循环体里不再有任何标签/字符串操作。
+        MutationIndex index = MutationIndexes.get(level.dimension());
+        List<GuidedModel> guided = resolveGuidedModels();
         boolean changed = false;
 
         for (int y = 0; y < 16; y++) {
@@ -658,15 +779,15 @@ public final class ClientRenderCache {
                     long key = pos.asLong();
                     BlockState state = level.getBlockState(pos);
 
-                    if (!isCandidate(state, level, pos, stage) || isProtected(pos, state, stage) || !isExposed(level, pos)) {
+                    if (!isCandidate(state, index) || isProtected(pos, state, stage) || !isExposed(level, pos)) {
                         if (removeEntry(pos, key)) {
                             changed = true;
                         }
                         continue;
                     }
-                    visibleSurfaces.add(key);
+                    evaluated.add(key);
 
-                    BlockState target = computeTarget(level, pos, state);
+                    BlockState target = computeTarget(level, pos, state, index, guided);
                     if (target == state || !isRenderableTarget(target)) {
                         if (removeEntry(pos, key)) {
                             changed = true;
@@ -691,56 +812,68 @@ public final class ClientRenderCache {
     // 目标计算
     // ------------------------------------------------------------------
 
-    private BlockState computeTarget(ClientLevel level, BlockPos pos, BlockState original) {
+    /**
+     * 目标计算。与服务端 {@code MutationTargets#resolveServer} 是同一个函数、
+     * 同一份查表、同一组公式；差别只在上下文怎么装配（客户端从同步过来的区域数据里取）。
+     *
+     * @param index  本次扫描/查询所用的突变查表（一次扫描只取一次，不要逐方块去取）
+     * @param guided 本次扫描预解析的引导模型（见 {@link #resolveGuidedModels()}）
+     */
+    private BlockState computeTarget(ClientLevel level, BlockPos pos, BlockState original,
+                                     MutationIndex index, List<GuidedModel> guided) {
         if (observerOnline) {
             return original;
         }
-        MutationPool pool = this.pool;
-        if (pool.isEmpty()) {
-            return original;
-        }
         int stage = currentStage();
-        long period = currentPeriod(level);
-        double chance = MutationHelper.mutationChance(stage);
-        long birthPeriod = getBlockBirthPeriod(pos);
-        List<Block> global = pool.snapshot();
-        GuidedBias bias = guidedBias(pos, original, stage);
-        return MutationTargets.resolve(level, original, pos, stage, worldSeed(level), period, global,
-                chance, bias, protectionInfo(pos, original, stage), birthPeriod);
+        return MutationHelper.resolve(original, pos, worldSeed(level), currentPeriod(level), index,
+                MutationHelper.mutationChance(stage), guidedBias(guided, pos, original, stage),
+                protectionInfo(pos, original, stage), getBlockBirthPeriod(pos));
+    }
+
+    /**
+     * 把已同步的引导模型解析成"半径 + 概念池 + 强度"的可直接查询形态。
+     * 每次扫描一个区块节解析一次：{@code MutationIndexes#tagged} 有缓存，
+     * 但也没必要在每个方块上重复走一遍。
+     */
+    private List<GuidedModel> resolveGuidedModels() {
+        RegionData data = currentRegionData();
+        Minecraft mc = Minecraft.getInstance();
+        if (data == null || mc.level == null || data.prototypes.isEmpty()) {
+            return List.of();
+        }
+        MutationIndex index = MutationIndexes.get(mc.level.dimension());
+        List<GuidedModel> models = new ArrayList<>();
+        for (ClientPrototype prototype : data.prototypes) {
+            if (!ObserverModelData.TYPE_GUIDED.equals(prototype.type()) || prototype.concept().isEmpty()) {
+                continue;
+            }
+            ClassifiedPool pool = index.tagged(prototype.concept());
+            if (pool.isEmpty()) {
+                continue;
+            }
+            models.add(new GuidedModel(prototype.center(), prototype.radius(), pool, prototype.q()));
+        }
+        return models;
     }
 
     /**
      * 客户端引导偏向（与服务端 {@code MutationPoolManager#getGuidedBias} 同一公式）：
      * 取"源方块是概念成员且 q 最大"的引导模型生效，否则不引导。
+     * 概念邻域与成员判定都来自预解析的池，循环体里只有半径比较和一次 {@code boolean[]} 读。
      */
-    private GuidedBias guidedBias(BlockPos pos, BlockState original, int stage) {
-        RegionData data = currentRegionData();
-        if (data == null) {
-            return GuidedBias.NONE;
-        }
+    private static GuidedBias guidedBias(List<GuidedModel> models, BlockPos pos, BlockState original, int stage) {
         GuidedBias best = null;
-        for (ClientPrototype prototype : data.prototypes) {
-            if (!withinRadius(pos, prototype) || !ObserverModelData.TYPE_GUIDED.equals(prototype.type())) {
+        double bestQ = 0.0;
+        for (GuidedModel model : models) {
+            if (!withinRadius(pos, model) || !model.pool().contains(original.getBlock())) {
                 continue;
             }
-            String concept = prototype.concept();
-            if (concept.isEmpty()) {
+            double q = GuidedConcept.effectiveQ(model.strength(), stage);
+            if (q <= bestQ) {
                 continue;
             }
-            if (!GuidedConcept.isMember(original.getBlock(), concept)) {
-                continue;
-            }
-            double q = GuidedConcept.effectiveQ(prototype.q(), stage);
-            if (q <= 0.0) {
-                continue;
-            }
-            List<Block> conceptPool = GuidedConcept.neighborhood(concept);
-            if (conceptPool.isEmpty()) {
-                continue;
-            }
-            if (best == null || q > best.q()) {
-                best = new GuidedBias(conceptPool, q);
-            }
+            bestQ = q;
+            best = new GuidedBias(model.pool(), q);
         }
         return best == null ? GuidedBias.NONE : best;
     }
@@ -765,10 +898,14 @@ public final class ClientRenderCache {
         return 0L;
     }
 
-    /** 候选（转换源）：常规模型渲染 + 满足阶段影响范围（§6.3：阶段1完整方块 / 阶段2+含碰撞非完整方块）。 */
-    private static boolean isCandidate(BlockState state, Level level, BlockPos pos, int stage) {
-        return state.getRenderShape() == RenderShape.MODEL
-                && MutationHelper.isConversionSource(state, level, pos, stage);
+    /**
+     * 候选（转换源）：常规模型渲染 + 是突变源。
+     * <p>
+     * "是不是突变源"现在完全由预计算的 {@link MutationIndex} 决定：完整方块、数据包登记过的
+     * 形态类成员、且没被 {@code mutation_immune} 豁免。
+     */
+    private static boolean isCandidate(BlockState state, MutationIndex index) {
+        return state.getRenderShape() == RenderShape.MODEL && index.isSource(state.getBlock());
     }
 
     /** 目标可渲染：常规模型，且不带方块实体/流体。 */
@@ -839,15 +976,22 @@ public final class ClientRenderCache {
         if (prev == null) {
             incrSection(pos);
         }
-        visibleSurfaces.add(key);
+        evaluated.add(key);
     }
 
+    /**
+     * 撤销一个幽灵条目。
+     * <p>
+     * <b>不动 {@link #evaluated}</b>：这个位置在本周期内确实已经判定过了，
+     * 把负缓存一起删掉只会让面剔除路径反复重跑完整判定。真正需要"重新判定"的场合
+     * （保护范围变化、诞生周期变化）由 {@code refreshRegionData} / {@code refreshBirths}
+     * 显式地把位置从 {@code evaluated} 里摘掉。
+     */
     private boolean removeEntry(BlockPos pos, long key) {
         if (targetCache.remove(key) == null) {
             return false;
         }
         decrSection(pos);
-        visibleSurfaces.remove(key);
         return true;
     }
 
@@ -875,7 +1019,7 @@ public final class ClientRenderCache {
             markSectionDirty(SectionPos.of(sectionKey));
         }
         targetCache.clear();
-        visibleSurfaces.clear();
+        evaluated.clear();
         activeSections.clear();
         sectionCounts.clear();
     }
@@ -890,22 +1034,6 @@ public final class ClientRenderCache {
             return;
         }
         mc.levelRenderer.setSectionDirty(section.x(), section.y(), section.z());
-    }
-
-    /** 从已同步的方块标签重建全局池（与服务器排序一致：按注册表 id 升序）。 */
-    private void rebuildPool(ClientLevel level) {
-        List<Block> blocks = new ArrayList<>();
-        TagKey<Block> tag = ModTags.Blocks.poolForDimension(level.dimension());
-        level.registryAccess().lookupOrThrow(Registries.BLOCK)
-                .get(tag)
-                .ifPresent(holders -> holders.forEach(holder -> blocks.add(holder.value())));
-        if (blocks.isEmpty() && tag != ModTags.Blocks.GLOBAL_MUTATION_POOL) {
-            // 专属池为空时回退主世界全局池
-            level.registryAccess().lookupOrThrow(Registries.BLOCK)
-                    .get(ModTags.Blocks.GLOBAL_MUTATION_POOL)
-                    .ifPresent(holders -> holders.forEach(holder -> blocks.add(holder.value())));
-        }
-        this.pool = MutationPool.of(blocks, 0);
     }
 
     private void closeVeil() {

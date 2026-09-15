@@ -14,11 +14,11 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Approach procedure:$() This is an expedition, not a stroll. It is recommended that you travel only once you have stable supplies and a means of flight.$(br2)The method of arrival is unrestricted."
+      "text": "$(bold)Approach procedure:$() The distance is enough to kill you. Travel only once you have stable supplies and a means of flight.$(br2)The method of arrival is unrestricted."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Navigation:$() Holding a $(l)completed OBSR-3$() and right-clicking empty space in the End generates a particle beam pointing at the Throne, and gives the remaining distance.$(br2)This navigation can be used any number of times."
+      "text": "$(bold)Navigation:$() Holding a $(bold)completed OBSR-3$() and right-clicking empty space in the End generates a particle beam pointing at the Throne, and gives the remaining distance.$(br2)This navigation can be used any number of times."
     }
   ]
 }

@@ -2,6 +2,8 @@ package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
+import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -17,13 +19,20 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 引导模型的概念解析与语义邻域（方案 A，2026-08-21，PROXYAI §4.2）。
+ * 引导模型的概念解析与语义邻域（方案 A，2026-08-21）。
  * <p>
  * 概念 = 训练目标覆盖率最高的语义标签（策展 {@code focal_decay:concept/*} 优先，
  * 兜底原版标签、排除通用标签黑名单）；概念邻域 = 标签下全部有效方块
- * （过滤空气/带方块实体/转换黑名单），按注册表 id 升序保证两端一致。
+ * （过滤空气/带方块实体/转换黑名单/不参与突变的形态类），按注册表 id 升序保证两端一致。
  * 完备度 q 只作用于目标选择，不改变阶段突变骰子。
- * 方块是静态注册表：两端共用 {@link BuiltInRegistries#BLOCK}，确定性一致。
+ * <p>
+ * 2026-09-15 起邻域取自 {@link MutationIndex#tagged(String)} 的缓存池：原来
+ * {@code isMember} 每次都要解析 ID、查标签、再线性扫一遍标签成员，而 {@code neighborhood}
+ * 每次都要新建并排序一个列表——这两个函数都在逐方块扫描的循环里，属于必须先拔掉的性能债。
+ * 现在成员判定是一次 {@code boolean[]} 读，邻域是现成的数组。
+ * <p>
+ * 概念是<b>训练时</b>一次性解析并固化进模型数据的（热点只在"完成训练"那一刻），
+ * 所以本文件的解析逻辑不在于快，在于两端与存档之间可复现。
  */
 public final class GuidedConcept {
 
@@ -72,30 +81,32 @@ public final class GuidedConcept {
     /**
      * 训练完成时解析概念：优先策展概念标签（覆盖率最高者胜出，并列取标签 ID 字典序更小者）；
      * 无策展命中时兜底用训练方块的普通标签（排除黑名单与过泛化标签）。
+     *
+     * @param index 该维度的突变查表，提供"标签 → 按形态类切分的邻域"的缓存
      */
-    public static Concept resolve(List<String> trainedTargets) {
+    public static Concept resolve(List<String> trainedTargets, MutationIndex index) {
         List<Block> trained = parseBlocks(trainedTargets);
         if (trained.isEmpty()) {
             return INVALID;
         }
-        Concept best = bestConcept(trained, ModTags.Blocks.curatedConcepts());
+        Concept best = bestConcept(trained, ModTags.Blocks.curatedConcepts(), index);
         if (best == null) {
-            best = bestConcept(trained, fallbackCandidates(trained));
+            best = bestConcept(trained, fallbackCandidates(trained, index), index);
         }
         return best == null ? INVALID : best;
     }
 
-    private static List<TagKey<Block>> fallbackCandidates(List<Block> trained) {
+    private static List<TagKey<Block>> fallbackCandidates(List<Block> trained, MutationIndex index) {
         Set<TagKey<Block>> candidates = new HashSet<>();
         BuiltInRegistries.BLOCK.getTagNames().forEach(tag -> {
             if (ModTags.Blocks.isCurated(tag) || isGeneric(tag)) {
                 return;
             }
-            if (neighborhood(tag.location().toString()).size() > MAX_FALLBACK_CONCEPT_SIZE) {
+            if (index.tagged(tag.location().toString()).total() > MAX_FALLBACK_CONCEPT_SIZE) {
                 return;
             }
             for (Block block : trained) {
-                if (isMember(block, tag.location().toString())) {
+                if (index.tagged(tag.location().toString()).contains(block)) {
                     candidates.add(tag);
                     break;
                 }
@@ -106,11 +117,12 @@ public final class GuidedConcept {
         return sorted;
     }
 
-    private static Concept bestConcept(List<Block> trained, List<TagKey<Block>> tags) {
+    private static Concept bestConcept(List<Block> trained, List<TagKey<Block>> tags, MutationIndex index) {
         Concept best = null;
         for (TagKey<Block> tag : tags) {
-            List<Block> members = neighborhood(tag.location().toString());
-            if (members.isEmpty()) {
+            ClassifiedPool members = index.tagged(tag.location().toString());
+            int size = members.total();
+            if (size == 0) {
                 continue;
             }
             int trainedIn = 0;
@@ -122,8 +134,8 @@ public final class GuidedConcept {
             if (trainedIn <= 0) {
                 continue;
             }
-            double coverage = (double) trainedIn / members.size();
-            Concept candidate = new Concept(tag.location().toString(), computeQ(trainedIn, coverage), trainedIn, members.size());
+            double coverage = (double) trainedIn / size;
+            Concept candidate = new Concept(tag.location().toString(), computeQ(trainedIn, coverage), trainedIn, size);
             if (best == null || better(candidate, best)) {
                 best = candidate;
             }
@@ -154,41 +166,6 @@ public final class GuidedConcept {
             q *= 0.5;
         }
         return Math.max(0.0, Math.min(1.0, q));
-    }
-
-    /** 概念标签的"有效目标"成员列表：按注册表 id 升序（两端一致，供目标选择索引）。 */
-    public static List<Block> neighborhood(String tagId) {
-        List<Block> blocks = new ArrayList<>();
-        if (tagId.isEmpty()) {
-            return blocks;
-        }
-        TagKey<Block> tag = TagKey.create(Registries.BLOCK, ResourceLocation.parse(tagId));
-        BuiltInRegistries.BLOCK.getTag(tag).ifPresent(holders -> holders.forEach(holder -> {
-            Block block = holder.value();
-            if (isValidTarget(block)) {
-                blocks.add(block);
-            }
-        }));
-        blocks.sort(Comparator.comparingInt(BuiltInRegistries.BLOCK::getId));
-        return blocks;
-    }
-
-    /** 源门控：方块是否属于概念标签。 */
-    public static boolean isMember(Block block, String tagId) {
-        if (tagId.isEmpty()) {
-            return false;
-        }
-        TagKey<Block> tag = TagKey.create(Registries.BLOCK, ResourceLocation.parse(tagId));
-        return BuiltInRegistries.BLOCK.getTag(tag)
-                .map(holders -> holders.stream().anyMatch(holder -> holder.value() == block))
-                .orElse(false);
-    }
-
-    /** 有效目标：非空气、无方块实体、不在转换黑名单。 */
-    public static boolean isValidTarget(Block block) {
-        return block != Blocks.AIR
-                && !block.defaultBlockState().hasBlockEntity()
-                && !block.defaultBlockState().is(ModTags.Blocks.CONVERSION_BLACKLIST);
     }
 
     /** 概念显示名：优先语言键（tag.block.命名空间.路径），缺失回退原始 ID。 */
@@ -222,5 +199,10 @@ public final class GuidedConcept {
             }
         }
         return blocks;
+    }
+
+    /** 保留：标签 ID → 标签键（诊断/命令用）。 */
+    public static TagKey<Block> tagKey(String tagId) {
+        return TagKey.create(Registries.BLOCK, ResourceLocation.parse(tagId));
     }
 }

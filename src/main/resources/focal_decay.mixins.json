@@ -7,6 +7,7 @@
     "TextDisplayAccessor"
   ],
   "client": [
+    "client.BlockShouldRenderFaceMixin",
     "client.LevelRendererAccessor",
     "client.GameRendererMixin",
     "client.MinecraftPickBlockMixin",

@@ -26,6 +26,7 @@ public final class ModNetwork {
     public static void registerPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(PROTOCOL_VERSION);
         registrar.playToClient(SyncRegionDataPacket.TYPE, SyncRegionDataPacket.STREAM_CODEC, SyncRegionDataPacket::handle);
+        registrar.playToClient(SyncBirthPeriodPacket.TYPE, SyncBirthPeriodPacket.STREAM_CODEC, SyncBirthPeriodPacket::handle);
         registrar.playToClient(SyncWorldDataPacket.TYPE, SyncWorldDataPacket.STREAM_CODEC, SyncWorldDataPacket::handle);
         registrar.playToClient(ThroneRitualPacket.TYPE, ThroneRitualPacket.STREAM_CODEC, ThroneRitualPacket::handle);
         registrar.playToClient(ObserverCoreActivatePacket.TYPE, ObserverCoreActivatePacket.STREAM_CODEC,
@@ -56,6 +57,17 @@ public final class ModNetwork {
     /** 向所有玩家广播（王座仪式状态 / 观测者核心激活动画）。 */
     public static void sendToAllPlayers(CustomPacketPayload packet) {
         PacketDistributor.sendToAllPlayers(packet);
+    }
+
+    /**
+     * 广播<b>单条</b>方块诞生周期变化（增量）。{@code period < 0} 表示删除。
+     * <p>
+     * 替代原来"每次放置/破坏都重发整张诞生周期表"的做法——那张表随建造无上限增长，
+     * 整表广播既是带宽浪费，也是每次放置方块时的一次主线程序列化开销。
+     */
+    public static void sendBirthPeriod(ServerLevel level, BlockPos pos, long period) {
+        PacketDistributor.sendToPlayersInDimension(level,
+                new SyncBirthPeriodPacket(level.dimension(), pos.asLong(), period));
     }
 
     private static SyncRegionDataPacket regionDataPacket(ServerLevel level) {

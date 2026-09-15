@@ -1,22 +1,44 @@
 package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
-import com.zhizhiwang.focal_decay.data.tags.ModTags;
+import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
+import com.zhizhiwang.focal_decay.mutation.pool.ShapeClasses;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.BlockGetter;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
-import java.util.List;
-
 /**
- * 确定性随机与目标计算（设计大纲 §5）。
- * 服务端与客户端使用相同种子，保证两侧结果一致。
+ * 确定性随机与目标计算（设计大纲 §5）。服务端与客户端使用相同种子与相同查表，保证两侧结果一致。
+ * <p>
+ * 2026-09-15 重写：池参数由"一个全局 {@code List<Block>}"换成预计算的
+ * {@link MutationIndex}，源门控从"逐状态判定"换成一次数组读，随机源从
+ * {@code RandomSource.create} 换成无分配的 {@link MutationRandom}。
+ * <p>
+ * <b>抽取规则</b>（{@link #resolve}，两端逐字共用）：
+ * <ol>
+ *   <li>保护：硬保护直接原样返回；软保护每个周期先掷"失守"骰；</li>
+ *   <li>诞生周期：玩家放置/转换过的方块从"诞生周期 + 1"才开始崩坏；</li>
+ *   <li>源门控：{@link MutationIndex#isSource}（不在任何可用池切片里、形态类为
+ *       {@link ShapeClasses#NONE}、或命中 {@code mutation_immune} 的方块永不失焦），
+ *       外加"含水状态不参与"（见下）；</li>
+ *   <li>从当前周期向前回扫，找最近一次"抽中"的周期（上限 {@value #CUMULATIVE_SCAN_CAP} 个周期）；</li>
+ *   <li>命中的周期里选池：引导偏向（概率 q 走概念池）→ 否则以 {@code wild_chance} 掷大池、
+ *       其余走"本方块所属全部语义池的并集"；两者都只有一个可用时直接用它，不消耗随机步；</li>
+ *   <li>在选中池里按<b>源方块的形态类</b>取候选，用确定性索引选中，再做状态迁移。</li>
+ * </ol>
+ * 每一步消耗的随机步数都是 (源方块, 形态类, 配置) 的纯函数，所以两端永远同步推进；
+ * 唯一要求是 {@code wild_chance} 这类配置在两端一致（SERVER 配置会同步到客户端）。
  */
 public final class MutationHelper {
-    /** 累积转换回退扫描的上限（周期数）。超出视为"从未抽中"，概率上已可忽略。 */
-    private static final int CUMULATIVE_SCAN_CAP = 128;
+
+    /**
+     * 累积转换回退扫描的上限（周期数）。超出视为"从未抽中"，概率上已可忽略。
+     * <p>
+     * 这个常数同时是<b>出生周期记录的剪枝地平线</b>：比"当前周期 − 该上限"更早的诞生记录
+     * 对结果没有任何影响（扫描本来就够不到），因此可以从持久化表里安全删除。
+     */
+    public static final int CUMULATIVE_SCAN_CAP = 128;
 
     private MutationHelper() {
     }
@@ -40,110 +62,118 @@ public final class MutationHelper {
     }
 
     /**
-     * 计算某方块在"单个周期"的突变目标（无记忆，抽不中就回原方块）。
-     * 有记忆的累积转换请走 {@link #getVisibleTarget}。
-     * 池为空时返回原方块；概率 roll 使用同一确定性种子，两端结果一致。
+     * 统一的方块识别函数：生存破坏、创造中键选取、右键交互、渲染预览、锚固化共用。
+     * 受硬保护的位置、非转换源、以及没抽中的情况都返回原方块。
+     *
+     * @param index       预计算的突变查表（本维度的语义池 / 大池 / 源门控 / 形态类）
+     * @param chance      当前阶段的每周期命中概率
+     * @param bias        引导偏向（引导模型的概念邻域）
+     * @param protection  保护形态
+     * @param birthPeriod 诞生周期；{@code < 0} 表示世界原生方块
      */
-    public static BlockState getTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex, List<Block> pool, double probability) {
-        if (pool.isEmpty() || probability <= 0.0) {
-            return original;
+    public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed, long periodIndex,
+                                     MutationIndex index, double chance, GuidedBias bias,
+                                     Protection protection, long birthPeriod) {
+        if (protection.hard() || chance <= 0.0 || index == null || index.isEmpty()) {
+            return source;
         }
-        long seed = seedFor(pos, worldSeed, periodIndex);
-        RandomSource random = RandomSource.create(seed);
-        if (probability < 1.0 && random.nextDouble() >= probability) {
-            return original;
-        }
-        return pool.get(random.nextInt(pool.size())).defaultBlockState();
-    }
-
-    /**
-     * 统一的方块识别函数：生存破坏、创造中键选取、客户端预览共用。
-     * 受稳定锚保护的方块一律返回原方块（不转换、不显示幽灵）。
-     * {@code bias} 为引导偏向（方案 A）：概念内成员抽中突变时，以 q 偏向概念邻域。
-     * {@code protection} 为保护形态（硬保护直接返回原方块；软保护按周期掷"失守"骰子）。
-     */
-    public static BlockState getVisibleTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
-                                              List<Block> pool, double probability, GuidedBias bias,
-                                              Protection protection, long birthPeriod) {
-        if (protection.hard()) {
-            return original;
-        }
-        // 玩家放置的方块：从"放置周期 + 1"才开始崩坏，放置瞬间保持原方块。
+        // 玩家放置/转换过的方块：从"诞生周期 + 1"才开始崩坏，放置瞬间保持原方块。
         long fromPeriod = birthPeriod >= 0 ? birthPeriod + 1 : 0;
         if (periodIndex < fromPeriod) {
-            return original;
+            return source;
         }
-        return cumulativeTarget(original, pos, worldSeed, periodIndex, pool, probability, bias, protection, fromPeriod);
-    }
 
-    /** 兼容旧调用（无引导偏向，等价于完全走全局池）。 */
-    public static BlockState getVisibleTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
-                                              List<Block> pool, double probability, boolean isProtected,
-                                              long birthPeriod) {
-        return getVisibleTarget(original, pos, worldSeed, periodIndex, pool, probability,
-                GuidedBias.NONE, isProtected ? Protection.HARD : Protection.NONE, birthPeriod);
-    }
-
-    /**
-     * 有记忆的累积转换（阶段1/2 与阶段3 的方块部分）：
-     * 从当前周期向前回退，找到最近一次"抽中突变"的周期，返回该周期的目标；
-     * 抽中前的周期之间状态保持不变——未抽中的方块保留上一次材质，而不是回退原方块。
-     * 命中条件即阶段概率（0.1/0.6/1.0）：每周期以该概率掷骰，抽中换新材质，
-     * 未抽中保留上次材质，实现世界随周期逐渐积累崩坏。
-     * 注意：阶段切换（含 /focaldecay days 指令）会改变命中概率，使"最近抽中周期"
-     * 整体前移/后移，已失焦方块的目标材质随之重排——这是预期的确定性行为。
-     * 服务端与客户端共用同一公式，保证预览与真实转换一致。
-     */
-    private static BlockState cumulativeTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex,
-                                               List<Block> pool, double probability, GuidedBias bias,
-                                               Protection protection, long fromPeriod) {
-        if (pool.isEmpty() || probability <= 0.0) {
-            return original;
+        Block sourceBlock = source.getBlock();
+        if (!index.isSource(sourceBlock)) {
+            return source;
         }
+        // 含水方块（waterlogged）不参与失焦（2026-09-16）。
+        // 看到的表象是"那一格的水不见了"：幽灵替换会把方块状态整个换掉，而 SectionCompiler 的
+        // 流体渲染读的正是被替换后的状态（`blockstate.getFluidState()`），干燥幽灵的流体为空，
+        // 于是水面出现一个 1 格缺口。同属"幽灵状态泄漏到本该用真实状态的环节"。
+        //
+        // 按状态而不是按方块排除是必须的：StairBlock / SlabBlock / FenceBlock / WallBlock /
+        // TrapDoorBlock / IronBarsBlock 全都实现了 waterlogged，按方块排除等于整个形态类功能作废。
+        // 用 getFluidState().isEmpty() 而不是直接查 waterlogged 属性，是为了把"任何带流体的状态"
+        // （含模组方块）一并覆盖。
+        if (!source.getFluidState().isEmpty()) {
+            return source;
+        }
+        int shapeClass = index.shapeClass(sourceBlock);
+        if (shapeClass == ShapeClasses.NONE) {
+            return source;
+        }
+
+        ClassifiedPool wild = index.wild();
+        int localCount = index.localCount(sourceBlock);
+        int wildCount = wild.count(shapeClass);
+        if (localCount == 0 && wildCount == 0) {
+            return source;
+        }
+        double wildChance = FocalDecayConfig.WILD_CHANCE.get();
+        double softChance = protection.softChance();
+        boolean biased = bias != null && bias.active(shapeClass);
+        int conceptCount = biased ? bias.pool().count(shapeClass) : 0;
+
         long span = periodIndex - fromPeriod + 1;
         int cap = (int) Math.min(span, CUMULATIVE_SCAN_CAP);
         for (int back = 0; back < cap; back++) {
             long period = periodIndex - back;
-            long seed = seedFor(pos, worldSeed, period);
-            RandomSource random = RandomSource.create(seed);
-            if (protection.softChance() > 0.0 && random.nextDouble() < protection.softChance()) {
-                continue; // 该周期被语义锁定稳定住，保持原方块并继续回扫
+            long state = MutationRandom.seed(pos, worldSeed, period);
+
+            if (softChance > 0.0) {
+                state = MutationRandom.next(state);
+                if (MutationRandom.toDouble(state) < softChance) {
+                    continue; // 该周期被语义锁定稳定住，保持原方块并继续回扫
+                }
             }
-            if (random.nextDouble() >= probability) {
-                continue;
+            state = MutationRandom.next(state);
+            if (MutationRandom.toDouble(state) >= chance) {
+                continue; // 该周期没抽中
             }
-            List<Block> chosen = pool;
-            if (bias.active() && random.nextDouble() < bias.q() && !bias.conceptPool().isEmpty()) {
-                chosen = bias.conceptPool();
+
+            // 命中：先看引导偏向，再在"局部并集 / 大池"之间二选一。
+            ClassifiedPool tagPool = null;
+            boolean useLocal = false;
+            if (biased) {
+                state = MutationRandom.next(state);
+                if (MutationRandom.toDouble(state) < bias.q()) {
+                    tagPool = bias.pool();
+                }
             }
-            return chosen.get(random.nextInt(chosen.size())).defaultBlockState();
+            if (tagPool == null) {
+                if (localCount > 0 && wildCount > 0) {
+                    state = MutationRandom.next(state);
+                    useLocal = MutationRandom.toDouble(state) >= wildChance;
+                } else {
+                    // 只有一边可用时直接用它：不消耗随机步，但这条规则本身是纯函数，两端一致。
+                    useLocal = localCount > 0;
+                }
+            }
+
+            state = MutationRandom.next(state);
+            Block target;
+            if (tagPool != null) {
+                target = tagPool.get(shapeClass, MutationRandom.nextInt(state, conceptCount));
+            } else if (useLocal) {
+                target = index.local(sourceBlock, MutationRandom.nextInt(state, localCount));
+            } else {
+                target = wild.get(shapeClass, MutationRandom.nextInt(state, wildCount));
+            }
+            // 抽到自己也是合法结果（自环），与原实现的"抽中即定格"语义一致，不再重抽。
+            return MutationStateMapper.get().map(source, target);
         }
-        return original;
+        return source;
     }
 
-    /** SplitMix64 雪崩混合：微小输入变化（如周期 +1）也能让输出完全发散。 */
+    /** SplitMix64 雪崩混合（保留旧入口，王座结构与 tools/structuregen/ThronePos.java 依赖它）。 */
     public static long mix64(long z) {
-        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
-        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
-        return z ^ (z >>> 31);
+        return MutationRandom.mix64(z);
     }
 
-    /**
-     * 确定性种子（设计大纲 §5.1 修订，2026-08-20）：
-     * 三个坐标分量分别乘不同的大常数后异或，再经 SplitMix64 雪崩混合。
-     * <p>
-     * 旧公式 pos.asLong() ^ worldSeed ^ period 中 y 只占最低 12 位，与 period/worldSeed
-     * 的低位异或纠缠，再经 LegacyRandomSource 48 位截断 + 低概率累积回退扫描后，
-     * 纵向（y 变化）的熵会被吃掉——实测阶段1（概率 0.1）一列 32 格只有 3 个不同目标、
-     * 相邻 21 格相同。改为坐标独立哈希后，纵向与平面随机性一致（实测 27~28/32 不同）。
-     */
-    private static long seedFor(BlockPos pos, long worldSeed, long period) {
-        long h = (long) pos.getX() * 0x9E3779B97F4A7C15L
-                ^ (long) pos.getY() * 0xC2B2AE3D27D4EB4FL
-                ^ (long) pos.getZ() * 0x165667B19E3779F9L
-                ^ worldSeed
-                ^ period;
-        return mix64(h);
+    /** 计算种子（供外部复用的确定性随机源）。 */
+    public static long seed(BlockPos pos, long worldSeed, long periodIndex) {
+        return MutationRandom.seed(pos, worldSeed, periodIndex);
     }
 
     /**
@@ -179,26 +209,6 @@ public final class MutationHelper {
             case 3 -> FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE3.get();
             default -> FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE1.get();
         };
-    }
-
-    /**
-     * 方块是否可作为当前阶段的"转换源"（设计大纲 §6.3）：
-     * 2026-08-21 修订：所有阶段仅允许"完整立方体碰撞"的方块（isCollisionShapeFullBlock），
-     * 剔除门/楼梯/栅栏/玻璃板等模型不完整的方块（此前阶段2+ 的
-     * "非完整但有碰撞箱"扩展会让它们进入转换源）；
-     * 空气、带方块实体、黑名单方块始终排除。
-     * {@code stage} 参数保留（供后续规则扩展），当前不影响判定。
-     */
-    public static boolean isConversionSource(BlockState state, BlockGetter level, BlockPos pos, int stage) {
-        if (state.isAir() || state.hasBlockEntity() || state.is(ModTags.Blocks.CONVERSION_BLACKLIST)) {
-            return false;
-        }
-        return state.isCollisionShapeFullBlock(level, pos);
-    }
-
-    /** 计算种子（供外部复用的确定性随机源）。 */
-    public static long seed(BlockPos pos, long worldSeed, long periodIndex) {
-        return seedFor(pos, worldSeed, periodIndex);
     }
 
     /** 当前周期索引：gameTick / conversionInterval。 */

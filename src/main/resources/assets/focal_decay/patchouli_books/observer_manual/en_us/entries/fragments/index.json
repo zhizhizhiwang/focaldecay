@@ -12,7 +12,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "Each fragment corresponds to an event: at some moment someone performed some action, and only afterwards did that fragment appear in the world.$(br2)Fragments are records; each of them happens once.",
+      "text": "Each fragment corresponds to an event: at some moment someone did something, and only afterwards did that fragment appear in the world.$(br2)Fragments are records; each of them happens once.",
       "title": "Archive note"
     }
   ]

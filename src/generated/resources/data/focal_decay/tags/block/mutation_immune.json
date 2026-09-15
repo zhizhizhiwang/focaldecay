@@ -1,0 +1,26 @@
+{
+  "values": [
+    "focal_decay:observer_core",
+    "focal_decay:throne_block",
+    "minecraft:bedrock",
+    "minecraft:barrier",
+    "minecraft:light",
+    "minecraft:structure_void",
+    "minecraft:command_block",
+    "minecraft:chain_command_block",
+    "minecraft:repeating_command_block",
+    "minecraft:structure_block",
+    "minecraft:jigsaw",
+    "minecraft:moving_piston",
+    "minecraft:end_portal",
+    "minecraft:end_gateway",
+    "minecraft:nether_portal",
+    "minecraft:reinforced_deepslate",
+    "minecraft:budding_amethyst",
+    "minecraft:spawner",
+    "minecraft:trial_spawner",
+    "minecraft:vault",
+    "minecraft:water",
+    "minecraft:lava"
+  ]
+}

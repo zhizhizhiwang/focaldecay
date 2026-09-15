@@ -13,11 +13,13 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  * 在区块编译时把 targetCache 中的"突变目标"方块状态替换进网格，
  * 实现客户端预览（只改渲染、不改真实世界）。
  * <p>
- * 只劫持 {@code RenderChunkRegion.getBlockState} 一处即可覆盖编译期的全部读取：
+ * <b>这一处只覆盖"方块循环自己那一次读取"</b>（决定这个位置画成什么），
+ * 覆盖范围包括方块模型、流体、以及 {@code visgraph.setOpaque} 的透明性标记。它<b>不</b>覆盖：
  * <ul>
- *   <li>方块模型与流体渲染；</li>
- *   <li>邻居面的剔除判定 —— {@code Block.shouldRenderFace} 内部走 {@code level.getBlockState}，
- *       而这里的 {@code level} 就是 {@link RenderChunkRegion}。</li>
+ *   <li><b>面剔除的邻居读取</b>——那在 {@code Block#shouldRenderFace} 内部，
+ *       由 {@link BlockShouldRenderFaceMixin} 单独接管。漏掉它会导致"网格用幽灵、剔除用真实"，
+ *       方块突变成玻璃后旁边方块朝它的那一面被误剔，看起来像破了个洞（2026-09-16 修复）。</li>
+ *   <li>环境光遮蔽的邻居读取——有意保留真实状态，见 {@link BlockShouldRenderFaceMixin} 的说明。</li>
  * </ul>
  * <p>
  * 曾短暂加过一处 {@code BlockState.isSolidRender} 的重定向（想让"雪片突变成完整方块"后也能参与剔除），

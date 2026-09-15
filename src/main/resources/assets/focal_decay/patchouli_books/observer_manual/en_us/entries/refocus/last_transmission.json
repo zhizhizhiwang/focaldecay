@@ -13,11 +13,11 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Cheng:$() Actually, Aaron, I came to say goodbye to you too.$(br2)$(bold)Aaron:$() ...What's happened?$(br2)$(bold)Cheng:$() Nothing, it's just... this console of mine can't send OBSR-3 to you. It's missing a firmware. I have to physically connect my console to another transmitter."
+      "text": "$(bold)Cheng:$() Actually, Aaron, I came to say goodbye to you too.$(br2)$(bold)Aaron:$() ...What's happened?$(br2)$(bold)Cheng:$() Nothing. This console of mine can't send OBSR-3 to you. It's missing a firmware. I have to physically connect it to another transmitter."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Cheng:$() Don't worry, it isn't far, it's right next door, and it isn't complicated. I just need to run a cable.$(br2)$(bold)Aaron:$() ...But that isn't within your OBSR-2's parameters, is it?$(br2)$(bold)Cheng:$() No..."
+      "text": "$(bold)Cheng:$() Don't worry. It isn't far, it's right next door, and I just need to run a cable.$(br2)$(bold)Aaron:$() ...But that isn't within your OBSR-2's parameters, is it?$(br2)$(bold)Cheng:$() No..."
     },
     {
       "type": "patchouli:text",
@@ -25,15 +25,19 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Aaron:$() Actually, my situation is the same. I'll defocus too. I need to carry OBSR-3 to the Throne, and that is also outside my OBSR-2's parameters.$(br2)$(bold)Cheng:$() Then it looks like neither of us will see the dawn."
+      "text": "$(bold)Aaron:$() Actually, my situation is the same. I have to carry OBSR-3 to the Throne. That is also outside my OBSR-2's parameters.$(br2)$(bold)Cheng:$() Then it looks like neither of us will see the dawn."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Cheng:$() No need, Aaron. The end of all this is already in our hands. There's no point putting on a little internal drama now.$(br2)$(bold)Cheng:$() Then let's leave it at that. It was good to know you, Aaron.$(br2)$(bold)Aaron:$() And you, Cheng. And you."
+      "text": "$(bold)Aaron:$() Do you need to wait a while? We still have plenty of time.$(br2)$(bold)Cheng:$() No need, Aaron. The end of all this is already in our hands; there's no point putting on a little internal drama now.$(br2)$(bold)Cheng:$() No, wait. Give me a few minutes. I'm going to find myself a dose of adrenaline. This is a contest of hand speed, after all."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Cheng:$() Then let's go. You and me. I'll send you the OBSR-3 data, and then you'll carry it to the Throne.$(br2)$(bold)Cheng:$() And then the world will continue to be beautiful."
+      "text": "$(bold)Aaron:$() Take your time.$(br2)$(bold)Cheng:$() Done. I'm ready. Then let's leave it at that. It was good to know you, Aaron.$(br2)$(bold)Aaron:$() And you, Cheng. And you."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Cheng:$() Are you ready too?$(br2)$(bold)Aaron:$() Ready.$(br2)$(bold)Cheng:$() Then let's go. You and me. I'll send you the OBSR-3 data, and then you'll carry it to the Throne.$(br2)And then the world will stay beautiful."
     }
   ]
 }

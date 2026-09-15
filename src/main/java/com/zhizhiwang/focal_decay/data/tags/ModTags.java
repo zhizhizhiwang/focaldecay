@@ -22,16 +22,34 @@ public final class ModTags {
     }
 
     public static class Blocks {
-        public static final TagKey<Block> GLOBAL_MUTATION_POOL =
-                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "global_mutation_pool"));
-        public static final TagKey<Block> NETHER_MUTATION_POOL =
-                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "nether_mutation_pool"));
-        public static final TagKey<Block> END_MUTATION_POOL =
-                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "end_mutation_pool"));
-        public static final TagKey<Block> CONVERSION_BLACKLIST =
-                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "conversion_blacklist"));
+        // ---- 突变系统（2026-09-15 重写：池 / 形态类 / 源，全部由数据包标签决定）----
+
+        /** 大池：以 {@code wild_chance} 的概率整枝命中，用来保证长尾随机性（旧 global_mutation_pool）。 */
+        public static final TagKey<Block> MUTATION_POOL_WILD = mutationPool("wild");
+        public static final TagKey<Block> MUTATION_POOL_WILD_NETHER = mutationPool("wild_nether");
+        public static final TagKey<Block> MUTATION_POOL_WILD_END = mutationPool("wild_end");
+
+        /** 完全豁免：既不做突变源，也不会被抽成目标（旧 conversion_blacklist）。 */
+        public static final TagKey<Block> MUTATION_IMMUNE =
+                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "mutation_immune"));
+
+        /** 额外源：会失焦，但永远不会被抽成目标（单向，不会造成冻结方块）。 */
+        public static final TagKey<Block> MUTATION_SOURCE_EXTRA =
+                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "mutation_source_extra"));
+
+        /** 稳定锚免疫：观测者核心不可被转换。 */
         public static final TagKey<Block> ANCHOR_PROTOTYPE_IMMUNE =
                 BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "anchor_prototype_immune"));
+
+        /** 突变池标签：{@code focal_decay:mutation_pool/<name>}。 */
+        public static TagKey<Block> mutationPool(String name) {
+            return BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "mutation_pool/" + name));
+        }
+
+        /** 形态类标签：{@code focal_decay:shape_class/<name>}。目标必须与源同形态类。 */
+        public static TagKey<Block> shapeClass(String name) {
+            return BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "shape_class/" + name));
+        }
 
         // 引导模型概念标签（方案 A，2026-08-21）：训练完成时按覆盖率指认概念
         public static final TagKey<Block> CONCEPT_WOOD =
@@ -60,15 +78,15 @@ public final class ModTags {
             return CURATED_CONCEPTS.contains(tag);
         }
 
-        /** 维度对应的突变池：下界/末地用专属池，其余维度（含未知模组维度）回退主世界全局池。 */
+        /** 维度对应的大池：下界/末地用专属池，其余维度（含未知模组维度）回退主世界大池。 */
         public static TagKey<Block> poolForDimension(ResourceKey<Level> dimension) {
             if (dimension == Level.NETHER) {
-                return NETHER_MUTATION_POOL;
+                return MUTATION_POOL_WILD_NETHER;
             }
             if (dimension == Level.END) {
-                return END_MUTATION_POOL;
+                return MUTATION_POOL_WILD_END;
             }
-            return GLOBAL_MUTATION_POOL;
+            return MUTATION_POOL_WILD;
         }
     }
 

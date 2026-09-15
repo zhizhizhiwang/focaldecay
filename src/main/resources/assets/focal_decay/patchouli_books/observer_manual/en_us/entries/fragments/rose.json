@@ -7,12 +7,12 @@
   "pages": [
     {
       "type": "patchouli:text",
-      "text": "$(italic)\"A rose, is a rose, is a rose...\"$()$(br2)This record is taken from the previous observer's final words. The original audio survives, but at present only this line is fully intelligible.$(br2)$(bold)Record content:$() repeated semantic confirmation of one and the same thing.",
+      "text": "$(italic)\"A rose, is a rose, is a rose...\"$()$(br2)Taken from the previous observer's final words. The original audio survives, and only this line is fully intelligible.",
       "title": "Fragment: Rose"
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Event:$() someone in the previous iteration completed a classifier training for the first time.$(br2)$(bold)Collection:$() obtained on completing any model training for the first time in the $(l)Training Terminal$().$(br2)Recorded only once per recipient."
+      "text": "$(bold)Event:$() someone in the previous iteration completed a classifier training for the first time.$(br2)$(bold)Collection:$() obtained on completing model training for the first time at the Training Terminal.$(br2)Recorded only once per holder."
     }
   ]
 }

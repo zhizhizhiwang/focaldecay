@@ -5,6 +5,8 @@ import com.zhizhiwang.focal_decay.attachment.BreakData;
 import com.zhizhiwang.focal_decay.attachment.ModAttachments;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.item.ModItems;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
+import com.zhizhiwang.focal_decay.network.ModNetwork;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -82,9 +84,9 @@ public class InteractionHandler {
 
         int stage = currentStage(serverLevel);
 
-        // 带方块实体的方块、空气、黑名单、非本阶段转换源：不参与转换
-        if (!MutationHelper.isConversionSource(state, serverLevel, pos, stage)) {
-            breakData.clear(); // 非转换源（门/楼梯/栅栏等）：清掉陈旧锁定，避免掉落泄漏
+        // 带方块实体的方块、空气、豁免方块、不参与突变的形态类：不参与转换
+        if (!MutationIndexes.get(serverLevel.dimension()).isSource(state.getBlock())) {
+            breakData.clear(); // 非转换源（门/楼梯/栅栏等未登记形态类）：清掉陈旧锁定，避免掉落泄漏
             return;
         }
 
@@ -92,6 +94,8 @@ public class InteractionHandler {
         long periodIndex = MutationHelper.blockPeriod(serverLevel.getGameTime());
         BlockState target = MutationTargets.resolveServer(serverLevel, pos, state);
         breakData.start(target, periodIndex, pos);
+        trace("left-click " + pos.toShortString() + " stage=" + stage + " real=" + id(state)
+                + " target=" + id(target));
     }
 
     /**
@@ -126,12 +130,13 @@ public class InteractionHandler {
         BlockPos pos = event.getPos();
         BlockState state = serverLevel.getBlockState(pos);
         int stage = currentStage(serverLevel);
-        boolean conversionSource = MutationHelper.isConversionSource(state, serverLevel, pos, stage);
+        boolean conversionSource = MutationIndexes.get(serverLevel.dimension()).isSource(state.getBlock());
         BlockState target = conversionSource ? MutationTargets.resolveServer(serverLevel, pos, state) : state;
         boolean convert = conversionSource && target.getBlock() != state.getBlock();
 
         // 诊断日志一律用 ASCII：控制台是 GBK，写中文会变成乱码
         trace("right-click " + pos.toShortString() + " real=" + id(state)
+                + " stage=" + stage
                 + " hand=" + event.getHand() + " creative=" + player.isCreative()
                 + " observerOnline=" + !mutationsActive(serverLevel)
                 + " conversionSource=" + conversionSource
@@ -143,6 +148,13 @@ public class InteractionHandler {
 
         // 先真实转换（flag 3 = 通知客户端 + 触发邻块更新），再让目标方块接管这次右键
         serverLevel.setBlock(pos, target, 3);
+
+        // 转换后给方块重新记一个"诞生周期"：目标现在是这个位置的新身份，
+        // 本周期内不再按新身份重掷（否则客户端下一帧就会显示下一个目标，
+        // 表现为"右键一次变一次"的抖动），下一个周期才继续漂移。
+        long birthPeriod = MutationEventHandler.currentPeriodIndex(serverLevel);
+        MutationPoolManager.get(serverLevel).setBlockBirthPeriod(pos, birthPeriod);
+        ModNetwork.sendBirthPeriod(serverLevel, pos, birthPeriod);
 
         REDISPATCHING.set(true);
         try {

@@ -3,17 +3,18 @@ package com.zhizhiwang.focal_decay.mutation;
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
-import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
+import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -22,27 +23,43 @@ import net.minecraft.world.level.storage.DimensionDataStorage;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * 维度级突变池管理器（设计大纲 §4.2 / §4.3）。
- * 存储：有效原型机效果（位置 + 半径 + 模型数据）、方块诞生周期、全局池缓存。
- * 提供 getGuidedBias(pos, state, stage, registries) 计算引导偏向；isProtected 由原型机模型效果决定。
+ * 维度级原型机效果与方块诞生周期（设计大纲 §4.2 / §4.3）。
+ * <p>
+ * 2026-09-15 起本类<b>不再持有全局突变池</b>：池完全由数据包标签决定，运行时形态是
+ * {@link MutationIndex}（见 {@code mutation.pool} 包），因此这里只剩两件真正需要持久化的事：
+ * 有效原型机效果（瞬态，由方块实体在加载/换模时重建）与玩家放置方块的诞生周期。
+ * <p>
+ * 模型效果在<b>登记时</b>就把两样东西算好，之后逐方块查询不再碰标签和字符串：
+ * <ul>
+ *   <li>{@code trainedBlocks}——语义锁定的"被训练目标"集合。原来每方块都要
+ *       {@code getKey(state.getBlock()).toString()} 再把字符串拿去 {@code List.contains}，
+ *       等于在扫描热路径上逐方块分配一个字符串；</li>
+ *   <li>{@code conceptPool}——引导模型的概念邻域（按形态类切分、缓存好的候选池）。</li>
+ * </ul>
  */
 public class MutationPoolManager extends SavedData {
     private static final String DATA_NAME = FocalDecay.MODID + "_mutation_pool";
-    private static final String TAG_POOL_VERSION = "PoolVersion";
     private static final String TAG_BIRTHS = "Births";
 
-    /** 有效原型机效果：中心、切比雪夫半径、模型训练数据（瞬态，由方块实体在加载/换模时重建）。 */
-    public record PrototypeEffect(BlockPos center, int radius, ObserverModelData data) {
+    /**
+     * 有效原型机效果：中心、切比雪夫半径、模型训练数据，外加两份登记期预算好的查表。
+     *
+     * @param trained 语义锁定的被训练方块（O(1) 命中判定）
+     * @param concept 引导模型的概念邻域（null = 非引导模型或概念无效）
+     */
+    public record PrototypeEffect(BlockPos center, int radius, ObserverModelData data,
+                                  Set<Block> trained, ClassifiedPool concept) {
     }
 
     private final List<PrototypeEffect> prototypeEffects = new ArrayList<>();
     /** 玩家放置方块的"诞生周期"（位置 -> 放置时的 periodIndex）。 */
     private final Map<BlockPos, Long> blockBirthPeriods = new HashMap<>();
-    private MutationPool globalPool = MutationPool.empty(0);
 
     // ---- 工厂 ----
     public static final Factory<MutationPoolManager> FACTORY = new Factory<>(
@@ -67,7 +84,6 @@ public class MutationPoolManager extends SavedData {
             CompoundTag entry = birthsTag.getCompound(i);
             manager.blockBirthPeriods.put(BlockPos.of(entry.getLong("Pos")), entry.getLong("Period"));
         }
-        manager.globalPool = MutationPool.empty(tag.getLong(TAG_POOL_VERSION));
         return manager;
     }
 
@@ -81,7 +97,6 @@ public class MutationPoolManager extends SavedData {
             birthsTag.add(birth);
         }
         tag.put(TAG_BIRTHS, birthsTag);
-        tag.putLong(TAG_POOL_VERSION, globalPool.version());
         return tag;
     }
 
@@ -93,18 +108,43 @@ public class MutationPoolManager extends SavedData {
     /**
      * 原型机模型变化时更新效果：有有效模型（非空白）则加入/更新，否则移除。
      * 模型半径：语义锁定/引导 = 基础半径，生物稳定 +4，完全稳定固定 32。
+     * 登记期顺带把该模型用得上的查表算好（被训练方块集合、概念邻域池）。
      */
-    public void updatePrototypeEffect(BlockPos pos, ItemStack modelStack) {
+    public void updatePrototypeEffect(ServerLevel level, BlockPos pos, ItemStack modelStack) {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
         ObserverModelData data = modelStack.getItem() instanceof ObserverModelItem
                 ? ObserverModelItem.getData(modelStack) : null;
-        if (data != null && !ObserverModelData.TYPE_BLANK.equals(data.type())) {
-            prototypeEffects.add(new PrototypeEffect(pos.immutable(), radiusFor(data), data));
+        if (data == null || ObserverModelData.TYPE_BLANK.equals(data.type())) {
+            return;
         }
+        MutationIndex index = MutationIndexes.get(level.dimension());
+        prototypeEffects.add(new PrototypeEffect(pos.immutable(), radiusFor(data), data,
+                parseTrained(data.trainedTargets()), conceptPool(data, index)));
     }
 
     public void removePrototypeEffect(BlockPos pos) {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
+    }
+
+    private static Set<Block> parseTrained(List<String> trainedTargets) {
+        Set<Block> blocks = new HashSet<>();
+        for (String id : trainedTargets) {
+            try {
+                blocks.add(BuiltInRegistries.BLOCK.get(ResourceLocation.parse(id)));
+            } catch (Exception ignored) {
+                // 非法 ID 忽略（与训练期一致）
+            }
+        }
+        return blocks;
+    }
+
+    /** 引导模型的概念邻域池；非引导模型或概念无效时返回 null。 */
+    private static ClassifiedPool conceptPool(ObserverModelData data, MutationIndex index) {
+        if (!ObserverModelData.TYPE_GUIDED.equals(data.type()) || data.concept().isEmpty()) {
+            return null;
+        }
+        ClassifiedPool pool = index.tagged(data.concept());
+        return pool.isEmpty() ? null : pool;
     }
 
     /**
@@ -168,8 +208,7 @@ public class MutationPoolManager extends SavedData {
                 return MutationHelper.Protection.HARD; // 已完成候选 = 完全稳定
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)) {
-                String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
-                if (!effect.data().trainedTargets().contains(id)) {
+                if (!effect.trained().contains(state.getBlock())) {
                     continue;
                 }
                 if (stage >= 3) {
@@ -195,32 +234,28 @@ public class MutationPoolManager extends SavedData {
     /**
      * 计算位置处的引导偏向（方案 A，2026-08-21，PROXYAI §4.2）：
      * 遍历引导模型效果，取"源方块是概念成员且 q 最大"者生效；
-     * 无引导则返回 {@link GuidedBias#NONE}，目标完全走全局池。
+     * 无引导则返回 {@link GuidedBias#NONE}。
+     * <p>
+     * 概念邻域与成员判定都取自效果里登记期算好的 {@link ClassifiedPool}，
+     * 逐方块只做一次 {@code boolean[]} 查表和一次半径比较。
      */
     public GuidedBias getGuidedBias(BlockPos pos, BlockState original, int stage) {
         GuidedBias best = null;
+        double bestQ = 0.0;
         for (PrototypeEffect effect : prototypeEffects) {
-            if (!withinRadius(pos, effect) || !ObserverModelData.TYPE_GUIDED.equals(effect.data().type())) {
+            ClassifiedPool concept = effect.concept();
+            if (concept == null || !withinRadius(pos, effect)) {
                 continue;
             }
-            String concept = effect.data().concept();
-            if (concept.isEmpty()) {
-                continue;
-            }
-            if (!GuidedConcept.isMember(original.getBlock(), concept)) {
+            if (!concept.contains(original.getBlock())) {
                 continue;
             }
             double q = GuidedConcept.effectiveQ(effect.data().stabilityStrength(), stage);
-            if (q <= 0.0) {
+            if (q <= bestQ) {
                 continue;
             }
-            List<Block> conceptPool = GuidedConcept.neighborhood(concept);
-            if (conceptPool.isEmpty()) {
-                continue;
-            }
-            if (best == null || q > best.q()) {
-                best = new GuidedBias(conceptPool, q);
-            }
+            bestQ = q;
+            best = new GuidedBias(concept, q);
         }
         return best == null ? GuidedBias.NONE : best;
     }
@@ -253,30 +288,25 @@ public class MutationPoolManager extends SavedData {
         return blockBirthPeriods;
     }
 
-    // ---- 全局池 ----
-    public MutationPool getGlobalPool() {
-        return globalPool;
-    }
-
-    public void setGlobalPool(MutationPool pool) {
-        this.globalPool = pool;
-        setDirty();
-    }
-
-    /** 从标签加载全局池（服务端启动/维度加载时调用）。 */
-    public void reloadGlobalPool(ServerLevel level) {
-        List<Block> blocks = new ArrayList<>();
-        TagKey<Block> tag = ModTags.Blocks.poolForDimension(level.dimension());
-        level.registryAccess().lookupOrThrow(Registries.BLOCK)
-                .get(tag)
-                .ifPresent(holders -> holders.forEach(holder -> blocks.add(holder.value())));
-        if (blocks.isEmpty() && tag != ModTags.Blocks.GLOBAL_MUTATION_POOL) {
-            // 专属池为空时回退主世界全局池
-            level.registryAccess().lookupOrThrow(Registries.BLOCK)
-                    .get(ModTags.Blocks.GLOBAL_MUTATION_POOL)
-                    .ifPresent(holders -> holders.forEach(holder -> blocks.add(holder.value())));
+    /**
+     * 剪枝（2026-09-15）：诞生周期只影响"从诞生周期 + 1 到当前周期"的回扫，
+     * 而回扫本身有 {@link MutationHelper#CUMULATIVE_SCAN_CAP} 的上限，
+     * 因此比"当前周期 − 上限"更早的记录<b>在语义上完全等价于不存在</b>。
+     * 删掉它们既不改变任何结果，又让这张随建造无上限增长的持久化表重新有界。
+     *
+     * @return 实际删除的条目数
+     */
+    public int pruneBirthPeriods(long currentPeriod) {
+        long horizon = currentPeriod - MutationHelper.CUMULATIVE_SCAN_CAP;
+        if (horizon <= 0 || blockBirthPeriods.isEmpty()) {
+            return 0;
         }
-        this.globalPool = MutationPool.of(blocks, globalPool.version() + 1);
-        setDirty();
+        int before = blockBirthPeriods.size();
+        blockBirthPeriods.values().removeIf(period -> period < horizon);
+        int removed = before - blockBirthPeriods.size();
+        if (removed > 0) {
+            setDirty();
+        }
+        return removed;
     }
 }

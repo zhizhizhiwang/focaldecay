@@ -7,12 +7,12 @@
   "pages": [
     {
       "type": "patchouli:text",
-      "text": "$(italic)\"It is not something that can be described in language.\"$()$(br2)This record comes from an exchange between O5-1 and Site-CN-25 Director Cheng Jiuzhang. Asked what the Throne actually is, O5-1 answered: I have seen the Throne. I even touched it, briefly, with my fingertips. But it is not something that can be described in language.",
+      "text": "$(italic)\"It is not something that can be described in language.\"$()$(br2)From an exchange between O5-1 and Site-CN-25 Director Cheng Jiuzhang. What Cheng asked was: what exactly is the Throne.",
       "title": "Fragment: Throne"
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Event:$() someone in the previous iteration stood before the Throne for the first time - and confirmed that it cannot be described.$(br2)$(bold)Collection:$() kept in the archive container at the base of the $(l)End Throne$(). Fixed storage, not subject to random selection. Reaching the site is enough."
+      "text": "$(bold)Event:$() someone in the previous iteration stood before the Throne for the first time, and confirmed that it cannot be described.$(br2)$(bold)Collection:$() kept in the archive container at the base of the $(bold)End Throne$(). Reaching the site is enough."
     }
   ]
 }

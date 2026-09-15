@@ -13,39 +13,39 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Procedure:$()$(br2)$(li)1. Place the prototype in the $(l)Training Terminal$() and choose OBSR-2 or OBSR-1 as the training direction in the field interface.$(br)$(li)2. The prototype can be taken out of the terminal and carried at any time.$(br)$(li)3. Right-click blocks or creatures with the prototype to record their readings into it.",
+      "text": "$(bold)Procedure:$()$(br2)$(li)1. Place the prototype in the $(bold)Training Terminal$() and choose OBSR-2 or OBSR-1 as the training direction.$(br)$(li)2. Take the prototype back out.$(br)$(li)3. Right-click blocks or creatures with the prototype to record their readings into it.",
       "title": "Procedure"
     },
     {
       "type": "patchouli:text",
-      "text": "$(li)4. Repeat recording until the record table is full or you judge it sufficient.$(br)$(li)5. Return the prototype to the terminal and choose \"Finish Training\".$(br2)The record table has a capacity limit; further records past it have no effect. Duplicate entries do not count.",
+      "text": "$(li)4. Repeat recording until the table is full or you judge it sufficient.$(br)$(li)5. Return the prototype to the terminal and choose \"Finish Training\".$(br2)The record table has a capacity limit. Duplicate entries do not count.",
       "title": "Procedure (cont.)"
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Concept resolution:$() On completion of training the terminal identifies a $(l)concept$() from the record table: the corpus tag with the highest coverage becomes that model's concept, and completeness q is computed.",
+      "text": "$(bold)Concept resolution:$() On completion of training the terminal identifies a $(bold)concept$() from the record table and computes completeness q. The concept is taken from the corpus tag with the highest coverage.",
       "title": "Concept Resolution"
     },
     {
       "type": "patchouli:text",
-      "text": "q = the number of entries in the record table belonging to that concept, divided by the total number of members of that concept.$(br2)When there are too few entries within the concept, the terminal judges it an $(l)incomplete classification$(): q = 0, the model is invalid, and it must be retrained."
+      "text": "q = the number of entries in the record table belonging to that concept, divided by the total number of members of that concept.$(br2)When there are too few entries within the concept, the terminal judges it an $(bold)incomplete classification$(): the model is invalid and must be retrained."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Appendix: Experiment Records$()$(br2)The following are three repeat runs of the same training set in the previous iteration. The record table held the same number of entries each time. \"Coverage\" is the q corresponding to the concept resolved in that run.",
+      "text": "$(bold)Appendix: Experiment Records$()$(br2)The following are three repeat runs of the same training set in the previous iteration. The record table held the same number of entries each time.",
       "title": "Appendix: Experiment Records"
     },
     {
       "type": "patchouli:text",
-      "text": "$(li)Record table: 8 entries, all members of one concept$(br)$(li)Coverage q: 0.25$(br)$(li)Note: model valid, guidance limited to that concept."
+      "text": "$(li)Record table: 8 entries, all members of one concept$(br)$(li)Completeness q: 0.25$(br)$(li)Note: model valid, guidance limited to that concept."
     },
     {
       "type": "patchouli:text",
-      "text": "$(li)Record table: 8 entries, 5 belonging to concept A and 3 to concept B$(br)$(li)Coverage q: 0.16$(br)$(li)Note: concept A is taken as it has the higher coverage; range is limited."
+      "text": "$(li)Record table: 8 entries, 5 belonging to concept A and 3 to concept B$(br)$(li)Completeness q: 0.16$(br)$(li)Note: concept A is taken as it has the higher coverage; range is limited."
     },
     {
       "type": "patchouli:text",
-      "text": "$(li)Record table: 8 entries across 6 concepts$(br)$(li)Coverage q: 0$(br)$(li)Note: judged an incomplete classification; model invalid."
+      "text": "$(li)Record table: 8 entries across 6 concepts$(br)$(li)Completeness q: 0$(br)$(li)Note: judged an incomplete classification; model invalid."
     },
     {
       "type": "patchouli:text",
@@ -53,7 +53,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Record retention:$() A trained model can be duplicated by recipe; the copy retains every record, the concept and q, for backup and distribution.$(br2)OBSR-3 is not among the models that can be duplicated."
+      "text": "$(bold)Record retention:$() A trained model can be duplicated by recipe; the copy retains every record, the concept and q.$(br2)OBSR-3 is not among the models that can be duplicated."
     }
   ]
 }

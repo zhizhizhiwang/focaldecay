@@ -34,6 +34,9 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.DoubleValue WEATHER_MUTATION_CHANCE_STAGE2;
     public static final ModConfigSpec.DoubleValue WEATHER_MUTATION_CHANCE_STAGE3;
     public static final ModConfigSpec.BooleanValue ENABLE_STAGE_SYSTEM;
+    public static final ModConfigSpec.DoubleValue WILD_CHANCE;
+    public static final ModConfigSpec.BooleanValue WILD_AUTO_INCLUDE;
+    public static final ModConfigSpec.BooleanValue ANCHOR_NORMALIZE_RANGE;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_CAPACITY;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_COST;
     public static final ModConfigSpec.IntValue TRAINING_MAX_TARGETS;
@@ -109,6 +112,21 @@ public final class FocalDecayConfig {
         ENABLE_STAGE_SYSTEM = builder
                 .comment("Whether the doomsday stage system is enabled. When false the world stays in stage 1.")
                 .define("enable_stage_system", true);
+        WILD_CHANCE = builder
+                .comment("Chance (0-1) that a mutation draws from the big 'wild' pool instead of the source block's",
+                        "own semantic pools. 0 = purely local drift (a stone block only ever becomes stone-like),",
+                        "1 = the old behaviour (everything draws from one big pool). Must match on both sides:")
+                .defineInRange("wild_chance", 0.25, 0.0, 1.0);
+        WILD_AUTO_INCLUDE = builder
+                .comment("Automatically add every full-cube block without a block entity to the wild pool,",
+                        "so the big pool is never accidentally tiny. Turn off to keep the wild pool limited",
+                        "to what the focal_decay:mutation_pool/wild tag (plus shape classes) contains.")
+                .define("wild_auto_include", true);
+        ANCHOR_NORMALIZE_RANGE = builder
+                .comment("When an Anchor Prototype with a model is placed, convert its whole range to the current",
+                        "defocus targets before the protection is registered. Radius 32 means 65^3 positions,",
+                        "which is a noticeable one-off stall; the range shows no ghosts anyway once protected.")
+                .define("anchor_normalize_range", true);
         ENABLE_CORE_REPAIR = builder
                 .comment("Whether the Observer Core can be repaired to end the defocus.")
                 .define("enable_core_repair", true);

@@ -60,7 +60,7 @@ public class AnchorPrototypeBlockEntity extends BlockEntity implements MenuProvi
     public void onLoad() {
         super.onLoad();
         if (level instanceof ServerLevel serverLevel) {
-            MutationPoolManager.get(serverLevel).updatePrototypeEffect(worldPosition, modelStack);
+            MutationPoolManager.get(serverLevel).updatePrototypeEffect(serverLevel, worldPosition, modelStack);
         }
     }
 
@@ -124,7 +124,7 @@ public class AnchorPrototypeBlockEntity extends BlockEntity implements MenuProvi
                     MutationEventHandler.convertPrototypeRange(serverLevel, worldPosition, manager,
                             MutationPoolManager.radiusFor(ObserverModelItem.getData(modelStack)));
                 }
-                manager.updatePrototypeEffect(worldPosition, modelStack);
+                manager.updatePrototypeEffect(serverLevel, worldPosition, modelStack);
                 ModNetwork.sendRegionDataToDimension(serverLevel);
             }
         }

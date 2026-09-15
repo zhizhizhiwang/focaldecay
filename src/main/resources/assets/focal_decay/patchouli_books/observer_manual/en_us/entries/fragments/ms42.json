@@ -7,12 +7,12 @@
   "pages": [
     {
       "type": "patchouli:text",
-      "text": "$(italic)\"This is a hard timing requirement.\"$()$(br2)42ms is the measured time for OBSR-3 to complete semantic classification of every vector image point in one observation (soft-run stress test result).$(br2)That number is not a performance target. It is an $(l)admission requirement$().",
+      "text": "$(italic)\"Squeeze everything into 42ms.\"$()$(br2)42ms is the measured time for OBSR-3 to complete semantic classification of every vector image point in one observation, taken from a soft-run stress test.$(br2)The hardware is hard-wired to it.",
       "title": "Fragment: 42ms"
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Event:$() someone in the previous iteration completed the necessary preparatory work before the Throne.$(br2)$(bold)Collection:$() obtained on completing the $(l)Throne Ritual$() for the first time.$(br2)$(italic)Recorded once per recipient. A failed ritual produces no record.$()"
+      "text": "$(bold)Event:$() someone in the previous iteration completed the necessary preparatory work before the Throne.$(br2)$(bold)Collection:$() obtained on completing the $(bold)enthronement ritual$() for the first time.$(br2)$(italic)A failed ritual produces no record.$()"
     }
   ]
 }

@@ -7,12 +7,12 @@
   "pages": [
     {
       "type": "patchouli:text",
-      "text": "$(italic)\"The world will continue to be beautiful.\"$()$(br2)This record comes from the last exchange between the previous observer and O5-1 Aaron Siegel. O5-1 asked: do you really think so. The observer answered: child, I have never been wrong.",
+      "text": "$(italic)\"The world will stay beautiful.\"$()$(br2)From the last exchange between the previous observer and O5-1 Aaron Siegel.$(br2)$(bold)O5-1:$() Do you really think so?$(br)$(bold)Observer:$() Child, I have never been wrong.",
       "title": "Fragment: Aaron's Vow"
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Event:$() someone in the previous iteration confirmed that the plan to replace the observer was workable - until then, nobody could guarantee it was possible.$(br2)$(bold)Collection:$() taken from the $(l)relic container$() near the point where the End sovereign falls, after it is terminated.$(br2)$(italic)The container also holds one OBSR-EX, archived at the same time.$()"
+      "text": "$(bold)Event:$() someone in the previous iteration confirmed that the plan to replace the observer was workable.$(br2)$(bold)Collection:$() taken from the $(bold)relic container$() near the point where the End sovereign falls, after it is terminated.$(br2)$(italic)The container also holds one OBSR-EX, archived at the same time.$()"
     }
   ]
 }

@@ -8,15 +8,15 @@
   "pages": [
     {
       "type": "patchouli:text",
-      "text": "$(bold)Special Containment Procedures:$() This manual is issued by the Site-CN-25 automated distribution system. The recipient is to carry it at all times until the refocus operation is complete or the recipient is no longer operational. Its contents are compiled from the archives of the previous iteration and are updated as field data is returned. Where the manual and field observation disagree, field observation prevails."
+      "text": "$(bold)Special Containment Procedures:$() This manual is issued by the Site-CN-25 automated distribution system. The holder is to carry it at all times until the refocus operation is complete.$(br2)It is compiled from the archives of the previous iteration and updated as field data is returned. Where it disagrees with field observation, field observation governs."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Description:$() The observer array went offline on 10/02/2021. Since then, defocus has continued to spread worldwide: the semantics of objects drift at random, expressed as irreversible changes of material form. The original classifier can no longer sustain consensus reality."
+      "text": "$(bold)Description:$() The observer array went offline on 10/02/2021. Since then, defocus has spread continuously worldwide: the semantics of objects drift at random, expressed as irreversible changes of material form. The original classifier can no longer sustain consensus reality."
     },
     {
       "type": "patchouli:text",
-      "text": "This manual is intended to give the recipient the following capabilities:$(br)$(li)identify the stage characteristics and scope of defocus;$(br)$(li)deploy local reality stabilisation;$(br)$(li)collect and archive semantic fragments;$(br)$(li)execute the refocus operation once conditions allow.$(br2)$(l)$(focal_decay:schedule)$()"
+      "text": "This manual is intended to give the holder the following capabilities:$(br)$(li)identifying the stage characteristics and scope of defocus;$(br)$(li)deploying local reality stabilisation;$(br)$(li)collecting and archiving semantic fragments;$(br)$(li)executing the refocus operation once conditions allow.$(br2)$(focal_decay_schedule)"
     }
   ]
 }

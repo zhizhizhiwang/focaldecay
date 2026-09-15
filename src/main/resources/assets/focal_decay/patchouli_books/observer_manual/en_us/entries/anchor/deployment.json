@@ -10,19 +10,19 @@
       "type": "patchouli:crafting",
       "recipe": "focal_decay:anchor_prototype",
       "title": "Construction",
-      "text": "The Observer Anchor (prototype) is the only deployable reality stabilisation device in the field.$(br2)Its construction is extremely crude: four iron legs, four redstone, one eye of ender. What makes it work is that it knows where to look."
+      "text": "The Observer Base is the only deployable reality stabilisation device in the field.$(br2)Its construction is four iron legs, four redstone, one eye of ender.$(br2)What makes it work is that it knows where to look."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Deployment:$() The anchor accepts one OBSR model in its slot.$(br2)$(li)With no model inserted the anchor produces no effect and serves only as decoration;$(br)$(li)once a model is inserted it takes effect immediately, and its area of effect is a square region centred on the anchor, equal in extent along each axis (Chebyshev radius)."
+      "text": "$(bold)Deployment:$() The base has one model slot.$(br2)$(li)With the slot empty it produces no effect;$(br)$(li)once a model is inserted it takes effect immediately, over a cubic region centred on the base."
     },
     {
       "type": "patchouli:text",
-      "text": "At the moment of insertion the anchor first solidifies the blocks in range to their current state, and only then applies protection.$(br2)Registering protection directly would latch a pre-drift state, and the blocks that had not yet defocused would never change again."
+      "text": "At the moment of insertion the base first solidifies the blocks in range to their current state, and only then applies protection.$(br2)Skip that step and blocks which have not yet drifted are latched permanently in their present form."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Removal:$() Removing or swapping a model takes effect immediately, with no retroactive change. Changes that have already occurred will not be restored because of it."
+      "text": "$(bold)Removal:$() Removing or swapping a model takes effect immediately, with no retroactive change. Changes that have already occurred will not be restored."
     }
   ]
 }

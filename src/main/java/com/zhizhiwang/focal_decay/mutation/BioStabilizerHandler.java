@@ -104,7 +104,7 @@ public final class BioStabilizerHandler {
         be.setChanged();
 
         MutationPoolManager manager = MutationPoolManager.get(level);
-        manager.updatePrototypeEffect(be.getBlockPos(), model);
+        manager.updatePrototypeEffect(level, be.getBlockPos(), model);
         if (wasActive != (energy > 0)) {
             ModNetwork.sendRegionDataToDimension(level);
         }

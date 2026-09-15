@@ -158,40 +158,106 @@
 
 ## 4. 突变池管理系统
 
-### 4.1 全局池
-#### 4.1.1 方块全局池
-- **维度专属池（2026-08-21）**：主世界用 `focal_decay:global_mutation_pool`，下界用 `focal_decay:nether_mutation_pool`，末地用 `focal_decay:end_mutation_pool`（`ModTags.Blocks.poolForDimension` 选择，专属池为空时回退主世界池），避免不同维度画风割裂。
-- 数据生成时默认包含所有符合以下条件的方块：
-  - `minecraft:block` 中 `isCollisionShapeFullBlock()` == true
-  - 无方块实体（`!hasBlockEntity()`）
-  - 非空气、非液体
-  - 可自然生成（通过检查 `Block.isPossibleToRespawnInThis()` 不完全准确，手动列表或使用标签 `#minecraft:natural`）
-- 全局池在服务端和客户端均从标签加载。
-- 带方块实体的方块同时被排除出突变源，即在任何阶段都不会被转换。
-- 每当玩家获得不在全局池中并且满足除了可自然生成之外的条件的方块时, 将其加入全局池, 并且随存档持久化储存(创造模式下不执行此条)
+### 4.1 三层模型：源 / 池 / 形态类（2026-09-15 重构）
+突变关系被拆成三件互相正交的事，全部由**数据包标签**决定，运行时不再读任何标签：
+
+| 层 | 标签 | 回答的问题 |
+|---|---|---|
+| **突变源** | 由池成员推导 + `focal_decay:mutation_source_extra` / `focal_decay:mutation_immune` | 哪些方块会失焦 |
+| **突变池** | `focal_decay:mutation_pool/<名>` | 它会变成什么（语义邻域） |
+| **形态类** | `focal_decay:shape_class/<名>` | 变成的东西几何上必须同类 |
+
+#### 4.1.1 突变源（谁会被失焦）
+- **池即源**：方块只要属于任意一个"可用池切片"，它就既是源也是目标。这条是结构性的，不是配置纪律。
+- `focal_decay:mutation_immune`：**完全豁免**——既不做源也不做目标（原 `conversion_blacklist`，
+  并补上了基岩/命令方块/传送门框架等技术性方块）。
+- `focal_decay:mutation_source_extra`：**额外源**——会失焦，但永远不会被抽成目标。
+  单向但**不会造成冻结方块**（它自己仍然能继续变出去）。
+- **拒绝"只做目标不做源"的配置**：那会让方块一旦被变过去就永久冻结，直接违反"不收敛于固定物品"。
+  构建器用一条不变式把这种配置结构性地排除了（见 §4.1.4）。
+- **含水状态不参与失焦（2026-09-16）**：`!state.getFluidState().isEmpty()` → 直接返回原方块。
+  原因是幽灵替换会把整格状态换掉，而 `SectionCompiler` 的流体渲染读的正是替换后的状态，
+  干燥幽灵的流体为空 → 水面出现 1 格缺口。
+  <b>必须按状态而不是按方块排除</b>：`StairBlock / SlabBlock / FenceBlock / WallBlock /
+  TrapDoorBlock / IronBarsBlock` 全都实现了 `waterlogged`，按方块排除等于把整个形态类功能砍掉。
+  判定放在 {@code MutationHelper.resolve} 这一唯一入口里，因此服务端与客户端自动一致。
+- 旧实现的源门控是逐状态的 `isCollisionShapeFullBlock(level, pos)`；现在改成构建期逐方块算一次并缓存成
+  `boolean[]`。等价性有依据：原版 `BlockStateBase#isCollisionShapeFullBlock` 本身就是**逐状态预缓存**
+  的布尔字段（`BlockBehaviour.BlockStateBase.Cache`，用 `EmptyBlockGetter.INSTANCE` + 原点计算），
+  构建期用同一套算法算一次即可，热路径上连形状查询都省了。
+
+#### 4.1.2 突变池（会变成什么）
+- `focal_decay:mutation_pool/<名>`，一个方块**可以进任意多个池**；抽目标时取"它所属全部池的**并集**"。
+- 交叉归类是设计手法：`mutation_pool/color/white` 把白色羊毛/混凝土/陶瓦放进同一个池，
+  于是白色羊毛既能变成别的羊毛（`mutation_pool/wool`），也能变成白色混凝土（并集抽取）。
+- `mutation_pool/wild`（下界/末地各有变体）是**大池**：以 `wild_chance`（默认 0.25）的概率把抽取
+  **整枝**切到它身上，保证长尾随机性。它**不是成员关系**——否则所有语义池会立刻塌缩成一个连通分量，
+  局部结构全没了。`wild_chance = 0` 是纯局部漂移，`= 1` 就是旧版"一个大池抽所有"的行为。
+- `wild_auto_include`（默认开）自动把"所有完整方块且无方块实体"的方块纳入大池，
+  保证总池不会因为标签写漏而变小。想收紧到只有标签内容时关掉它。
+
+#### 4.1.3 形态类（几何约束）
+- `focal_decay:shape_class/<名>`：**目标必须与源同形态类**。楼梯只变楼梯、半砖只变半砖、
+  栏杆只变栏杆，因此不会出现"半砖突变后旁边悬空""栏杆变成完整方块导致连接逻辑失效"。
+- 未登记进任何形态类的方块走自动兜底：默认状态是完整方块 → `cube`，否则 → `none`（**不参与突变**）。
+  也就是说**非完整方块必须显式登记才会参与**，这保留了旧版"门/楼梯/栅栏不参与"的安全默认。
+- 默认登记 stairs / slabs / fences / fence_gates / walls / trapdoors / carpets / panes 八类，
+  全部用原版标签（`#minecraft:stairs` 等），模组方块只要进这些标签就自动生效。
+- **双格方块（门、床、高花）刻意不登记**：突变是逐坐标的纯函数，上下两半各自独立抽取就会抽出两种不同的门。
+  运行时的守卫会基于方块状态里的 `DoubleBlockHalf` / `BedPart` 属性把它们剔除并打汇总警告
+  （与具体方块类无关，模组方块同样适用）。要支持它们需要"锚半格"种子 + 配对写入，属于独立的一块工作。
+- **状态迁移**：形态类保证几何同类，但状态还得搬。`MutationStateMapper` 把源状态里"目标方块也有"的
+  同名属性值拷过去（楼梯的 `facing/half/shape`、半砖的 `type`、原木的 `axis`），
+  用原版 `Property#getName(T)` + `Property#getValue(String)` 实现，**完全不需要强转**。
+  排除 `waterlogged`（目标保持干燥，否则会被渲染层的流体检查挡掉，造成两端不一致）与
+  `in_wall`（栅栏贴墙的下沉标记，真实方块更新会自动修正，预览路径不会）。
+
+#### 4.1.4 不变式：对称 + 永不冻结（结构保证）
+构建期对每个（池 × 形态类）切片施加一条规则：**成员少于 2 个就整体作废**。由此可得：
+- 若 b 能经局部池被抽到 → 存在含 b 且在该形态类下 ≥2 个成员的切片 P → `local(b) ⊇ P`，即 `|local(b)| ≥ 2`；
+- 若 b 能经大池被抽到 → `|wild ∩ 形态类(b)| ≥ 2`。
+
+两种情况下 b 自己都至少有 2 个不同候选，**没有任何状态可以被"停住"**。
+同时"共享至少一个池且同形态类"这个关系对两个方块完全对称，因此 `A→B` 与 `B→A` 同时成立或同时不成立。
+`/focaldecay mutation audit` 就是量这三条性质的尺子（frozen / asymmetric / crossClass 必须全为 0）。
+
+#### 4.1.5 运行时形态
 ```java
-public final class MutationPool {
-    private final List<Block> blocks; // 按 BuiltInRegistries.BLOCK.getId 升序
-    private final long version;
-    private MutationPool(List<Block> blocks, long version) { ... }
-    public Block get(int index) { return blocks.get(index); }
-    public int size() { return blocks.size(); }
-    public List<Block> snapshot() { return blocks; }
+public final class MutationIndex {          // mutation/pool/MutationIndex.java
+    private final Block[][] local;           // blockId -> 所属全部池的并集（按注册表 id 升序）
+    private final boolean[] source;          // blockId -> 是否失焦（一次数组读）
+    private final ClassifiedPool wild;       // 大池，按形态类切好
+    private final ShapeClasses shapeClasses; // blockId -> 形态类
 }
 ```
-- 全局池以不可变排序列表形式存在，新增操作仅在服务端执行，并通过网络包在周期边界同步到客户端。”
-#### 4.1.2 实体全局池
+- 客户端每 2 帧扫描 16 区块半径内所有区块节的所有方块，逐方块做标签查找/字符串比较/集合运算是不可能接受的，
+  所以全部标签语义在构建期摊平成数组；**服务端不需要同步任何池数据**（标签本来就同步给客户端）。
+- 生命周期：`MutationIndexes` 按维度惰性构建并缓存，`TagsUpdatedEvent`（服务端数据包重载 / 客户端收到标签同步）
+  时整体丢弃，下次访问自动重建。两端各自重建但输入完全相同，因此结果依旧一致。
+- 引导模型的概念邻域同样走这张表（`MutationIndex#tagged`，带缓存），成员判定是一次 `boolean[]` 读。
+
+#### 4.1.6 确定性随机源（2026-09-15 替换）
+- 旧实现每步 `RandomSource.create(seed)` = 一次对象分配；阶段 1 概率 0.01 时期望回扫 100 步，
+  等于每个可见方块每周期分配约 100 个对象。现在换成 `MutationRandom`：状态就是一个 `long`，
+  SplitMix64 纯函数步进，零分配、零虚调用。
+- 另一个理由是**契约稳定性**：`RandomSource.create` 返回什么实现由原版决定，原版换实现会让所有老存档的
+  失焦目标整体重排；自己实现的算法只由本文件的常数决定，跨版本跨 JVM 稳定。
+- 浮点只走 IEEE754 精确路径（`(long >>> 11) * 2^-53`），索引用 Lemire 乘移位
+  （`Math.unsignedMultiplyHigh`，无拒绝采样循环），因此两端逐位一致。
+
+#### 4.1.7 实体全局池（未改动）
   - 所有实体突变逻辑均使用此池
     - 一阶段包括被动实体(不包括marker, 掉落物, 激活的tnt, 火球之类的保留实体, 只包含有ai的动物, 生物一类)
     - 二阶段加入中立实体, 同样要求是有AI的实际生物
     - 三阶段加入敌对实体, 要求同上
+  - 掉落物突变成随机方块物品时取大池的跨形态扁平视图（物品没有几何，不受形态类约束）。
 
 ### 4.2 区域引导（Region Guidance）——由"引导模型"实现（原突变控制器功能）
 - 2026-08-19 修订：原"突变控制器"方块被移除，其功能由**引导模型**（§3.3）继承。
 - **2026-08-20 定稿（方案 A）**：废弃"突变目标池硬限制为训练列表"的旧设计（阶段3 可把半径内任意方块稳定刷成训练目标，过度 OP 且不符合原文"苹果实验"的概念一致性），改为**概念引导**：
   - **概念**：训练列表不再直接作为目标池，而是用于**指认概念**。训练完成时解析并固化到模型数据（`concept` 标签 + 完备度 q）：
     - 概念标签来源：策展标签 `focal_decay:concept/*`（数据生成，如 wood/ore/stone/glass/terracotta/wool…）；兜底用原版标签推断（排除通用标签黑名单，如 `#minecraft:mineable/*`、`#minecraft:block`）。
-    - 概念邻域 = 概念标签下的全部方块，过滤空气、带方块实体、`conversion_blacklist`。
+    - 概念邻域 = 概念标签下的全部方块，过滤空气、带方块实体、`mutation_immune`、以及不参与突变的形态类。
     - 训练目标无法指认任何有效概念（不共享有效标签）→ `concept` 置空、q=0，模型无效（对应原文"只输出一个标签的分类器毫无效果"）。
   - **作用规则（服务端与客户端共用同一公式）**：
     1. **源门控**：仅当源方块是概念内成员（属于 `concept` 标签）时，其突变才被引导；概念外方块照常按全局池随机（对应原文"观测雪梨时失焦概率无变化"）。
@@ -200,9 +266,15 @@ public final class MutationPool {
     4. 累积语义不变：引导后的目标同样参与 `cumulativeTarget` 回退扫描，"变了的就变了"。
   - **完备度 q**：`q = clamp(|trainedTargets ∩ 概念邻域| / |概念邻域|, 0, 1)`；少于 `guided_min_trained`（默认 2）视为残缺分类，q 归零；可配置倍率 `guided_q_multiplier` 与上限 `guided_q_cap`；阶段3 q 减半（§6.5，可配置）。
 - 实现机制仍复用 `MutationPoolManager`（中心 = 原型机位置，半径 = 模型半径，概念 = 固化标签）：
-  - 服务端：提供 `getEffectivePool(BlockPos pos, BlockState original)`，按上述规则判定"概念邻域（q 分支）或全局池（1−q 分支）"；放置/破坏原型机、换模时标记 dirty。
-  - 客户端：通过 `SyncRegionDataPacket` 接收原型机效果（含 `concept` 标签与 q）；渲染时用同一公式计算；若需避免注册表/标签差异，服务端可随包发送概念邻域方块列表 `List<Block>`。
+  - 服务端：`getGuidedBias(pos, state, stage)` 按上述规则判定"概念邻域（q 分支）或常规分支（1−q 分支）"。
+  - **概念邻域与成员判定在效果登记时就预计算好**（`PrototypeEffect` 里存 `ClassifiedPool` + `Set<Block> trained`）：
+    旧实现逐方块都要 `getKey(state.getBlock()).toString()`（字符串分配）再 `List<String>.contains`，
+    在"客户端每 2 帧扫一遍可见范围"的热路径上是必须先拔掉的性能债。
+  - 客户端：通过 `SyncRegionDataPacket` 接收原型机效果（含 `concept` 标签与 q），
+    渲染时按区块节把概念标签解析成 `ClassifiedPool` 一次，循环体内只做半径比较与 `boolean[]` 成员判定。
+    **池本身不需要同步**——标签本来就同步给客户端。
   - 多原型机重叠：同一位置若落在多个引导模型范围内，取"源方块是概念成员且 q 最大"的那个生效（最强引导胜出，确定性）；其余引导模型不参与。
+- 引导模型的目标同样受**形态类门控**：一个只训练了原木与木板的引导模型，不会把橡木楼梯变成木板。
 - 特别处理：破坏时才会决定突变目标，无法模拟"突变过程中概念成员身份变化"的情况，直接以突变发生时的源方块判定门控。
 
 ### 4.3 原型机保护与模型效果
@@ -217,31 +289,63 @@ public final class MutationPool {
 
 ## 5. 确定性随机与目标计算
 
-### 5.1 算法
+### 5.1 算法（2026-09-15 重写）
 ```java
-public static BlockState getTarget(BlockState original, BlockPos pos, long worldSeed, long periodIndex, List<Block> pool, double probability) {
-    if (pool.isEmpty() || probability <= 0.0) return original;
-    long seed = mix64(pos.asLong() ^ worldSeed ^ periodIndex); // SplitMix64 雪崩混合
-    Random rand = new Random(seed);
-    if (probability < 1.0 && rand.nextDouble() >= probability) return original;
-    return pool.get(rand.nextInt(pool.size())).defaultBlockState();
+public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed, long periodIndex,
+                                 MutationIndex index, double chance, GuidedBias bias,
+                                 Protection protection, long birthPeriod) {
+    if (protection.hard() || chance <= 0.0 || index.isEmpty()) return source;
+    long fromPeriod = birthPeriod >= 0 ? birthPeriod + 1 : 0;      // 诞生周期门控
+    if (periodIndex < fromPeriod) return source;
+    Block b = source.getBlock();
+    if (!index.isSource(b)) return source;                          // 源门控（一次数组读）
+    int shapeClass = index.shapeClass(b);
+    if (shapeClass == NONE) return source;
+
+    int cap = (int) Math.min(periodIndex - fromPeriod + 1, CUMULATIVE_SCAN_CAP);
+    for (int back = 0; back < cap; back++) {
+        long state = MutationRandom.seed(pos, worldSeed, periodIndex - back);
+        if (protection.softChance() > 0 && roll(state = next(state), softChance)) continue;
+        if (!roll(state = next(state), chance)) continue;           // 本周期没抽中
+        ClassifiedPool pool =
+              bias.active(shapeClass) && roll(state = next(state), bias.q()) ? bias.pool()
+            : (localCount > 0 && wildCount > 0)
+                ? (roll(state = next(state), wildChance) ? index.wild() : null)   // null = 局部并集
+                : (localCount > 0 ? null : index.wild());
+        Block target = pool == null
+                ? index.local(b, nextInt(state = next(state), localCount))
+                : pool.get(shapeClass, nextInt(state = next(state), pool.count(shapeClass)));
+        return MutationStateMapper.get().map(source, target);       // 状态迁移（§4.1.3）
+    }
+    return source;
 }
 ```
-- `periodIndex` = `gameTick / conversionInterval`。
-- 池子为 `List<Block>`（不含 `BlockState`，以简化）。
-- 服务端与客户端使用相同种子，保证一致。
-- **转换概率（2026-08-10 新增）**：每个方块每周期只有一定概率被转换，概率随阶段变化：阶段1/2/3 暂定 `0.1 / 0.6 / 1.0`（Server 配置 `block_mutation_chance_stage1/2/3`）。
-  - 概率 roll 与目标选择共用同一确定性种子（`pos.asLong() ^ worldSeed ^ periodIndex`），先 roll 后取目标，两端随机序列完全一致。
+- 抽取规则与不变式见 §4.1；`periodIndex` = `gameTick / base_interval`（**与阶段无关**，见下）。
+- 服务端与客户端使用相同种子、相同查表、相同公式，因此结果逐位一致；**唯一需要两端一致的配置是
+  `wild_chance` 这类 SERVER 配置（NeoForge 会同步给客户端）**。
+- 每一步消耗的随机步数都是 (源方块, 形态类, 配置) 的纯函数，所以两端永远同步推进。
+- 抽到自己也是合法结果（自环），与原实现"抽中即定格"的语义一致，不再重抽。
+- **转换概率（2026-08-10 新增）**：每个方块每周期只有一定概率被转换，概率随阶段变化：阶段1/2/3 暂定 `0.01 / 0.3 / 0.9`（Server 配置 `block_mutation_chance_stage1/2/3`）。
+  - 概率 roll 与目标选择共用同一确定性随机序列，先 roll 后取目标。
   - **种子必须经 SplitMix64 雪崩混合（2026-08-10 修复）**：`periodIndex` 是小数字，直接异或只扰动种子低几位，LCG 首次 `nextDouble` 几乎不变，会导致"同一批固定位置每周期都失焦"。混合后每次周期切换失焦位置集合完全重排。
-  - 阶段判定（2026-08-10 已接入 §6）：`currentStage(days)` 取 `FocalDecayWorldData` 末日天数，对照 `stage2_day` / `stage3_day`；统一识别函数 `getVisibleTarget(...)` 供生存破坏、创造中键选取、客户端预览共用（两端同种子）。
-  - **累积转换（2026-08-13）**：方块转换改为"有记忆"状态——每周期抽中的方块换新材质，未抽中的保留上一次材质，而不是回退原方块，实现世界逐渐崩坏；做法是从当前周期向前回退扫描最近一次抽中周期（确定性、两端一致，扫描上限 128 周期）。
-- **方块诞生周期（2026-08-13 新增）**：玩家放置的方块记录"诞生周期"（`MutationPoolManager` 维度级持久化），转换只从"诞生周期 + 1"开始累积——放置瞬间及同一周期内保持原方块，之后才随周期逐渐崩坏；世界原生方块仍从周期 0 开始。服务端放置/破坏事件维护该表，`SyncRegionDataPacket` 同步给客户端用于预览，锚固化和破坏转换同样尊重诞生周期。
-- **引导偏向（2026-08-20 方案 A）**：引导模型不再硬限制目标池；概念内成员抽中突变后，目标选择为 `rand.nextDouble() < q ? 概念邻域 : 全局池`（同一确定性随机源，q 见 §4.2）。偏向只发生在目标选择阶段，不改变突变骰子（概率/周期/种子）。
-- 全局池以不可变排序列表形式存在，新增操作仅在服务端执行，并通过网络包在周期边界同步到客户端。”
-- 带有方块实体的目标均不转换
+  - 阶段判定（2026-08-10 已接入 §6）：`currentStage(days)` 取 `FocalDecayWorldData` 末日天数，对照 `stage2_day` / `stage3_day`；统一识别函数 `MutationHelper.resolve(...)` 供生存破坏、右键交互、创造中键选取、客户端预览、锚固化共用。
+  - **累积转换（2026-08-13）**：方块转换改为"有记忆"状态——每周期抽中的方块换新材质，未抽中的保留上一次材质，而不是回退原方块，实现世界逐渐崩坏；做法是从当前周期向前回退扫描最近一次抽中周期（确定性、两端一致，扫描上限 128 周期 = `MutationHelper.CUMULATIVE_SCAN_CAP`）。
+- **方块诞生周期（2026-08-13 新增，2026-09-15 修订）**：玩家放置的方块、以及被右键交互转换过的方块记录"诞生周期"
+  （`MutationPoolManager` 维度级持久化），转换只从"诞生周期 + 1"开始累积——放置/转换瞬间及同一周期内保持原方块。
+  记录的动因有两个：旧版的"放置后延迟崩坏"，以及**转换依赖源方块身份**之后必须抑制的抖动
+  （方块被转换后候选集就变了，客户端下一帧会按新身份重掷，表现为"右键一次变一次"）。
+  - 同步改为**增量包** `SyncBirthPeriodPacket`（位置 + 周期，`period < 0` 表示删除）：
+    旧实现每次放置/破坏都重发整张诞生周期表，而那张表随建造无上限增长。
+  - **剪枝**：比"当前周期 − 128"更早的记录对结果没有任何影响（回扫本来就够不到），
+    服务端每 6000 tick 删一次，语义完全等价而表重新有界。
+- **引导偏向（2026-08-20 方案 A）**：引导模型不再硬限制目标池；概念内成员抽中突变后，
+  以概率 q 走概念邻域、否则回退常规分支（局部并集 / 大池）。偏向只发生在目标选择阶段，不改变突变骰子。
+  概念邻域现在是预计算的 `ClassifiedPool`（按形态类切好、按注册表 id 定序），
+  成员判定是一次 `boolean[]` 读——旧实现每次都要解析标签 ID、查标签、再线性扫一遍标签成员。
+- 带有方块实体的方块既不是源也不会成为目标。
 
 ### 5.2 交互锁定
-- **统一方块识别函数（2026-08-10 新增）**：`MutationHelper.getVisibleTarget(original, pos, worldSeed, periodIndex, pool, probability, isProtected)` 为生存破坏、创造中键选取、客户端预览共用的唯一识别入口；受保护位置一律返回原方块。
+- **统一方块识别函数（2026-08-10 新增，2026-09-15 收拢为 `MutationHelper.resolve`）**：`MutationHelper.resolve(source, pos, worldSeed, periodIndex, index, chance, bias, protection, birthPeriod)` 为生存破坏、右键交互、创造中键选取、客户端预览、锚固化共用的唯一识别入口；受保护位置、非源方块、没抽中的情况一律返回原方块。
 - **挖掘开始**：`PlayerInteractEvent.LeftClickBlock`（服务端）记录：
   - 目标方块状态 `targetState`（此时计算）
   - 周期索引 `periodIndex`(锁定方块)
@@ -285,9 +389,14 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - **天气突变（2026-08-21 新增）**：与实体突变同周期同风格——每阶段周期按 `weather_mutation_chance_stage1/2/3`（默认 0.0 / 0.05 / 0.15）掷确定性骰子，命中把主世界天气随机转为与当前不同的状态（晴/雨/雷暴），持续 60~360 秒；观测者在线（失焦终止）时不触发。
 
 ### 6.3 方块影响范围扩展
-- **2026-08-21 修订：所有阶段仅允许"完整立方体碰撞"方块作为转换源。** 门/楼梯/栅栏/玻璃板等模型不完整方块不再参与失焦（旧设计阶段2+ 的"非完整但有碰撞箱"扩展已移除）；判定统一用 `isCollisionShapeFullBlock()`（碰撞形状 === 完整 16³ 立方体，MC 标准方法）。
-- 空气、带方块实体、黑名单方块始终排除。
-- **实现**：`MutationHelper.isConversionSource(state, level, pos, stage)` 统一判定（`stage` 参数保留供未来扩展）；客户端 `isCandidate` 与服务器交互共用该函数。
+- **2026-08-21 修订：所有阶段仅允许"完整立方体碰撞"方块作为转换源。** 门/楼梯/栅栏/玻璃板等模型不完整方块不再参与失焦。
+- **2026-09-15 修订：非完整方块改为"显式登记即可参与"。** 形态类标签（`focal_decay:shape_class/*`）登记过的方块
+  会参与失焦，并且**只在自己的形态类内部互相突变**；没登记的非完整方块仍然完全不参与。
+  也就是说"门/楼梯/栅栏不参与"从硬编码规则变成了默认配置（默认登记了楼梯/半砖/栏杆/栅栏门/墙/活板门/地毯/玻璃板八类）。
+- 空气、带方块实体、`mutation_immune` 方块始终排除。
+- **实现**：`MutationIndex#isSource(Block)` 统一判定，构建期预计算成 `boolean[]`（等价性论证见 §4.1.1）；
+  客户端 `isCandidate` 与服务器交互共用同一个查表。
+- 阶段不再影响源门控（阶段只改变概率与周期），因此该判定与阶段解耦。
 
 ### 6.4 实体转换
 - 根据不同阶段决定池, 源池和目标池始终应该一致
@@ -308,8 +417,9 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 ### 7.1 客户端方块目标缓存
 - 跳过 hasBlockEntity() 的方块。
 - `ClientRenderCache` 单例持有：
-  - `Map<BlockPos, BlockState> targetCache`：当前周期的目标方块状态。
-  - `Set<BlockPos> visibleSurfaces`：上一帧计算的可见表面集合。
+  - `Map<Long, Entry> targetCache`：当前周期的目标方块状态（`Entry` 带周期号，防止跨周期读到旧值）。
+  - `Set<Long> evaluated`：本周期已经判定过的位置（**负缓存**）——面剔除路径每个方块要问 6 次邻居，
+    没有它每次未命中都得重跑整套判定。详见 §7.3。
 - 更新时机：每 `(conversionInterval * 20 / 20) = conversionInterval` tick（即每周期一次）。在 `ClientTickEvent.PRE` 中检测 `gameTick % conversionInterval == 0` 时执行：
   - 清空 `targetCache`。
   - 遍历 `visibleSurfaces`，对每个坐标计算本周期目标，存入缓存（受稳定锚和覆盖影响）。
@@ -333,14 +443,30 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
   - 可以使用 `RenderChunk` 的 visibility 信息辅助，但自行实现更可控。
 
 ### 7.3 模型替换渲染
-- **Mixin 位置**：`net.minecraft.client.renderer.chunk.ChunkRenderDispatcher.RenderChunk.RebuildTask.compile` 方法。
-- 在遍历区块内的方块时（`BlockPos.betweenClosed` 循环），对每个坐标：
-  - 获取原始 `blockState`。
-  - 检查 `targetCache` 是否包含该坐标，若有且目标不等于原始，则使用 `targetCache.get(pos)` 替换 `blockState` 进行模型获取和渲染。
+- **两处钩子，缺一不可**（2026-09-16 修正）：
+  1. `SectionCompilerMixin` → 重定向 `SectionCompiler.compile` 里那一次 `RenderChunkRegion.getBlockState`：
+     决定**这个位置画成什么**（方块模型、流体、以及 `visgraph.setOpaque` 的透明性标记）。
+  2. `BlockShouldRenderFaceMixin` → 重定向 `Block.shouldRenderFace` 内部的 `level.getBlockState(邻居)`：
+     决定**这个面画不画**。
+- **为什么必须是两处**：网格用幽灵状态、剔除用真实状态，两边对不上。真实石头（幽灵玻璃）旁边的方块
+  看到的邻居是"不透明"，于是它朝玻璃的那一面被剔掉，而原版语义下那一面要画——
+  结果就是透过玻璃看进方块内部（背面也被剔除），像世界破了个洞。
+  同理，幽灵是**不透明**而真实是玻璃时也会错。一句话：**凡是"比较两个方块"的判定，两边必须同源**。
+- 替换后 `Block.OCCLUSION_CACHE`（按 `(本方状态, 邻居状态, 面)` 三元组缓存）的键也自动变成幽灵对，
+  不会出现"拿真实状态的缓存结果去判断幽灵"的污染。
+- **代价控制**：面剔除对每个可见方块要问 6 次邻居，所以 `ClientRenderCache#ghostState` 的顺序是
+  "正缓存 → 负缓存（本周期已判定过的位置）→ 才做完整判定"。
+  负缓存是必需的：没有它，每次未命中都要重跑整套判定（阶段 1 约 200 ns），
+  6 × 4096 个方块就是毫秒级开销。
+- **只落在区块编译路径上**：钩子先判 `level instanceof RenderChunkRegion`，
+  破坏粒子、手持方块、方块预览等走 `ClientLevel` 的地方一行都不改。
+- **没有覆盖的**：环境光遮蔽那 12 次邻居读取仍用真实状态，所以幽灵附近的光影过渡会有一点偏差——
+  属于观感而非破洞，且每方块要多 12 次查找，收益不划算，有意不改。
 - 注意排除液体、空气等由原版渲染管线的特殊处理，确保替换仅针对固体层。
-- 对于非完整方块，在阶段2+启用时，须同样处理它们的模型替换，可能需调整 `isCollisionShapeFullBlock` 判断。
-- 对于带方块实体的原方块，直接跳过替换，避免方块实体渲染器残留。
+- 对于带方块实体的方块，源门控直接排除（`MutationIndex#isSource`），因此不会出现"方块实体渲染器残留"。
 - **受保护方块（2026-08-10）**：`ClientRenderCache.resolve` 先查 `isProtected(pos)`，保护范围内不替换模型、不入缓存。
+- 旧文档里"只劫持 `getBlockState` 一处即可覆盖编译期全部读取"的说法是**错的**，已删除；
+  它正是玻璃破洞那个 bug 的思想来源。
 
 ### 7.4 后处理着色器
 - 注册自定义 `PostChain`：`focal_decay:observer_veil`。
@@ -357,8 +483,12 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 
 ### 8.1 数据包设计
 - **SyncRegionDataPacket**（S→C）：
-  - 维度ID、**有效原型机**列表（位置 + 半径 + 模型效果摘要：语义锁定目标 / 引导池 / 生物稳定 / 完全稳定）、方块诞生周期表（位置 → 周期）（2026-08-10/2026-08-13 已实现锚与诞生周期；2026-08-19 起改为原型机/模型数据，覆盖区域为引导模型的实现载体）。
-  - 在玩家登录、切换维度、原型机放置/破坏/换模、方块放置/破坏（诞生周期变化）时发送。
+  - 维度ID、**有效原型机**列表（位置 + 半径 + 模型效果摘要：语义锁定目标 / 引导概念 / 生物稳定 / 完全稳定）、方块诞生周期表（位置 → 周期）（2026-08-10/2026-08-13 已实现锚与诞生周期；2026-08-19 起改为原型机/模型数据，覆盖区域为引导模型的实现载体）。
+  - 在玩家登录、切换维度、原型机放置/破坏/换模时发送（**整表**）。
+- **SyncBirthPeriodPacket**（S→C，2026-09-15 新增）：
+  - 单条诞生周期变化：维度、位置、周期（`period < 0` 表示删除）。
+  - 用于方块放置/破坏与右键交互转换。旧实现这三处都重发上面那张**随建造无上限增长的整表**——
+    盖一栋房子等于上千个整表包，既是带宽浪费也是每次放置方块时的一次主线程序列化开销。
 - **ObserverCoreActivatePacket**（S→C）：
   - 当核心被激活时，发送给所有玩家，触发全局粒子/音效与胜利提示——**已实现（2026-08-21）**。
 - **ThroneRitualPacket**（S→C，2026-08-19 规划）：王座仪式进度/波次/完成事件同步。
@@ -388,11 +518,22 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
   - 王座仪式：仪式时长（默认 3~5 分钟，33 分钟为可选上限）、波次强度/间隔、所需物品
 
 ### 9.2 数据生成
-- 方块标签：`focal_decay:global_mutation_pool` 自动生成，通过 `TagsProvider<Block>` 添加所有符合条件的原版方块。
-- 维度专属池：`nether_mutation_pool` / `end_mutation_pool` 同数据生成（2026-08-21）；主世界池扩充到约 218 种（新增去皮原木/树皮/矿物块/陶瓦/混凝土/羊毛/珊瑚块/菌类等），下界 45 种、末地 6 种。
+- **突变标签全部在 `ModBlockTagsProvider` 里生成**（2026-09-15 重构，见 §4.1）：
+  - 形态类 `focal_decay:shape_class/*` 八类，用原版标签（`#minecraft:stairs` 等）而不是逐方块列清单，
+    模组方块只要进这些标签就自动生效；玻璃板没有原版标签，列清单。
+  - 语义池 `focal_decay:mutation_pool/*`：`stone / dirt / wood / wool / concrete / terracotta / ore /
+    quartz / ice / ocean / nether / end / misc`，加八个形态族的池（`stairs / slabs / fences /
+    fence_gates / walls / trapdoors / carpets / panes`），加 16 个颜色池（`color/white` …）。
+  - 大池 `focal_decay:mutation_pool/wild`（下界/末地各有变体），外加
+    `mutation_immune` / `mutation_source_extra`。
+  - **破坏性改名**：`global_mutation_pool` → `mutation_pool/wild`，`nether_mutation_pool` →
+    `mutation_pool/wild_nether`，`end_mutation_pool` → `mutation_pool/wild_end`，
+    `conversion_blacklist` → `mutation_immune`（并补上技术性方块）。
+- 引导模型的概念标签 `focal_decay:concept/*` 同数据生成（与突变池是两套东西：概念由训练数据动态指认）。
 - 实体类型标签：`focal_decay:entity_mutation_pool_passive` 包含如 `minecraft:sheep`, `minecraft:cow` 等。
 - 战利品表：语义碎片添加到相应原版战利品表，使用 `GlobalLootModifier` 或直接修改 `LootTableLoadEvent`。
 - 配方：稳定锚、突变控制器使用标准 `ShapedRecipeBuilder`。
+- 标签的语言键（`tag.block.focal_decay.*`）写在两个 lang 文件里，供引导模型的概念显示名与 JEI 复用。
 
 ---
 
@@ -456,8 +597,10 @@ public static BlockState getTarget(BlockState original, BlockPos pos, long world
 - 方块实体类型：`anchor_prototype`, `training_terminal`
 - 能力：`break_data`
 - 标签：
-  - 方块：`global_mutation_pool`, `conversion_blacklist`, `anchor_prototype_immune`
-  - 语义概念：`focal_decay:concept/*`（wood/ore/stone/glass/terracotta/wool 等，数据生成策展，供引导模型指认概念）
-  - 实体类型：`entity_mutation_pool_passive`
+  - 方块 · 突变：`mutation_pool/wild`（+ `wild_nether` / `wild_end`）、`mutation_pool/*`（语义池与颜色池）、
+    `shape_class/*`（形态类）、`mutation_immune`、`mutation_source_extra`、`anchor_prototype_immune`
+  - 方块 · 概念：`focal_decay:concept/*`（wood/ore/stone/glass/terracotta/wool 等，数据生成策展，供引导模型指认概念）
+  - 实体类型：`entity_mutation_pool_passive` / `_neutral` / `_hostile`
 - 着色器：`observer_veil`
-- 包网络：`sync_region`, `sync_world`, `core_activate`, `throne_ritual`
+- 包网络：`sync_region_data`, `sync_birth_period`, `sync_world_data`, `core_activate`, `throne_ritual`
+- 命令：`/focaldecay days|throne|inspect|trace|unlock|mutation audit|mutation selftest|mutation at`

@@ -6,6 +6,7 @@ import com.zhizhiwang.focal_decay.item.ModItems;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.menu.TrainingTerminalMenu;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.FloatingText;
 import com.zhizhiwang.focal_decay.mutation.FragmentGrants;
@@ -96,7 +97,8 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
         String concept = "";
         GuidedConcept.Concept resolved = null;
         if (finalType == TYPE_GUIDED) {
-            resolved = GuidedConcept.resolve(data.trainedTargets());
+            resolved = GuidedConcept.resolve(data.trainedTargets(),
+                    MutationIndexes.get(level.dimension()));
             concept = resolved.tagId();
             q = resolved.q();
             if (resolved.valid()) {

@@ -7,12 +7,12 @@
   "pages": [
     {
       "type": "patchouli:text",
-      "text": "$(italic)\"Adrenaline\"$()$(br2)This is the shortest of the seven records, and the last to be archived.$(br2)It was archived minutes before the OBSR-3 data transfer. The sender injected himself with a dose of adrenaline, on the grounds that: this is a contest of hand speed, after all.",
+      "text": "$(italic)\"Adrenaline\"$()$(br2)The shortest of the seven, and the last to be archived.$(br2)Archived minutes before the OBSR-3 data transfer. The sender injected himself with a dose of adrenaline, on the grounds that this was a contest of hand speed.",
       "title": "Fragment: Cheng Jiuzhang's Last Transmission"
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Event:$() someone in the previous iteration completed a truly complete semantic classification, and handed the material over.$(br2)$(bold)Collection:$() obtained when an OBSR-1's $(l)concept completeness q is trained to 100%$().$(br2)$(italic)Recorded once per recipient.$()"
+      "text": "$(bold)Event:$() someone in the previous iteration completed a truly complete semantic classification, and handed the material over.$(br2)$(bold)Collection:$() obtained when an OBSR-1's $(bold)concept completeness q is trained to 100%$().$(br2)$(italic)Recorded only once per holder.$()"
     }
   ]
 }

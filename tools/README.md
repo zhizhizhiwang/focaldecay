@@ -72,20 +72,44 @@ java -cp $cp "tools\structuregen\NbtTop.java" "src\main\resources\data\focal_dec
 | E | **世界生成路径**：靠 `structure_set` 强制生成新区块，确认 `WorldGenRegion` 下也生效 |
 | F | **末地王座**：`end_throne.nbt` 在真实世界生成里落点正确（见下） |
 | G | **Site-CN-25 地下站点**：`depth_range` 埋深、基座随机 OBSR-1/-2、容器战利品表（见下） |
+| H | **突变系统自检**：`/focaldecay mutation audit` + `selftest`（见下） |
 
 跑法：
 
 ```powershell
 Copy-Item "tools\devtest-datapack" "run\world\datapacks\devtest" -Recurse -Force
 .\gradlew.bat runServer
-# A~E 段看 "[devtest] done"；F/G 段晚几秒，等 "[devtest] G_done" / "G7_done"
-Select-String -Path run\logs\latest.log -Pattern 'devtest\]'
+# 服务器会在 load 后 60 秒自己 stop（devtest:stop），所以这条命令会正常返回
+Select-String -Path run\logs\latest.log -Pattern 'devtest\]|mutation\]|selftest\]'
 ```
+
+> **自终止**：`load.mcfunction` 最后 schedule 了 `devtest:stop`（内容就是 `stop`），
+> 让无头验证跑完自己退出，不用再手工找 Java 进程杀掉。这依赖
+> `run/server.properties` 里的 `function-permission-level=4`（函数默认权限是 2，跑不了 `stop`）。
+> 想让开发服务器一直开着，删掉那行 schedule 即可。
 
 > 每个函数都以 `say [devtest] <探针名>` 结尾，是因为**函数里命令的输出是被抑制的**：
 > `/data get` 之类只会返回结果、不会打到日志，所以只能用 `say` 把结论捅出来。
 > 也正因如此，任何**抛异常**的命令（例如目标位置没有方块实体时的 `/data get block`）
 > 会中断整个函数 —— 查 NBT 前先 `execute if block <pos> <方块>` 兜一层。
+> 本模组自己的命令（`/focaldecay mutation ...`）走 `ModCommands#report`：
+> 执行者是玩家就发聊天栏，没有玩家（函数/控制台）就写服务器日志，因此两者都能拿到结果。
+
+### H 段：突变系统自检
+
+`/focaldecay mutation audit` 量的是**结构性质**，全为 0 才算通过：
+
+| 字段 | 含义 |
+|------|------|
+| `frozen` | 能作为目标出现、但候选集不足 2 个的方块数 —— 非 0 就意味着世界上会出现永久冻结方块 |
+| `asymmetric` | `A→B` 成立但 `B→A` 不成立的边数 |
+| `crossClass` | 目标与源形态类不同的边数（几何会被破坏） |
+| `sources with no inbound edge` | 只能变出去、不会被变回来的源（单向不等于冻结，数量异常大说明某个形态族被孤立了） |
+
+`/focaldecay mutation selftest` 量的是**行为**：确定性（重复求值逐位相同）、不收敛
+（固定位置扫 256 个周期看不同目标数）、对称、水方块属性迁移、以及热路径 ns/次。
+`/focaldecay mutation at` 打印脚下位置的真实方块、形态类、候选数量与当前可见目标，
+排查"这个方块为什么不变 / 为什么变成了那个"时最直接。
 
 ### G 段：Site-CN-25 地下站点
 
@@ -178,3 +202,38 @@ java tools\structuregen\ThronePos.java 20260912
 3. `latest.log` 在服务器进程还活着时删不掉（`Remove-Item -ErrorAction SilentlyContinue` 会
    静默失败），下一次读到的就是**上一次运行**的旧日志 —— 先杀掉 java 进程再删。
 4. `server.properties` / `eula.txt` 在 `run/` 下，`eula.txt` 已置 `eula=true`。
+5. **`runServer` 不一定随 Gradle 任务一起结束**：`job_kill` 杀掉的是 pwsh 包装进程，
+   Java 子进程可能还活着并**锁着 `run/logs/*.log`**，下一次启动会以
+   `Failed to start the minecraft server: IOException: 另一个程序已锁定文件的一部分` 失败。
+   现在的 `devtest:stop` 会自动收尾；真遇到残留就 `Get-Process java | Stop-Process`（留下的是 Gradle 守护进程也无妨）。
+
+## 3. 客户端/渲染侧怎么验证
+
+面剔除、幽灵替换、mixin 注入这些只能在客户端上验，服务器端一行都跑不到。做法：
+
+```powershell
+.\gradlew.bat runClient   # 会开一个窗口，验证完直接关掉
+Select-String -Path run\logs\latest.log -Pattern 'focal_decay.mixins|InvalidInjection|MixinApplyError'
+```
+
+NeoForge 的开发环境**默认开着 mixin 的 DEBUG 日志**，所以每次注入成功都会留一行：
+
+```
+[mixin/]: Mixing client.BlockShouldRenderFaceMixin from focal_decay.mixins.json into net.minecraft.world.level.block.Block
+```
+
+**没看到这一行 = 没注入**（`required: true` + `defaultRequire: 1` 时注不进去会直接崩，
+所以"没崩但也没这行"通常意味着目标方法签名对不上，得去核对字节码）。
+
+改 `@Redirect` / `@Inject` 之前，**先用 `javap` 确认目标方法真的长那样**，
+别照着别人的教程写签名：
+
+```powershell
+javap -p -c -cp build\moddev\artifacts\neoforge-21.1.248-merged.jar net.minecraft.world.level.block.Block > build\block.txt
+# 然后在 build\block.txt 里找目标方法与它的 INVOKE
+```
+
+本项目**没有启用 Mixin 注解处理器**（构建里没有 `*refmap*`），所以注入点写错在编译期
+是发现不了的，只有客户端启动时才会炸。`javap` 那一步不能省。
+
+

@@ -3,6 +3,7 @@ package com.zhizhiwang.focal_decay.mutation;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
@@ -109,8 +110,9 @@ public final class DoomsdayHandler {
         }
 
         List<EntityType<?>> entityPool = resolveEntityPool(level, stage);
-        List<Block> blockPool = MutationPoolManager.get(level).getGlobalPool().snapshot();
-        if (entityPool.isEmpty() && blockPool.isEmpty()) {
+        // 掉落物突变没有"形态类"可言（物品没有几何），所以直接取大池的跨形态扁平视图。
+        Block[] blockPool = MutationIndexes.get(level.dimension()).wild().flat();
+        if (entityPool.isEmpty() && blockPool.length == 0) {
             return;
         }
 
@@ -130,8 +132,8 @@ public final class DoomsdayHandler {
             }
 
             if (entity instanceof ItemEntity itemEntity) {
-                if (!blockPool.isEmpty()) {
-                    Block block = blockPool.get(random.nextInt(blockPool.size()));
+                if (blockPool.length > 0) {
+                    Block block = blockPool[random.nextInt(blockPool.length)];
                     ItemStack stack = itemEntity.getItem();
                     itemEntity.setItem(new ItemStack(block.asItem(), stack.getCount()));
                 }

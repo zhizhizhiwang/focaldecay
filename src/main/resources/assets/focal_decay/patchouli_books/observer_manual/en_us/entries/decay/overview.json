@@ -12,15 +12,15 @@
     },
     {
       "type": "patchouli:text",
-      "text": "Substitution occurs at the object level. No case of sub-object defocus has ever been recorded, and no products such as black holes or antimatter have been recorded either. The previous observer's explanation for this class of case was \"out of scope\".$(br2)We have never been able to confirm what that means."
+      "text": "Substitution occurs at the object level. No case of sub-object defocus has ever been recorded, and no products such as black holes or antimatter have been recorded either.$(br2)The previous observer's only remark on this class of case was \"out of range\".$(br2)Its meaning remains unconfirmed."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Stage characteristics:$() Defocus does not spread at a constant rate. As the iteration advances it intensifies in three ways at once:$(br2)$(li)$(l)Frequency$(): the interval before the same object drifts again shortens with each stage;$(br)$(li)$(l)Probability$(): the chance of a drift occurring in a single settlement rises with each stage;$(br)$(li)$(l)Scope$(): the kinds of object affected widen with each stage."
+      "text": "$(bold)Stage characteristics:$() Defocus does not spread at a constant rate. As the iteration advances it intensifies in three ways at once:$(br2)$(li)$(bold)Frequency$(): the interval before the same object drifts again shortens with each stage;$(br)$(li)$(bold)Probability$(): the chance of a drift occurring in a single settlement rises with each stage;$(br)$(li)$(bold)Scope$(): the kinds of object affected widen with each stage."
     },
     {
       "type": "patchouli:text",
-      "text": "All three can be inspected live in the field interface.$(br2)The only certainty is direction: it will only get faster, and it will not slow down on its own."
+      "text": "All three can be inspected live in the field interface.$(br2)The only certainty is direction: it will only get faster."
     }
   ]
 }

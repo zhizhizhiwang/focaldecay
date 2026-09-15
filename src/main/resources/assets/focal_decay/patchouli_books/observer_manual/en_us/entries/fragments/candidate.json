@@ -15,20 +15,20 @@
       "type": "patchouli:crafting",
       "recipe": "focal_decay:observer_model_candidate",
       "title": "Construction",
-      "text": "Built around an $(l)activated OBSR-EX$(): the previous iteration's complete classifier sealed in the centre, with prototypes, eyes of ender and a nether star around it.$(br2)Crafting consumes that OBSR-EX."
+      "text": "Built around an $(bold)activated OBSR-EX$(). The previous iteration's complete classifier is sealed in the centre, with prototypes, eyes of ender and a nether star around it.$(br2)Crafting consumes that OBSR-EX."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Accumulation:$()$(br2)$(li)1. Hold OBSR-3 and right-click blocks or creatures to record their readings.$(br)$(li)2. Combine a semantic fragment with OBSR-3 to write the fragment's semantics directly into the candidate.$(br2)Both methods count toward progress; each distinct target counts only once.",
+      "text": "$(bold)Accumulation:$()$(br2)$(li)1. Hold OBSR-3 and right-click blocks or creatures to record their readings.$(br)$(li)2. Combine a semantic fragment with OBSR-3 to write the fragment's semantics directly into the candidate.$(br2)Both methods count toward progress; each distinct entry counts only once.",
       "title": "Accumulation"
     },
     {
       "type": "patchouli:text",
-      "text": "OBSR-3 does not go through the Training Terminal and has no record table limit. Its progress can be read from the item tooltip.$(br2)A fragment is consumed when it is used to inject knowledge. The seven fragments together provide considerable progress, but not enough to complete the candidate on their own."
+      "text": "OBSR-3 does not go through the Training Terminal and has no record table limit. Progress can be read from the item tooltip.$(br2)A fragment is consumed when it is used to inject knowledge. The seven fragments together are not enough to complete the candidate on their own."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Completed state:$() once progress is full, OBSR-3 counts as complete.$(br2)$(li)It also has the total stability effect of OBSR-EX and can be placed directly into an anchor for use;$(br)$(li)it is the only executing component of the refocus operation.$(br2)OBSR-3 cannot be duplicated."
+      "text": "$(bold)Completed state:$() once progress is full, OBSR-3 counts as complete.$(br2)$(li)It has the total stability effect of OBSR-EX and can be placed directly into a base;$(br)$(li)it is the only executing component of the refocus operation.$(br2)OBSR-3 cannot be duplicated."
     }
   ]
 }

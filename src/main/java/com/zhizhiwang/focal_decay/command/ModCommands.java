@@ -9,6 +9,11 @@ import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuideAdvancementHandler;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
+import com.zhizhiwang.focal_decay.mutation.MutationPoolManager;
+import com.zhizhiwang.focal_decay.mutation.MutationTargets;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationAudit;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import com.zhizhiwang.focal_decay.structure.ThroneStructure;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -20,6 +25,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
@@ -54,9 +61,74 @@ public final class ModCommands {
                         .then(Commands.argument("enabled", BoolArgumentType.bool())
                                 .executes(ctx -> setTrace(ctx.getSource(),
                                         BoolArgumentType.getBool(ctx, "enabled")))))
+                .then(Commands.literal("mutation")
+                        .then(Commands.literal("audit")
+                                .executes(ctx -> auditMutation(ctx.getSource())))
+                        .then(Commands.literal("selftest")
+                                .executes(ctx -> selfTestMutation(ctx.getSource())))
+                        .then(Commands.literal("at")
+                                .executes(ctx -> mutationAt(ctx.getSource()))))
                 .then(Commands.literal("unlock")
                         .requires(source -> source.hasPermission(2))
                         .executes(ctx -> unlockManual(ctx.getSource()))));
+    }
+
+    /**
+     * 把一行文本发给命令执行者；无玩家执行者（函数 / 控制台）时改为写服务器日志。
+     * <p>
+     * 必须这样做：mcfunction 里命令的输出是被吞掉的，验证脚本只能靠日志拿到结果，
+     * 而玩家手动执行时显然应该看聊天栏。
+     */
+    private static void report(CommandSourceStack source, String line) {
+        if (source.getPlayer() == null) {
+            com.zhizhiwang.focal_decay.FocalDecay.LOGGER.info(line);
+        }
+        source.sendSuccess(() -> Component.literal(line), false);
+    }
+
+    /** 突变查表自检：对称性 / 无吸收态 / 形态类闭合。 */
+    private static int auditMutation(CommandSourceStack source) {
+        ServerLevel level = source.getLevel();
+        MutationIndex index = MutationIndexes.get(level.dimension());
+        for (String line : MutationAudit.audit(index)) {
+            report(source, line);
+        }
+        return 1;
+    }
+
+    /** 运行期自测：确定性 / 不收敛 / 对称 / 状态迁移 / 形态类门控。 */
+    private static int selfTestMutation(CommandSourceStack source) {
+        ServerLevel level = source.getLevel();
+        BlockPos pos = BlockPos.containing(source.getPosition());
+        for (String line : MutationAudit.selfTest(level, pos)) {
+            report(source, line);
+        }
+        return 1;
+    }
+
+    /**
+     * 打印执行者所在位置向上一格的真实方块、形态类、所属池的候选数量与"当前可见目标"。
+     * 排查"这个方块为什么不变 / 为什么变成了那个"时最直接的一条指令。
+     */
+    private static int mutationAt(CommandSourceStack source) {
+        ServerLevel level = source.getLevel();
+        BlockPos pos = BlockPos.containing(source.getPosition()).below();
+        MutationIndex index = MutationIndexes.get(level.dimension());
+        BlockState state = level.getBlockState(pos);
+        Block block = state.getBlock();
+        int shapeClass = index.shapeClass(block);
+        BlockState target = MutationTargets.resolveServer(level, pos, state);
+        report(source, "[mutation] " + pos.toShortString()
+                + " block=" + BuiltInRegistries.BLOCK.getKey(block)
+                + " shapeClass=" + index.shapeClasses().name(shapeClass)
+                + " source=" + index.isSource(block)
+                + " localCandidates=" + index.localCount(block)
+                + " wildInClass=" + index.wild().count(shapeClass));
+        report(source, "  birthPeriod="
+                + MutationPoolManager.get(level).getBlockBirthPeriod(pos)
+                + " target=" + BuiltInRegistries.BLOCK.getKey(target.getBlock())
+                + " targetState=" + target);
+        return 1;
     }
 
     private static int setTrace(CommandSourceStack source, boolean enabled) {

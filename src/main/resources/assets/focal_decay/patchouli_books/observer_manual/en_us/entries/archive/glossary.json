@@ -11,19 +11,19 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(li)$(l)Defocus$(): random drift of an object's semantics, expressed as irreversible change of material form.$(br)$(li)$(l)Iteration$(): a period delimited by one replacement of the observer. This manual comes from the previous iteration; the recipient's period is the current iteration.$(br)$(li)$(l)Observer Array$(): the classifier cluster that sustains consensus reality, designation OBSR."
+      "text": "$(li)$(bold)Defocus$(): random drift of an object's semantics, expressed as irreversible change of material form.$(br)$(li)$(bold)Iteration$(): a period delimited by one replacement of the observer. This manual comes from the previous iteration; the holder's period is the current iteration.$(br)$(li)$(bold)Observer Array$(): the classifier cluster that sustains consensus reality, designation OBSR."
     },
     {
       "type": "patchouli:text",
-      "text": "$(li)$(l)OBSR Prototype$(): an untrained blank classifier. It can record targets and can be trained.$(br)$(li)$(l)OBSR-1 / -2 / -3$(): the three specifications the prototype differentiates into by training. Their functions are distinct.$(br)$(li)$(l)OBSR-EX$(): the complete classifier left by the previous iteration. Two exist.$(br)$(li)$(l)Concept completeness q$(): the degree to which a classifier covers a given concept, from 0 to 1."
+      "text": "$(li)$(bold)OBSR Prototype$(): an untrained blank classifier. It can record targets and can be trained.$(br)$(li)$(bold)OBSR-1 / -2 / -3$(): the three specifications the prototype differentiates into by training. Their functions are distinct.$(br)$(li)$(bold)OBSR-EX$(): the complete classifier left by the previous iteration.$(br)$(li)$(bold)Concept completeness q$(): the degree to which a classifier covers a given concept, from 0 to 1."
     },
     {
       "type": "patchouli:text",
-      "text": "$(li)$(l)Semantic fragment$(): a carrier of semantic material left by personnel of the previous iteration. Seven exist. They are the only source material besides this manual.$(br)$(li)$(l)The Throne$(): the structure in the End's void band, final carrier of the observer array.$(br)$(li)$(l)Refocus$(): the operation of replacing the array with a new observer, terminating defocus."
+      "text": "$(li)$(bold)Semantic fragment$(): a carrier of semantic material left by personnel of the previous iteration. Seven exist, and they are the only source material besides this manual.$(br)$(li)$(bold)The Throne$(): the structure in the End's void band, final carrier of the observer array.$(br)$(li)$(bold)Refocus$(): the operation of replacing the array with a new observer, terminating defocus."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Clearance:$() Most entries in this manual are open to all recipients.$(br2)The Throne Protocol and Refocus volumes are protected by a 5/CN-2999 clearance lock and declassify automatically after arrival on site."
+      "text": "$(bold)Clearance:$() Most entries in this manual are open to all holders.$(br2)The Throne Protocol and Refocus volumes are protected by a 5/CN-2999 clearance lock and declassify automatically after arrival on site."
     }
   ]
 }

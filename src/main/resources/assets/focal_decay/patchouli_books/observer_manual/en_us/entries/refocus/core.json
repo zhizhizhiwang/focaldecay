@@ -18,15 +18,19 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Effect:$() after installation the core begins to refocus, which takes a short time to complete.$(br2)At the moment of completion:$(br)$(li)the core lights;$(br)$(li)the observer array accepts a new observer;$(br)$(li)defocus terminates.$(br2)From then on blocks no longer drift, creatures are no longer replaced, and the weather no longer mutates."
+      "text": "$(bold)Effect:$() after installation the core begins to refocus, which takes a short time.$(br2)On completion:$(br)$(li)the core lights;$(br)$(li)the array accepts a new observer;$(br)$(li)defocus terminates.$(br2)Blocks no longer drift, creatures are no longer replaced, and the weather no longer mutates."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Aftermath:$() Termination is not repair. What has already drifted will not come back; there is no restoration recipe and no rollback. The world will stop in the state it was in at the moment you completed it."
+      "text": "$(bold)Aftermath:$() Termination is not repair. What has already drifted will not come back. The world will stop in the state it was in at the moment you completed it."
     },
     {
       "type": "patchouli:text",
-      "text": "$(italic)The last thing that happened in the previous iteration was this:$(br2)its final two executors each had a line to pull, and neither line was within their stabilisation parameters.$(br2)Both of them knew they would not see the dawn."
+      "text": "$(italic)The last thing that happened in the previous iteration was this:$(br2)its final two executors each had a line to pull. Neither line was within their stabilisation parameters.$(br2)Both of them knew they would not see the dawn.$()"
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(italic)So they succeeded?$()$(br2)$(italic)Yes. The Observer is now entirely under the Foundation's control.$()$(br2)$(italic)Can they resist the temptation?$()$(br2)$(italic)Historically, no.$()"
     }
   ]
 }

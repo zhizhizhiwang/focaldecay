@@ -671,6 +671,233 @@ new SingleTemplatePiece(ctx.structureTemplateManager(), TEMPLATE, Rotation.NONE,
 `FocalDecayConfig.SITE_LOOT_TABLE`、主类注册、`data/focal_decay/structure/site_cn_25.nbt`、
 两份 worldgen JSON、两张战利品表；脚手架新增 `NbtTop.java` 与 devtest 的 G 段。
 
+### 13.7 文案复审（2026-09-15，SCP 文风整备）
+
+范围：`lang/zh_cn.json`、`lang/en_us.json`、手册全部 24 篇条目（中英各一套）。
+**改的是文本，不动玩法**；两处顺带修掉的是实打实的 bug。
+
+**两个真 bug（都在手册上，之前没人看出来）**：
+
+1. **动态日程从来没显示过。** `GuideMacroCompat` 用 `PatchouliAPI.registerCommand("focal_decay:schedule", …)`
+   注册，正文写 `$(focal_decay:schedule)`。但 `BookTextParser.processCommand` 的查找顺序是
+   「颜色码 → 十六进制色 → 列表 → **`名字:参数` 形式的 function** → 无参 command」，
+   `lookupFunctionProcessor` 只要发现冒号就**无条件**返回（查不到时返回
+   `[MISSING FUNCTION: focal_decay]`），后面的 command 查找根本轮不到。
+   也就是说：书上一直印着 `[MISSING FUNCTION: focal_decay]`。
+   （`book.json` 的 `macros` 是另一套机制——纯字符串替换、只能静态写死在 JSON 里，
+   `registerCommand` 不往里加东西，所以此路不通。）
+   **修法**：命令名去掉冒号 → `focal_decay_schedule`，正文写 `$(focal_decay_schedule)`。
+2. **`book.focal_decay.schedule` 的占位符与实参对不上。** Java 传的是
+   `(STAGE2_DAY, STAGE3_DAY)`，而原句是「你有大约 %s 天：第 %s 天起，……第一次扩大」——
+   默认配置（3 / 7）下会印成「你有大约 3 天：**第 7 天**起……第一次扩大」，
+   而第一次扩大其实是第 3 天。改为「你有大约 %s 天。第 %s 天，……会再扩大一次。」，
+   两个实参各就各位，且不再硬编码天数（`landing_text` 里的"你有大约七天"同步删掉）。
+
+**术语与事实对齐**：
+
+- 方块早已从「稳定锚原型机」改名为**观测者基座**，但 tooltip、仪式消息（"原型机已升级为完全稳定锚"）、
+  手册正文（"观测者基座（原型机）"、步骤里的"基座"混用）都还是旧名。本轮统一为**观测者基座**；
+  `tag.block.focal_decay.anchor_prototype_immune` 同步改为「观测者基座免疫」。
+- `message.focal_decay.candidate_locate` 原文「王座位于 %s **格外**」——会被读成"格外"（especially）。
+  改为「王座距此 %s 格」。
+- `block.focal_decay.throne_block` 从占位名「末地王座方块」改为**王座岩**（EN: Throne Rock）。
+- 补上 `entity_mutation_pool_neutral` / `entity_mutation_pool_hostile` 两个译名（此前只有 passive，
+  另两个标签在 `ModTags` 里存在但没有对应 key）。
+
+**文风处理（这一轮的主要工作）**：
+
+- 删「不是 A，而是 B」「终止不是修复」一类对举句（全篇只留 `refocus/core` 的"终止不是修复"一处，
+  它是那一节的本体）；删感叹号（所有 message 收尾改为句号）；删解释性尾巴——
+  作者替读者总结的那一句通常是全篇最像 AI 的地方。
+- 标点统一为全角；`tooltip` 与 `gui` 的冒号/波浪线用法统一。
+- 手册里 `$(l)` 全部改写为 `$(bold)`。`$(l)` 在 Patchouli 里**是 bold**（`$(l:entry)` 才是链接），
+  写全称免得下一个人误读。
+- **不再硬编码会随配置漂移的数字**（§13 既定策略的补课）：型号规格一节的「原件覆盖 32 格 /
+  一代丢失 10 / 二代丢失 30」「一代 +50 点、二代 +150 点」「二代之后无法再重铸」全部改为
+  机制描述（"覆盖范围随之缩减"「有代数上限」）。32 虽是代码常量，但 `total_stability_copy_penalty`
+  与 `total_stability_copy_train_penalty` 都是配置项，写死必然过期。
+- `lore.focal_decay.fragment_42ms` 原为「这是硬性时间要求」——**原文里没有这句**。
+  换成原文台词「把所有东西都压到 42ms 内。」（程玖章语）。
+- JEI 信息页改档案索引体：只陈述"是什么、从哪来"，不写教程口吻（"放入…选择方向后开始训练"）。
+
+**两处内容增补（可单独撤销）**：
+
+- `refocus/core` 末页补了源文结尾的那段对话（"所以，他们成功了？／是的。现在观测者完全处于
+  基金会的控制之下。／……从历史上来看，不能。"）。它给手册一个真正的收束；不要就删掉那一页。
+- `refocus/last_transmission` 补回"肾上腺素"那一拍（之前只有碎片条目提到，通信记录里没有），
+  并补上 Aaron 的"你需要再等等吗"，否则程的"不用了"没有指代对象。
+
+**校验**：中英 lang 各 **135** 条、key 完全一致；手册中英 24 篇的
+**页数 / 每页 type / recipe / entity / advancement / secret / category / icon / sortnum 逐页一致**
+（脚本比对，0 处不符）；全部 52 个手册 JSON + 2 个 lang JSON 通过解析；
+`compileJava` 通过。**排版与中文换行仍需实机逐页核对**（§13 阶段 6 未做）。
+
+### 13.7 突变源 / 突变对象系统重构（2026-09-15，已端到端验证）
+
+用户需求：① 突变源与突变目标分别可配置，最好走标签 + 数据包；② 失焦过程必须**对称**，长时间下不收敛于固定物品；
+③ 门/栏杆/楼梯/半砖在**各自范围之内**互相突变；④ 一个方块可纳入多种突变池、随机时一并抽取（类似杂交），
+并且仍需要一个足够大的总池；⑤ 确定性随机与性能必须正常。补充约束：核心部分要保证可维护性，
+**可以拒绝一部分影响性能的需求**，性能是第一要务，拿不准的先讨论，代码结构要解耦。
+
+**先讨论后动手**：把 5 个取向问题摆出来让用户拍板，结论是
+① 只做方块（实体池不动）；② 池即源 + `mutation_source_extra` / `mutation_immune` 两个补丁标签；
+③ 局部并集 + 概率回退大池（不是纯并集，也不是让大池当父标签）；④ 转换后记录诞生周期抑制抖动；
+⑤ waterlogged 不迁移 + 形态类硬门控 + 完整方块也迁移同名属性（**门/床的配对突变用户没有选，因此不做**）。
+
+**三层模型**（详见 PROXYAI.md §4.1）：
+
+| 层 | 标签 | 作用 |
+|---|---|---|
+| 突变源 | 由池成员推导 + `mutation_source_extra` / `mutation_immune` | 谁会被失焦 |
+| 突变池 | `focal_decay:mutation_pool/<名>`（可入多池，取并集） | 会变成什么 |
+| 形态类 | `focal_decay:shape_class/<名>`（目标必须与源同类） | 几何约束 |
+
+抽取：`候选 = (本方块所属全部池的并集) ∩ 同形态类`，以概率 `wild_chance`（默认 0.25）整枝改用大池。
+
+**"对称 + 永不冻结"是结构保证的，不是配置纪律**：构建期对每个（池 × 形态类）切片施加
+"成员少于 2 个就整体作废"。于是任何能被抽到的方块 b 必然属于某个 ≥2 成员的切片 P，
+即 `local(b) ⊇ P`、`|local(b)| ≥ 2` —— 没有任何状态可以被停住；而"共享至少一个池且同形态类"
+对两个方块完全对称，所以 A→B 与 B→A 同时成立或同时不成立。旧设计里"源 = 所有完整方块、
+目标 = 一个全局标签"其实是单向的（池外方块能变出去、变不回来），这次一并修掉。
+
+**关键实现点**：
+- **预计算查表** `MutationIndex`：源门控 / 形态类 / 候选集全部在构建期摊平成按
+  `BuiltInRegistries.BLOCK.getId` 索引的数组，热路径只剩几次数组读。等价性有依据：
+  原版 `BlockStateBase#isCollisionShapeFullBlock` 本身就是逐状态预缓存的布尔字段
+  （`BlockBehaviour.BlockStateBase.Cache`，`EmptyBlockGetter.INSTANCE` + 原点），构建期用同一套算法算一次即可。
+- **无分配随机源** `MutationRandom`：状态就是一个 `long`，SplitMix64 纯函数步进。
+  旧实现每步 `RandomSource.create(seed)`（= `new LegacyRandomSource` + `AtomicLong`），
+  阶段 1 概率 0.01 时期望回扫 100 步 → 每个可见方块每周期约 100 次对象分配。
+  顺带解决契约问题：`RandomSource.create` 的实现由原版决定，原版换实现会让老存档目标整体重排。
+- **状态迁移** `MutationStateMapper`：只拷"目标方块也有的同名属性"，用 `Property#getName(T)` +
+  `Property#getValue(String)` 实现，**不需要强转**；排除 `waterlogged`（含水的目标会被渲染层的流体检查
+  挡掉，造成"服务端已转换、客户端不显示幽灵"）与 `in_wall`（真实方块更新会自动修正，预览路径不会）。
+  有属性的源走 `Long2ObjectOpenHashMap` 缓存，无属性的源（绝大多数完整方块）走空属性快速路径。
+- **形态类登记用原版标签**（`#minecraft:stairs` 等），模组方块进了这些标签就自动生效；
+  玻璃板没有原版标签，数据生成里列清单。
+- **双格方块守卫**：门/床/高花按"状态里存在 `DoubleBlockHalf` / `BedPart` 取值的属性"识别并剔除 +
+  汇总警告，与具体方块类无关。
+
+**顺带修掉的三个既有性能问题**（都不改变玩法）：
+1. `GuidedConcept` 的 `isMember` / `neighborhood` 在逐方块扫描循环里解析标签 ID、线性扫标签成员、
+   新建并排序列表 → 现在概念邻域在**效果登记时**预计算成 `ClassifiedPool`，成员判定是一次 `boolean[]` 读；
+2. 客户端 `protectionInfo` 逐方块 `getKey(state.getBlock()).toString()` 再 `List<String>.contains`
+   → 现在 `PrototypeEffect` / `ClientPrototype` 存的是 `Set<Block>`；
+3. 每次放置/破坏方块都重发**整张**诞生周期表（那张表随建造无上限增长）→ 新增增量包
+   `SyncBirthPeriodPacket`（单条位置 + 周期），整表只在登录/切维度/原型机变化时发。
+
+另外两处：
+- **诞生周期剪枝**：比"当前周期 − 128"更早的记录对结果没有任何影响（回扫上限就是 128），
+  每 6000 tick 删一次，**语义完全等价**而表重新有界；
+- **`convertPrototypeRange`**：半径 32（完全稳定模型）对应 65³ ≈ 27 万个坐标的逐块读写 + 客户端更新，
+  是一次实打实的一次性卡顿。加了 `anchor_normalize_range` 开关（默认 true = 保持原行为），
+  并把一切与坐标无关的量提到循环外。
+
+**验证**（无头服务器，seed 20260912，`/focaldecay mutation audit` + `selftest`，devtest 数据包自动跑）：
+
+| 项 | 结果 |
+|---|---|
+| 池 / 大池 / 源 | `pools=37 wild=598 sources=598`（共 1064 个方块） |
+| 形态类 | `cube=427 carpets=16 fence_gates=11 fences=12 panes=18 slabs=60 stairs=56 trapdoors=20 walls=25` |
+| 不变式 | `reachable=598 frozen=0 asymmetric=0 crossClass=0 OK`；`sources with no inbound edge: 0` |
+| 确定性 | 同 (位置, 周期, 源方块) 重复 3 次求值逐位相同：PASS |
+| 不收敛 | 固定位置扫 256 个周期：`distinct=85`，最大期望占比 ~1%：PASS |
+| 对称 | 实测目标全部能反向变回源方块：PASS |
+| 状态迁移 | 楼梯 `facing/half/shape` 保留、`waterlogged` 丢弃：PASS |
+| 形态类门控 | 橡木楼梯 256 个周期内没有一次变成非楼梯：PASS |
+| 热路径开销 | `chance=1.00`（1 步扫描）**37 ns/次**；`chance=0.01`（阶段1，期望 ~100 步）**176 ns/次**；楼梯 + 状态迁移 187 ns/次 |
+| 旧回归 | devtest 既有 A/B/C/D/E/F/G1-G7 全部探针照旧通过，无新增 ERROR |
+
+热路径的量级参考：阶段 1 的最坏情况（每次都要回扫约 100 个周期）是 176 ns/方块，
+即 5 万个可见方块一次全量扫描约 9 ms，而扫描本身是分帧排队做的。
+旧实现在同一条路径上每次回扫都 `RandomSource.create`，也就是**每方块每周期约 100 次对象分配**，
+这里的收益主要是把分配降到 0（没有测旧实现的绝对耗时，不做倍数声明）。
+
+**破坏性变更（标签改名，数据包需要跟着改）**：
+`global_mutation_pool` → `mutation_pool/wild`，`nether_mutation_pool` → `mutation_pool/wild_nether`，
+`end_mutation_pool` → `mutation_pool/wild_end`，`conversion_blacklist` → `mutation_immune`。
+`mutation_immune` 默认还补上了基岩/屏障/光源/结构空位/命令方块/结构方块/拼图/移动活塞/
+传送门/末地传送门/末地折跃门/强化深板岩/紫水晶母岩/刷怪笼/试炼刷怪笼/vault/水/岩浆——
+它们本来就是"完整方块"，旧实现里**是可以被失焦的**（源门控只看形状），让世界突变出基岩显然不是设计意图。
+
+**新增文件**：`mutation/MutationRandom.java`、`mutation/MutationStateMapper.java`、
+`mutation/pool/{ShapeClasses,ClassifiedPool,MutationIndex,MutationIndexBuilder,MutationIndexes,MutationAudit}.java`、
+`network/SyncBirthPeriodPacket.java`。
+**删除**：`mutation/MutationPool.java`（被 `MutationIndex` 取代）。
+**新命令**：`/focaldecay mutation audit | selftest | at`。
+
+**没做 / 待定**：
+- 门、床、高花等双格方块的配对突变（用户未选择该选项）；已在形态类登记处与守卫处留了说明与警告。
+- 实体突变池维持原样（用户选择）。
+- 形态类目前只有"硬门控"一种模式；如果以后想要"楼梯有小概率变成完整方块"，需要另加一档概率配置。
+
+### 13.8 玻璃幽灵的面剔除破洞（2026-09-16，已定位并修复）
+
+**症状**（用户实机发现）：方块突变成玻璃类之后，面剔除不对，看起来像世界破了个洞。
+
+**根因**：幽灵替换只做了一半。
+`SectionCompilerMixin` 重定向的是 `SectionCompiler.compile` 里那一次
+`RenderChunkRegion.getBlockState`（决定"这个位置画成什么"），
+而**面剔除的邻居状态是在另一个方法里读的**：`Block#shouldRenderFace` 内部的
+`level.getBlockState(neighborPos)` —— 那处没有被替换。
+
+于是两边不同源：**网格用幽灵状态，剔除判据用真实状态**。
+真实石头（幽灵玻璃）旁边的方块读到的邻居是"石头"（不透明），
+于是它朝玻璃的那一面被剔掉；可那一面在原版语义里是"不透明方块挨着玻璃"，**是要画的**。
+那一面没了，背面又被自身剔除，于是透过玻璃能一直看进方块内部——就是那个"洞"。
+
+反过来（真实玻璃、幽灵不透明）同样会错。一句话概括：
+**凡是"比较两个方块"的判定，两边必须来自同一个世界。**
+
+**修法**：新增 `mixin/client/BlockShouldRenderFaceMixin`，重定向
+`Block.shouldRenderFace` 里那唯一一次邻居读取，让它也走 `ClientRenderCache#ghostState`。
+改这一处就够，因为：
+- 它是所有模型面剔除的唯一判据（`ModelBlockRenderer` 的两个 `tesselateBlock` 重载都调它）；
+- 它是该方法里**唯一**一次 `getBlockState`（`javap` 逐字节确认过，`@Redirect` 单匹配）；
+- 替换后 `Block.OCCLUSION_CACHE`（按 `(本方状态, 邻居状态, 面)` 三元组缓存）的键自动变成幽灵对，
+  不会出现"拿真实状态的缓存结果判断幽灵"的污染。
+
+**代价控制**：面剔除对每个可见方块要问 6 次邻居，如果每次都跑完整判定
+（阶段 1 约 200 ns）就是 6 × 4096 个方块的毫秒级开销。因此：
+- `ClientRenderCache#ghostState` 的顺序是**正缓存 → 负缓存 → 才做完整判定**；
+- 新增负缓存 `evaluated`（"本周期已判定过的位置"），`resolve()` 的每条"不替换"分支都会写它；
+- `removeEntry` 不再顺手删负缓存（那会让面剔除反复重算），
+  真正需要重新判定的场合（保护范围变化、诞生周期变化）由 `refreshRegionData` / `refreshBirths` 显式摘除；
+- `lastPeriodIndex` 改成 `volatile`（编译线程要读它做周期校验）。
+
+**边界**：钩子先判 `level instanceof RenderChunkRegion`，只在区块编译路径生效；
+破坏粒子、手持方块、方块预览走 `ClientLevel`，一行都不改。
+环境光遮蔽那 12 次邻居读取仍用真实状态——影响的是幽灵附近的光影过渡（观感），不是破洞，
+而且每方块要多 12 次查找，收益不划算，**有意不改**（已写进 mixin 的 javadoc）。
+
+**验证**：
+- `javap -c` 反汇编 `net.minecraft.world.level.block.Block`，确认
+  `shouldRenderFace(BlockState, BlockGetter, BlockPos, Direction, BlockPos)Z` 存在、
+  返回类型为 `Z`、且**恰好一次** `invokeinterface BlockGetter.getBlockState`（`@Redirect` 单匹配）；
+- 启动开发客户端验证注入真的生效：日志出现
+  `Mixing client.BlockShouldRenderFaceMixin from focal_decay.mixins.json into net.minecraft.world.level.block.Block`，
+  无 `InvalidInjectionException` / `MixinApplyError`，客户端正常加载到贴图集阶段。
+
+**顺带发现的同类问题（2026-09-16 已按用户选择处理）**：如果一个**含水**的方块（waterlogged 楼梯/半砖）
+被替换成干燥的幽灵，`SectionCompiler` 的 `blockstate.getFluidState()` 读的是幽灵状态，
+于是那一格的水不会被渲染——水面会出现一个 1 格的缺口。同属"幽灵状态泄漏到本该用真实状态的环节"。
+
+**处理方式：含水状态不参与失焦**。判定加在 `MutationHelper.resolve` 这一唯一入口里
+（`!source.getFluidState().isEmpty()` → 返回原方块），所以服务端与客户端自动一致，
+不需要两处各写一遍。
+
+**必须按状态而不是按方块排除**：`StairBlock` / `SlabBlock` / `FenceBlock` / `WallBlock` /
+`TrapDoorBlock` / `IronBarsBlock` 全都实现了 `waterlogged`（SimpleWaterloggedBlock），
+如果按"方块带不带 waterlogged 属性"排除，等于把整个形态类功能（楼梯/半砖/栏杆互变）砍掉。
+用 `getFluidState().isEmpty()` 而不是直接查 `waterlogged` 属性，是为了把"任何带流体的状态"
+（含模组方块）一并覆盖。
+
+**验证**（`selftest` 新增两条断言，都是 chance=1 强制命中）：
+- `waterlogged never mutates (chance=1 forced): PASS`
+- `same stairs still mutate when dry: PASS`（确认没有误伤干燥楼梯）
+
+热路径开销几乎没变（`chance=1.00` 37→41 ns，`chance=0.01` 176→186 ns，在运行间波动范围内）。
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
