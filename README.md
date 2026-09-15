@@ -23,3 +23,10 @@ Additional Resources:
 ==========
 Community Documentation: https://docs.neoforged.net/  
 NeoForged Discord: https://discord.neoforged.net/
+
+## License
+
+This project uses a dual-license structure:
+
+- **Source Code**: All source code files in this repository are licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the `LICENSE-GPL-3.0` file for the full license text.
+- **Documentation and Art Assets**: All documentation (e.g., `.md` files) and artistic assets (e.g., images, graphics) are licensed under the **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** license. See the `LICENSE-CC-BY-SA-4.0` file for the full license text.
