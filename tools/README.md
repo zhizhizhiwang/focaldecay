@@ -6,7 +6,9 @@
 而结构 NBT 里坐标标签类型写错会让所有方块堆到同一个点，
 `placeInWorld` 照样返回 `true`，游戏里什么都不报。这类问题只有真跑一遍才能发现。
 
-## 1. `structuregen/GenStructure.java` — 生成结构模板 NBT
+## 1. `structuregen/` — 结构模板 NBT 的生成与检查
+
+### `GenStructure.java` — 生成结构模板 NBT
 
 结构方块的 `.nbt` 格式是 gzip 压缩的 NBT，手写很容易踩坑（见下面的"坑"）。
 这个单文件程序用游戏自己的 `NbtIo` 写，不会写错。
@@ -22,6 +24,24 @@ $cp = (@((Resolve-Path "build\moddev\artifacts\neoforge-21.1.248-merged.jar").Pa
 java -cp $cp "tools\structuregen\GenStructure.java" "src\main\resources\data\focal_decay\structure\sample_anchor.nbt"
 ```
 
+### `DumpStructure.java` — 把 `.nbt` 打成人类可读的样子
+
+打印尺寸、调色板、逐层 ASCII 图（字符 = 调色板下标）、带 NBT 的方块、各类型数量、全空列。
+拿不准某个结构里到底有什么、关键方块在哪个坐标时用它，比在游戏里数格子快得多。
+
+```powershell
+java -cp $cp "tools\structuregen\DumpStructure.java" "src\main\resources\data\focal_decay\structure\site_cn_25.nbt"
+```
+
+### `NbtTop.java` — 只看顶层键与实体表
+
+`DumpStructure` 只打方块，**不打印 `entities`**。结构里带物品展示框/画/盔甲架时，
+问题往往出在实体表上（例如"坐标对不上"的报错），这时用这个：
+
+```powershell
+java -cp $cp "tools\structuregen\NbtTop.java" "src\main\resources\data\focal_decay\structure\site_cn_25.nbt"
+```
+
 **坑（都真的踩过）**：
 
 1. `size` 和每个方块的 `pos` 必须是 **TAG_List&lt;TAG_Int&gt;**，不是 int 数组 `[I; ...]`。
@@ -29,6 +49,12 @@ java -cp $cp "tools\structuregen\GenStructure.java" "src\main\resources\data\foc
    `/place template` 还照样报成功。
 2. `DataVersion` 写 1.21.1 的值 **3955**，否则会触发数据修复器。
 3. 别用 `SharedConstants.getCurrentVersion()` 拿版本号 —— 那个类静态初始化要 FML，脱离游戏跑不起来。
+4. **结构里带悬挂实体（物品展示框/画）时，放置会刷 ERROR。** 结构方块保存实体时记的是
+   绝对坐标 `TileX/TileY/TileZ`，而放置时只重写 `Pos`，于是
+   `BlockAttachedEntity.readAdditionalSaveData` 发现两者差 16 格以上就报
+   `Block-attached entity at invalid position`。**实体位置是对的**（该分支只是不覆盖 `Pos`），
+   属原版噪声，但它会在每个实例化点刷一行 ERROR。
+
 
 ## 2. `devtest-datapack/` — 端到端验证用数据包
 
@@ -45,17 +71,74 @@ java -cp $cp "tools\structuregen\GenStructure.java" "src\main\resources\data\foc
 | D | 唯一档（引导模型，带 `concept` / `stabilityStrength`） |
 | E | **世界生成路径**：靠 `structure_set` 强制生成新区块，确认 `WorldGenRegion` 下也生效 |
 | F | **末地王座**：`end_throne.nbt` 在真实世界生成里落点正确（见下） |
+| G | **Site-CN-25 地下站点**：`depth_range` 埋深、基座随机 OBSR-1/-2、容器战利品表（见下） |
 
 跑法：
 
 ```powershell
-Copy-Item "tools\devtest-datapack\*" "run\world\datapacks\devtest\" -Recurse -Force
+Copy-Item "tools\devtest-datapack" "run\world\datapacks\devtest" -Recurse -Force
 .\gradlew.bat runServer
-# A~E 段看 "[devtest] done"，F 段（王座）晚几秒，等 "[devtest] F_no_legacy_platform_ok"
+# A~E 段看 "[devtest] done"；F/G 段晚几秒，等 "[devtest] G_done" / "G7_done"
 Select-String -Path run\logs\latest.log -Pattern 'devtest\]'
 ```
 
+> 每个函数都以 `say [devtest] <探针名>` 结尾，是因为**函数里命令的输出是被抑制的**：
+> `/data get` 之类只会返回结果、不会打到日志，所以只能用 `say` 把结论捅出来。
+> 也正因如此，任何**抛异常**的命令（例如目标位置没有方块实体时的 `/data get block`）
+> 会中断整个函数 —— 查 NBT 前先 `execute if block <pos> <方块>` 兜一层。
+
+### G 段：Site-CN-25 地下站点
+
+覆盖三件新东西：`depth_range`（按地表高度埋到地下）、`focal_decay:random_training`
+（给抽出来的 OBSR 模型补随机训练数据）、`focal_decay:container_loot`（给模板里的容器填战利品表）。
+
+**G1/G5 的埋深验证怎么做的**：结构落点的 y 是算出来的，函数里没有变量，没法直接算差值。
+所以先用 `devtest:surface_probe`（`y_offset: 0` 的 `single_template`，原点方块是
+`focal_decay:throne_block`）把**同一个区块**的 `getFirstFreeHeight(WORLD_SURFACE_WG)` 读出来，
+再扫站点锚所在的列，两个数字都落到日志里，人工做减法：
+
+```
+G1_surface_y=63   G1_anchor_y=53   → 模板原点 52 → 埋深 = 63 - 52 - 6 = 5   ∈ [1,8] ✓
+G5_surface_y=63   G5_anchor_y=50   → 模板原点 49 → 埋深 = 63 - 49 - 6 = 8   ∈ [1,8] ✓
+```
+
+`site_scan.mcfunction` 就是这两列（共 4 条列）的逐格扫描，**是机器生成的**，
+改了测试区坐标后按下面重新生成：
+
+```powershell
+$sb = [System.Text.StringBuilder]::new()
+foreach ($y in -64..160) {
+  [void]$sb.AppendLine("execute if block 0 $y 0 focal_decay:throne_block run say [devtest] G1_surface_y=$y")
+  [void]$sb.AppendLine("execute if block 4 $y 4 focal_decay:anchor_prototype run say [devtest] G1_anchor_y=$y")
+  [void]$sb.AppendLine("execute if block 0 $y 3200 focal_decay:throne_block run say [devtest] G5_surface_y=$y")
+  [void]$sb.AppendLine("execute if block 4 $y 3204 focal_decay:anchor_prototype run say [devtest] G5_anchor_y=$y")
+}
+$path = "tools\devtest-datapack\data\devtest\function\site_scan.mcfunction"
+[System.IO.File]::WriteAllText($path, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+```
+
+（必须用 `WriteAllText` + `UTF8Encoding($false)`：`Set-Content -Encoding utf8` 会写 BOM，
+BOM 会让函数第一行解析失败。生成的 `.mcfunction` 前几个字节应该是 `23 20` = `# `。）
+
+**`random_training` 怎么断言的**：NBT 匹配里**列表是"包含"语义**
+（`NbtUtils.compareNbt` 的 `compareListTag=true` 分支：pattern 里每个元素只要在目标列表里
+找得到就算命中），所以
+
+- `{trainedTargets:["minecraft:stone","minecraft:dirt"]}` = 两条都在；
+- `{trainedTargets:[]}` = **列表为空**（空 pattern 只匹配空列表）→ 反过来用 `unless data`
+  就能断言"非空"；
+- `{Items:[{...}]}` = 箱子里**任意一格**命中 → 一个箱子能一次性代表很多次抽样。
+
+于是 G6c/G7 用 `/loot insert` 把生产表抽 20 次塞进一个箱子，再按上面三条语义断言
+"八种物品都够得着""每一枚都带训练数据""三种站点建材都出现过"。
+
+**G 段的日志噪声**：`site_everywhere` 是 `spacing: 1` 的 structure_set（不这样没法保证
+新生成的区块里必定有一座站点），于是开发服务器启动时把新生成区块全铺上了站点 ——
+日志里会出现成百上千条 `buried:` 与 `Block-attached entity at invalid position`。用
+`Select-String -Path run\logs\latest.log -Pattern 'devtest\]'` 过滤即可。
+
 ### F 段：王座（需要固定种子）
+
 
 王座位置由世界种子决定，函数里没法算，所以**必须先把开发服务器世界固定到种子 `20260912`**：
 

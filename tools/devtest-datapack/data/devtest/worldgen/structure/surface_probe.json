@@ -1,0 +1,11 @@
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:sample_anchor",
+  "biomes": "#minecraft:is_overworld",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+
+  "//": "仅供自动验证：y_offset = 0 时结构原点高度就是 getFirstFreeHeight(WORLD_SURFACE_WG)，也就是 depth_range 换算所依据的『地表高度』。它自己的原点方块 (0,0,0) 是 throne_block，扫一列就能把地表高度读出来。processors 清空，免得刷出噪声日志。",
+  "y_offset": 0,
+  "processors": []
+}

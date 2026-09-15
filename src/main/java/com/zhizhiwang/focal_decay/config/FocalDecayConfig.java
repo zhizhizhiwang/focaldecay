@@ -59,6 +59,7 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.IntValue TOTAL_STABILITY_COPY_PENALTY;
     public static final ModConfigSpec.IntValue TOTAL_STABILITY_MAX_COPIES;
     public static final ModConfigSpec.IntValue TOTAL_STABILITY_COPY_TRAIN_PENALTY;
+    public static final ModConfigSpec.ConfigValue<String> SITE_LOOT_TABLE;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -207,6 +208,13 @@ public final class FocalDecayConfig {
                         + " copied OBSR-EX. Escalates with generation: 1x at generation 1, 3x at"
                         + " generation 2. 0 makes copies as good as the original.")
                 .defineInRange("total_stability_copy_train_penalty", 50, 0, 10000);
+        SITE_LOOT_TABLE = builder
+                .comment("Loot table used by the loot containers inside the Site-CN-25 structure"
+                        + " (focal_decay:site_cn_25, the buried white-concrete room)."
+                        + " The shipped default is focal_decay:chests/site_cn_25; point this at your own"
+                        + " table to replace the contents wholesale. An unparseable value logs a warning"
+                        + " and leaves the chest empty rather than breaking world generation.")
+                .define("site_loot_table", "focal_decay:chests/site_cn_25");
 
         builder.pop();
         SERVER_SPEC = builder.build();

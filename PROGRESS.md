@@ -553,6 +553,124 @@ new SingleTemplatePiece(ctx.structureTemplateManager(), TEMPLATE, Rotation.NONE,
 > 代码里本来也没有强制保护（`ThroneStructure.insideThrone` 声明了但**从未被调用**）。
 > 要把平台锁死的话，把 NBT 里那三种方块换成 `focal_decay:throne_block` 即可。
 
+### 13.6 Site-CN-25 地下站点（2026-09-15，已端到端验证）
+
+用户提供 `site-cn-25.nbt`（9×6×9 的白色混凝土房间，SCP 站点风格），要求三件事：
+① 里面的观测者基座随机带 OBSR-1/-2，**且带随机训练数据**；其中 OBSR-2 另有概率带
+白混凝土 / 磨制闪长岩 / 青翠蛙鸣灯的训练数据；② 箱子按给定八种物品出产，战利品表**挂到 config**；
+③ 生成位置在地表到地下一定深度之间，密度参照原版村庄。
+
+**模板清单**（`DumpStructure` 输出，重搭模板时的硬约束）：
+
+| 内容 | 模板坐标 | 说明 |
+|------|----------|------|
+| `focal_decay:anchor_prototype` | (4,1,4) | 基座；`AnchorModelProcessor` 靠方块 id 找它，位置随意 |
+| `minecraft:chest` | (1,1,3) | 箱子；`ContainerLootProcessor` 靠"是不是 RandomizableContainer"找它 |
+| `minecraft:training_terminal` | (3,1,1) | 自带 `Energy/FinalType` |
+| 外壳 | y=0 地板 / y=5 天花板 / 四周墙 | 全 `white_concrete`，**密封**（水下也不会进水） |
+| 物品展示框（末影之眼） | 实体，blockPos (4,2,1) | 模板里唯一的实体，见下面第 6 条 |
+
+**① 埋深：`single_template` 新增 `depth_range`**
+
+```json
+{ "depth_range": [1, 8] }
+```
+
+含义是**模板最顶层方块位于地表以下的格数**，每次生成在范围内随机取（取的是区块自己的
+`ctx.random()`，同种子可复现）。推导：`surface` 是地表第一格空气，所以地表最高方块在
+`surface - 1`；要让模板顶面低 depth 格，则 `originY = surface - depth - 模板高度`。
+**高度从 `StructureTemplateManager` 读真实模板尺寸**，所以模板加高一层埋深不变，不用手算偏移。
+
+高度三选一的优先级：`y`（写死） > `depth_range`（埋地下） > `y_offset`（贴地表）。
+最后一个 `max(minBuildHeight, ...)` 是保险，防止范围配得过大时结构掉出世界后**静默消失**。
+
+**② 随机训练数据：新战利品函数 `focal_decay:random_training`**
+
+原版战利品表能随机"掉什么、掉几个"，但**不能随机一个 DataComponent 内部的字符串列表**。
+多写几条权重不同的固定条目只能随机出很小的几种组合，做不出"每一枚都不一样"，所以写了这个函数：
+
+```json
+{ "function": "focal_decay:random_training",
+  "count": { "type": "minecraft:uniform", "min": 6, "max": 12 },
+  "pool":  [ "minecraft:stone", "..." ],
+  "extra": [ "minecraft:white_concrete", "minecraft:polished_diorite", "minecraft:verdant_froglight" ],
+  "extra_chance": 0.5 }
+```
+
+- `count` 无放回抽样条数（洗完牌取前 N，`LinkedHashSet` 顺带保住池子顺序）；
+- `extra` 里**每一条独立**掷 `extra_chance`，所以"三条中一条"和"三条全中"都会出现；
+- 只认 `focal_decay:observer_model_data` 组件，其余字段（型号/q/概念/进度/代数）原样保留；
+- 写在 `set_components` **之后**，否则读到的是默认的空模型。
+
+**③ 站点的两张战利品表**
+
+- `focal_decay:structure/site_cn_25_anchor_model`：只出 OBSR-1（`guided`，q=0.75，
+  `concept/stone`，石材池抽 8~16 条）与 OBSR-2（`semantic_lock`，q=1.0，通用建材池抽 6~12 条
+  + 三条站点建材各 50%）。**不出原型、不出 OBSR-Health** —— 这是"上一迭代站点人员留下的模型"。
+- `focal_decay:chests/site_cn_25`：两池。器材池 1 抽 1（原型 4 / 书 3 / 末影之眼 2 / 基座 2），
+  耗材池 2 抽 2（红石 5、青金石 5、铜块 4、末影珍珠 3、书 3）。取向是"补齐入门链条"：
+  原型 + 基座 + 末影之眼是开树的卡点，红石/铜块/书/青金石正好是原型的合成材料。
+
+**④ 容器战利品：新处理器 `focal_decay:container_loot` + 配置项 `server.site_loot_table`**
+
+```json
+{ "processor_type": "focal_decay:container_loot" }
+```
+
+表 ID 取配置项 `server.site_loot_table`（默认 `focal_decay:chests/site_cn_25`；SERVER 配置，
+专用服务器上按世界存放，开发环境在 `run/config/focal_decay-server.toml`），
+要在这个结构里临时换表就写 `"loot_table": "命名空间:路径"` 覆盖。
+配置值非法时只记一条警告并跳过，不让世界生成崩掉。
+
+**读源码确认的关键点（都是踩过就白干的地方）**：
+
+1. **1.21.1 里给结构容器配战利品，正确写法是 NBT 里的 `LootTable` 字符串**，
+   网上说的 `components.minecraft:container_loot` **走不通**：
+   `BlockEntity.loadWithComponents` 只把 `components` 解析进 `this.components` 字段，
+   **不会**回调 `applyImplicitComponents`，于是 `RandomizableContainerBlockEntity.lootTable`
+   一直是 null，箱子开了是空的。真正读 NBT 的是各容器自己 ——
+   `ChestBlockEntity.loadAdditional` 第一句就是 `if (!this.tryLoadLootTable(tag)) ...`
+   （注意 `tryLoadLootTable` 定义在 `RandomizableContainer` 接口上，不在基类里，
+   所以只对实现了接口的容器有效）。
+2. **`LootTableSeed` 不用自己写**：`StructureTemplate.placeInWorld` 在放置带 NBT 的方块实体时，
+   只要它实现了 `RandomizableContainer`，就会自动塞一个随机种子。
+3. **`IntProvider` 与 `NumberProvider` 的 `uniform` 字段名不一样**：
+   `IntProvider`（如 `set_potion`、`IntProvider.CODEC`）用 `min_inclusive`/`max_inclusive`，
+   而 `NumberProvider`（`set_count` 的 `count`、本模组的 `random_training` 的 `count`）用
+   `min`/`max`。JSON 形状一样，写错会让**整张战利品表解析失败**：
+   `Couldn't parse element ... No key max_inclusive in MapLike[...]`。
+   这个函数最初写成 `IntProvider`，结果表整个没加载，处理器只报一句"loot table is missing"。
+4. **NBT 匹配里列表是"包含"语义**（`NbtUtils.compareNbt` 的 `compareListTag=true` 分支）：
+   `["a","b"]` = a 和 b 都在；`[]` **只**匹配空列表（所以 `unless data` + `[]` 可以断言"非空"）；
+   `{Items:[{...}]}` = 箱子里任意一格命中。验证脚本大量依赖这三条。
+5. **函数里命令的输出是被抑制的**，`/data get` 不会进日志；要拿到结论只能用 `say`。
+   加上"命令抛异常会中断整个函数"，所以探针一律写成
+   `execute if block <pos> <方块> run execute if data block <pos> {...} run say ...`。
+6. **结构里的悬挂实体（物品展示框/画）放置时会刷 ERROR**：结构方块存的是绝对坐标
+   `TileX/Y/Z`，放置时只重写 `Pos`，`BlockAttachedEntity.readAdditionalSaveData` 发现两者
+   差 16 格以上就报 `Block-attached entity at invalid position`。**实体位置是对的**
+   （该分支只是不覆盖 `Pos`），属原版噪声。本模板里有 1 个（装着末影之眼的展示框，blockPos (4,2,1)）。
+
+**验证结论（2026-09-15，无头开发服务器实跑，全部通过）**：
+
+| 探针 | 结论 |
+|------|------|
+| `G1_surface_y=63` / `G1_anchor_y=53` | `/place structure` 路径：模板原点 52 → 埋深 5 ∈ [1,8] ✓ |
+| `G5_surface_y=63` / `G5_anchor_y=50` | **真实世界生成**（新区块 0,200）：原点 49 → 埋深 8 ∈ [1,8] ✓ |
+| `G2_anchor_ok` / `G2_chest_ok` / `G2_loottable_ok` | 固定 y=100 的定点检查：箱子里确实写进了 `LootTable` 字符串 |
+| `G2_id_obsr2_lock` / `G6c_obsr1_guided_seen` | 基座里的模型是 OBSR-1 或 OBSR-2，且不带 `blank`/`bio`/`EX` |
+| `G6a_all_three_ok` / `G6a_no_stray_ok` | `random_training` 单元测试：抽 2 条 + extra 必中 → 恰好三条、无杂项 |
+| `G6b_count_one_ok` / `G6b_extra_disabled_ok` | 抽 1 条就只有 1 条；`extra_chance=0` 时一条附加都不写 |
+| `G6c_every_roll_has_training_ok` | 生产表抽 20 次，**每一枚**都带非空训练数据 |
+| `G6c_extra_*_seen` | 白混凝土 / 磨制闪长岩 / 青翠蛙鸣灯三种站点建材都出现过 |
+| `G3_loot_rolled_ok` | 漏斗能从站点箱子里抽出东西 → `LootTable` 真被读取，不只是写了个字符串 |
+| `G7_*_seen` × 8 / `G7_no_stray_ok` | 八种物品全部够得着，且不出表外物品 |
+
+**本次改动**：`SingleTemplateStructure`（`depth_range`）、`ModLootFunctions`（新）、
+`ContainerLootProcessor`（新）、`ModStructures.CONTAINER_LOOT_PROCESSOR`、
+`FocalDecayConfig.SITE_LOOT_TABLE`、主类注册、`data/focal_decay/structure/site_cn_25.nbt`、
+两份 worldgen JSON、两张战利品表；脚手架新增 `NbtTop.java` 与 devtest 的 G 段。
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
@@ -573,3 +691,7 @@ new SingleTemplatePiece(ctx.structureTemplateManager(), TEMPLATE, Rotation.NONE,
     日志里会直接给出 codec 错误（例如 `No key spawn_overrides in MapLike`）。
     结构相关的端到端验证用 `tools/` 里的脚手架，跑法与坑见 `tools/README.md`。
     `run/eula.txt` 已置 `eula=true`（用户已同意）
+12. **两个"uniform"字段名不同，别混**：`IntProvider` 用 `min_inclusive`/`max_inclusive`，
+    `NumberProvider`（`set_count` 的 `count` 等）用 `min`/`max`。JSON 形状一样，
+    写错会让整张战利品表**静默不加载**（只有 `LootDataType` 一条 ERROR，引用方只报
+    "loot table is missing"）。详见 §13.6 第 3 条

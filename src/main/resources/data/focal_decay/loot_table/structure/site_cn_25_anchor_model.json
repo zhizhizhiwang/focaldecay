@@ -1,0 +1,115 @@
+{
+  "//": "Site-CN-25 观测者基座里预装的 OBSR 模型。与通用的 structure/anchor_model 不同：这里只掉 OBSR-1 / OBSR-2（不掉原型、不掉 OBSR-Health），而且都带随机训练数据 —— 上一迭代的站点人员记录的读数，每一座站点都不一样。",
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "//": "OBSR-1 · 引导突变：概念固定为石头，训练数据从石材家族无放回抽 8~16 条，两者自洽。",
+          "type": "minecraft:item",
+          "name": "focal_decay:guided_mutation_model",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_components",
+              "components": {
+                "focal_decay:observer_model_data": {
+                  "type": "guided",
+                  "stabilityStrength": 0.75,
+                  "concept": "focal_decay:concept/stone"
+                }
+              }
+            },
+            {
+              "function": "focal_decay:random_training",
+              "count": { "type": "minecraft:uniform", "min": 8, "max": 16 },
+              "pool": [
+                "minecraft:stone",
+                "minecraft:cobblestone",
+                "minecraft:mossy_cobblestone",
+                "minecraft:stone_bricks",
+                "minecraft:mossy_stone_bricks",
+                "minecraft:cracked_stone_bricks",
+                "minecraft:chiseled_stone_bricks",
+                "minecraft:smooth_stone",
+                "minecraft:deepslate",
+                "minecraft:cobbled_deepslate",
+                "minecraft:deepslate_bricks",
+                "minecraft:polished_deepslate",
+                "minecraft:deepslate_tiles",
+                "minecraft:andesite",
+                "minecraft:polished_andesite",
+                "minecraft:diorite",
+                "minecraft:polished_diorite",
+                "minecraft:granite",
+                "minecraft:polished_granite",
+                "minecraft:tuff",
+                "minecraft:polished_tuff",
+                "minecraft:calcite",
+                "minecraft:dripstone_block",
+                "minecraft:basalt",
+                "minecraft:polished_basalt",
+                "minecraft:blackstone",
+                "minecraft:polished_blackstone",
+                "minecraft:sandstone"
+              ]
+            }
+          ]
+        },
+        {
+          "//": "OBSR-2 · 语义锁定：保护的就是记录表里的方块，所以训练数据从通用建材里抽 6~12 条；另外三条是站点自身的建材（白混凝土、磨制闪长岩、青翠蛙鸣灯），各自独立 50% 概率写入 —— 运气好时这枚锁恰好守住站点自己的墙。",
+          "type": "minecraft:item",
+          "name": "focal_decay:semantic_lock_model",
+          "weight": 1,
+          "functions": [
+            {
+              "function": "minecraft:set_components",
+              "components": {
+                "focal_decay:observer_model_data": {
+                  "type": "semantic_lock",
+                  "stabilityStrength": 1.0
+                }
+              }
+            },
+            {
+              "function": "focal_decay:random_training",
+              "count": { "type": "minecraft:uniform", "min": 6, "max": 12 },
+              "pool": [
+                "minecraft:stone",
+                "minecraft:cobblestone",
+                "minecraft:stone_bricks",
+                "minecraft:smooth_stone",
+                "minecraft:deepslate",
+                "minecraft:cobbled_deepslate",
+                "minecraft:deepslate_bricks",
+                "minecraft:andesite",
+                "minecraft:polished_andesite",
+                "minecraft:diorite",
+                "minecraft:granite",
+                "minecraft:polished_granite",
+                "minecraft:tuff",
+                "minecraft:polished_tuff",
+                "minecraft:calcite",
+                "minecraft:bricks",
+                "minecraft:sandstone",
+                "minecraft:smooth_sandstone",
+                "minecraft:quartz_block",
+                "minecraft:smooth_quartz",
+                "minecraft:oak_planks",
+                "minecraft:spruce_planks",
+                "minecraft:glass"
+              ],
+              "extra": [
+                "minecraft:white_concrete",
+                "minecraft:polished_diorite",
+                "minecraft:verdant_froglight"
+              ],
+              "extra_chance": 0.5
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

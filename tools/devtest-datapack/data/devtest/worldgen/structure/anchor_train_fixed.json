@@ -1,0 +1,16 @@
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:sample_anchor",
+  "biomes": "#minecraft:is_overworld",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+
+  "//": "仅供自动验证：random_training 的单元测试台。固定 y=140，锚落在 (3,141,3)，战利品表把参数全部钉死，结果可以逐字断言。",
+  "y": 140,
+  "processors": [
+    {
+      "processor_type": "focal_decay:anchor_model",
+      "loot_table": "devtest:anchor_training_fixed"
+    }
+  ]
+}

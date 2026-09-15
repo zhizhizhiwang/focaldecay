@@ -1,0 +1,16 @@
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:sample_anchor",
+  "biomes": "#minecraft:is_overworld",
+  "step": "surface_structures",
+  "spawn_overrides": {},
+
+  "//": "仅供自动验证：固定 y=150，锚落在 (3,151,3)。count=1 + extra_chance=0，用来钉死抽取条数与附加概率。",
+  "y": 150,
+  "processors": [
+    {
+      "processor_type": "focal_decay:anchor_model",
+      "loot_table": "devtest:anchor_training_count1"
+    }
+  ]
+}

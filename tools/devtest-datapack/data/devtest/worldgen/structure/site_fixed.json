@@ -1,0 +1,20 @@
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:site_cn_25",
+  "biomes": "#minecraft:is_overworld",
+  "step": "underground_structures",
+  "terrain_adaptation": "none",
+  "spawn_overrides": {},
+
+  "//": "仅供自动验证：生产 JSON（focal_decay:site_cn_25）的逐字副本，只把 depth_range 换成固定 y=100，好让锚/箱子落在可预测的坐标上做定点检查。生产 JSON 一个字都不改。",
+  "y": 100,
+  "processors": [
+    {
+      "processor_type": "focal_decay:anchor_model",
+      "loot_table": "focal_decay:structure/site_cn_25_anchor_model"
+    },
+    {
+      "processor_type": "focal_decay:container_loot"
+    }
+  ]
+}

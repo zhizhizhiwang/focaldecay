@@ -61,6 +61,15 @@ public final class ModStructures {
             PROCESSOR_TYPES.register("anchor_model",
                     () -> (StructureProcessorType<AnchorModelProcessor>) () -> AnchorModelProcessor.CODEC);
 
+    /**
+     * 结构处理器类型：给模板里的容器填战利品表。
+     * <p>
+     * 注册名 {@code focal_decay:container_loot}，表 ID 默认取配置项 {@code server.site_loot_table}。
+     */
+    public static final DeferredHolder<StructureProcessorType<?>, StructureProcessorType<?>> CONTAINER_LOOT_PROCESSOR =
+            PROCESSOR_TYPES.register("container_loot",
+                    () -> (StructureProcessorType<ContainerLootProcessor>) () -> ContainerLootProcessor.CODEC);
+
     private ModStructures() {
     }
 }

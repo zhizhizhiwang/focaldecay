@@ -1,0 +1,33 @@
+{
+  "//": "仅供自动验证：把 random_training 的参数全部钉死，好让结果可以逐字断言。count=2、池子 2 个、extra 必中 —— 期望恰好是 [stone, dirt, white_concrete]（顺序 = 池子顺序，extra 追加在后）。",
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "focal_decay:semantic_lock_model",
+          "functions": [
+            {
+              "function": "minecraft:set_components",
+              "components": {
+                "focal_decay:observer_model_data": {
+                  "type": "semantic_lock",
+                  "stabilityStrength": 1.0
+                }
+              }
+            },
+            {
+              "function": "focal_decay:random_training",
+              "count": 2,
+              "pool": ["minecraft:stone", "minecraft:dirt"],
+              "extra": ["minecraft:white_concrete"],
+              "extra_chance": 1.0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

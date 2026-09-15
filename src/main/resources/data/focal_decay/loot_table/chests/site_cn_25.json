@@ -1,0 +1,93 @@
+{
+  "//": "Site-CN-25 的储物箱。八种物品按功能分两池：池一给一件“器材”，池二给两件耗材。整体取向是“补齐入门链条”——原型机、基座、末影之眼都是开科技树的卡点，红石/铜块/书/青金石正好是原型的合成材料。",
+  "type": "minecraft:chest",
+  "pools": [
+    {
+      "//": "器材：1 抽 1。OBSR 原型 36%，书本 27%，末影之眼 18%，观测者基座 18%。",
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "focal_decay:observer_model_blank",
+          "weight": 4
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 3
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_eye",
+          "weight": 2
+        },
+        {
+          "type": "minecraft:item",
+          "name": "focal_decay:anchor_prototype",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "//": "耗材：2 抽 2。红石粉 25%，青金石 25%，铜块 20%，末影珍珠 15%，书本 15%。",
+      "rolls": 2,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:redstone",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": { "type": "minecraft:uniform", "min": 4, "max": 8 }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:lapis_lazuli",
+          "weight": 5,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": { "type": "minecraft:uniform", "min": 2, "max": 6 }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:copper_block",
+          "weight": 4,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": { "type": "minecraft:uniform", "min": 1, "max": 3 }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:ender_pearl",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": { "type": "minecraft:uniform", "min": 1, "max": 2 }
+            }
+          ]
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:book",
+          "weight": 3,
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": { "type": "minecraft:uniform", "min": 1, "max": 3 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

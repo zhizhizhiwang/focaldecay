@@ -1,0 +1,16 @@
+{
+  "//": "仅供自动验证：spacing=1 时每个区块都会是候选区块，于是新生成的区块里必定出现一座 Site-CN-25 —— 用来验证真实世界生成路径（WorldGenRegion）下 depth_range 与处理器都生效。直接引用生产结构 focal_decay:site_cn_25，不做任何改动。",
+  "structures": [
+    {
+      "structure": "focal_decay:site_cn_25",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 1,
+    "separation": 0,
+    "salt": 20260925,
+    "frequency": 1.0
+  }
+}

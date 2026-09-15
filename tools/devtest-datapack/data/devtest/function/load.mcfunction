@@ -2,3 +2,4 @@
 say [devtest] load tag fired, scheduling placement
 schedule function devtest:place 5s
 schedule function devtest:throne 10s
+schedule function devtest:site 15s

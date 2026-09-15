@@ -7,6 +7,7 @@ import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ModDataGenerator;
 import com.zhizhiwang.focal_decay.data.ModDataComponents;
 import com.zhizhiwang.focal_decay.data.ModLootConditions;
+import com.zhizhiwang.focal_decay.data.ModLootFunctions;
 import com.zhizhiwang.focal_decay.data.recipe.ModRecipeSerializers;
 import com.zhizhiwang.focal_decay.item.ModCreativeTabs;
 import com.zhizhiwang.focal_decay.item.ModItems;
@@ -60,6 +61,8 @@ public final class FocalDecay {
         ModStructures.PROCESSOR_TYPES.register(modEventBus);
         // 战利品条件类型（手册发放表的前置门控，见 ModLootConditions）
         ModLootConditions.LOOT_CONDITION_TYPES.register(modEventBus);
+        // 战利品函数类型（给抽出来的 OBSR 模型补随机训练数据，见 ModLootFunctions）
+        ModLootFunctions.LOOT_FUNCTION_TYPES.register(modEventBus);
 
         // Register data generators (runData)
         ModDataGenerator.register(modEventBus);

@@ -1,0 +1,22 @@
+{
+  "type": "focal_decay:single_template",
+  "template": "focal_decay:site_cn_25",
+  "biomes": "#minecraft:is_overworld",
+  "step": "underground_structures",
+  "terrain_adaptation": "none",
+  "spawn_overrides": {},
+
+  "//": "Site-CN-25：埋在地下的白色混凝土站点。depth_range 是房间最顶层方块位于地表以下的格数范围（1~8，按模板真实高度换算，模板加高不用改这里）。terrain_adaptation 必须是 none —— beard 会把土层掀开、把站点暴露到地面。",
+  "depth_range": [1, 8],
+
+  "//processors": "基座塞随机 OBSR 模型（本结构专用表：OBSR-1/-2 + 随机训练数据）；容器填配置项 server.site_loot_table 指向的战利品表。",
+  "processors": [
+    {
+      "processor_type": "focal_decay:anchor_model",
+      "loot_table": "focal_decay:structure/site_cn_25_anchor_model"
+    },
+    {
+      "processor_type": "focal_decay:container_loot"
+    }
+  ]
+}

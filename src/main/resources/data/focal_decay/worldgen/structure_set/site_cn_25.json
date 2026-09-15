@@ -1,0 +1,16 @@
+{
+  "//": "生成密度参照原版村庄：spacing 34 / separation 8（村庄就是这个值，见 minecraft:worldgen/structure_set/villages.json）。salt 0x53495445 = \"SITE\"，与村庄的 10387312 不同，否则两者会在同一批区块上抢位置。",
+  "structures": [
+    {
+      "structure": "focal_decay:site_cn_25",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 34,
+    "separation": 8,
+    "spread_type": "linear",
+    "salt": 1397314629
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "//": "仅供自动验证：count=1、池子 2 个、extra 概率 0。用来钉死两件事：抽几条就是几条（两个都在 = count 没生效），以及 extra_chance=0 时一条附加都不写。",
+  "type": "minecraft:generic",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "focal_decay:semantic_lock_model",
+          "functions": [
+            {
+              "function": "minecraft:set_components",
+              "components": {
+                "focal_decay:observer_model_data": {
+                  "type": "semantic_lock",
+                  "stabilityStrength": 1.0
+                }
+              }
+            },
+            {
+              "function": "focal_decay:random_training",
+              "count": 1,
+              "pool": ["minecraft:stone", "minecraft:dirt"],
+              "extra": ["minecraft:white_concrete"],
+              "extra_chance": 0.0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
