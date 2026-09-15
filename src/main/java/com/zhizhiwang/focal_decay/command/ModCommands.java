@@ -68,6 +68,12 @@ public final class ModCommands {
                                 .executes(ctx -> selfTestMutation(ctx.getSource())))
                         .then(Commands.literal("at")
                                 .executes(ctx -> mutationAt(ctx.getSource()))))
+                .then(Commands.literal("refocus")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(ctx -> setRefocus(ctx.getSource(), true))
+                        .then(Commands.argument("online", BoolArgumentType.bool())
+                                .executes(ctx -> setRefocus(ctx.getSource(),
+                                        BoolArgumentType.getBool(ctx, "online")))))
                 .then(Commands.literal("unlock")
                         .requires(source -> source.hasPermission(2))
                         .executes(ctx -> unlockManual(ctx.getSource()))));
@@ -131,8 +137,22 @@ public final class ModCommands {
         return 1;
     }
 
-    private static int setTrace(CommandSourceStack source, boolean enabled) {
-        InteractionHandler.traceEnabled = enabled;
+    /**
+     * 强制翻转"重聚焦"状态（观测者是否在线）。
+     * <p>
+     * 存在的理由：正常流程要练出一个候选观测者模型、装进核心、等 100 tick 才能到达这个状态，
+     * 而重聚焦之后有一堆只在那一刻才生效的表现（客户端遮罩淡出、失焦预览清空、实体突变停止）需要反复看。
+     * 走的是和核心激活完全相同的 {@code FocalDecayWorldData.setObserverOnline}，所以看到的就是真实行为。
+     */
+    private static int setRefocus(CommandSourceStack source, boolean online) {
+        FocalDecayWorldData.get(source.getServer()).setObserverOnline(online);
+        report(source, "Focal Decay observerOnline = " + online
+                + (online ? " (client veil fades out, defocus preview cleared)"
+                          : " (defocus resumes)"));
+        return 1;
+    }
+
+    private static int setTrace(CommandSourceStack source, boolean enabled) {        InteractionHandler.traceEnabled = enabled;
         // 客户端渲染侧诊断：只有客户端才有意义，用反射避免在专用服务器上触碰客户端类
         try {
             Class.forName("com.zhizhiwang.focal_decay.client.ClientRenderDebug")

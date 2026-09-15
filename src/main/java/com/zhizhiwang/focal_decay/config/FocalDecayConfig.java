@@ -267,6 +267,8 @@ public final class FocalDecayConfig {
     // ------------------------------------------------------------------
     public static final ModConfigSpec CLIENT_SPEC;
     public static final ModConfigSpec.BooleanValue POST_PROCESS_ENABLED;
+    public static final ModConfigSpec.BooleanValue POST_PROCESS_AFTER_REFOCUS;
+    public static final ModConfigSpec.IntValue POST_PROCESS_REFOCUS_FADE_TICKS;
     public static final ModConfigSpec.IntValue SURFACE_UPDATE_FREQUENCY;
     public static final ModConfigSpec.IntValue MAX_RENDER_DISTANCE;
     public static final ModConfigSpec.DoubleValue OBSERVER_CORE_SPIN_SPEED;
@@ -291,6 +293,16 @@ public final class FocalDecayConfig {
         POST_PROCESS_ENABLED = builder
                 .comment("Enable the observer veil post-processing shader.")
                 .define("postProcessEnabled", true);
+        POST_PROCESS_AFTER_REFOCUS = builder
+                .comment("Keep the observer veil running after the refocus (the Observer Core going online).",
+                        "false = the veil fades out once the defocus ends, because the instability it depicts is over.",
+                        "true = old behaviour: the veil keeps breathing after the world has been stabilised.")
+                .define("postProcessAfterRefocus", false);
+        POST_PROCESS_REFOCUS_FADE_TICKS = builder
+                .comment("How long the veil takes to fade out after the refocus, in ticks (20 ticks = 1 second).",
+                        "0 removes it instantly, which tends to look like a hard cut right when the core activates.",
+                        "Ignored when postProcessAfterRefocus is true.")
+                .defineInRange("postProcessRefocusFadeTicks", 50, 0, 600);
         SURFACE_UPDATE_FREQUENCY = builder
                 .comment("Frustum surface computation frequency (frames).")
                 .defineInRange("surface_update_frequency", 2, 1, 20);

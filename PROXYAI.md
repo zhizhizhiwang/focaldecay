@@ -469,13 +469,22 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
   它正是玻璃破洞那个 bug 的思想来源。
 
 ### 7.4 后处理着色器
-- 注册自定义 `PostChain`：`focal_decay:observer_veil`。
-- 实现方式：
-  - 在 `RegisterShadersEvent` 中注册。
-  - 在 `RenderLevelStageEvent.Stage.AFTER_LEVEL` 中应用，使用 `Minecraft.getInstance().gameRenderer` 的 `PostChain` 实例。
-  - 着色器效果：极轻微的时间性扭曲 + 色散，周期波动，强度由 `postIntensity` 配置。
-  - 提供视频设置开关（通过 `FocalDecayConfig.CLIENT.postProcessEnabled` 控制，可在配置中或按键切换）。
-- 阶段3时强度乘2。
+- 程序路径（实现时要留意的坑）：PostChain 文件是 `assets/focal_decay/shaders/post/observer_veil.json`，
+  但 pass 里引用的 program 名会按默认命名空间解析，所以 GLSL 实际放在
+  `assets/minecraft/shaders/program/observer_veil.{json,vsh,fsh}`。
+- 应用点：`GameRendererMixin` 注入 `GameRenderer.renderLevel(DeltaTracker)` <b>尾部</b>
+  （手部渲染之后），详见 §7.6 的手部渲染修复。
+- 着色器效果：极轻微的时间性扭曲 + 色散 + 极淡着色，周期波动，强度由 `post_intensity`（COMMON）配置。
+- 三个效果在 shader 里都由同一个 `Fade` uniform 缩放，所以 `Fade = 0` 等于"整个效果消失"
+  （而不是只去掉色调、留下抖动）。
+- **重聚焦之后移除（2026-09-16）**：遮罩画的就是"失焦带来的不安定"，观测者核心上线之后这份不安定已经结束。
+  - `postProcessAfterRefocus`（CLIENT，默认 **false** = 移除）是开关；置 true 恢复旧的"一直抖"行为。
+  - `postProcessRefocusFadeTicks`（CLIENT，默认 50 = 2.5 秒，0 = 立刻切掉）是淡出时长。
+    做成淡出而不是硬切，是因为重聚焦那一瞬本来就有音效/粒子/广播，直接抽掉反而突兀。
+  - 淡到 0 时**卸载整个 PostChain**，连每帧一次的全屏 pass 都不再付；
+    世界若回到失焦状态（或开关被打开），`veilRefocusFade` 复位为 1、下一帧重新加载。
+- 时间源：不能用内置 `Time`（PostChain 每秒硬回绕一次，周期长于 1 秒的动画必然跳变），
+  自建只增不回绕的 `TotalTime`（秒）。
 
 ---
 
@@ -556,13 +565,20 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
 - **RegisterKeyMappingsEvent**（可选）：注册关闭后处理的快捷键。
 
 ### 10.3 Mixin 列表
-- `MixinChunkRenderDispatcher`：替换编译时的方块状态。
+- `client.SectionCompilerMixin`：替换编译时的方块状态（这个位置画成什么）。
+- `client.BlockShouldRenderFaceMixin`：面剔除的邻居读取也走幽灵世界（这个面画不画），见 §7.3。
 - `MinecraftPickBlockMixin`：中键选取返回"失焦目标"方块（替换 `Minecraft#pickBlock` 中的 `ClientLevel#getBlockState`）。
 - 不修改底层网络，仅注入渲染和方块处理。
 
-### 10.4 测试命令（2026-08-13 新增）
+### 10.4 测试命令
 - `/focaldecay days`：查询当前末日天数与阶段。
 - `/focaldecay days <n>`：手动设定天数（权限 2），`FocalDecayWorldData.setDays` 落盘并通过 `SyncWorldDataPacket` 广播，客户端立即按新阶段重算（周期/概率/影响范围）。
+- `/focaldecay mutation audit | selftest | at`：突变查表自检 / 运行期自测 / 脚下位置诊断，见 §4.1.4。
+- `/focaldecay refocus [true|false]`（2026-09-16，权限 2）：强制翻转"观测者在线"状态。
+  走的是和核心激活完全相同的 `FocalDecayWorldData.setObserverOnline`，所以看到的就是真实行为；
+  存在的理由是重聚焦之后有一堆只在那一刻生效的表现（客户端遮罩淡出、失焦预览清空、实体突变停止）
+  需要反复看，而正常流程要练候选模型、装核心、等 100 tick。
+- `/focaldecay throne | inspect | trace | unlock`：王座坐标 / 手持模型数据 / 交互诊断日志 / 解锁手册。
 
 ---
 
@@ -603,4 +619,4 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
   - 实体类型：`entity_mutation_pool_passive` / `_neutral` / `_hostile`
 - 着色器：`observer_veil`
 - 包网络：`sync_region_data`, `sync_birth_period`, `sync_world_data`, `core_activate`, `throne_ritual`
-- 命令：`/focaldecay days|throne|inspect|trace|unlock|mutation audit|mutation selftest|mutation at`
+- 命令：`/focaldecay days|throne|inspect|trace|unlock|refocus|mutation audit|mutation selftest|mutation at`

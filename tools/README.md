@@ -111,6 +111,10 @@ Select-String -Path run\logs\latest.log -Pattern 'devtest\]|mutation\]|selftest\
 `/focaldecay mutation at` 打印脚下位置的真实方块、形态类、候选数量与当前可见目标，
 排查"这个方块为什么不变 / 为什么变成了那个"时最直接。
 
+同一段里还会跑一次 `/focaldecay refocus true` + `refocus false`：
+用来确认这条调试命令已注册、翻转观测者状态不会抛异常。
+**末尾故意回到 false**，所以不会把开发世界留在"已重聚焦"状态（那会让后续的失焦探针全部失效）。
+
 ### G 段：Site-CN-25 地下站点
 
 覆盖三件新东西：`depth_range`（按地表高度埋到地下）、`focal_decay:random_training`
@@ -235,5 +239,19 @@ javap -p -c -cp build\moddev\artifacts\neoforge-21.1.248-merged.jar net.minecraf
 
 本项目**没有启用 Mixin 注解处理器**（构建里没有 `*refmap*`），所以注入点写错在编译期
 是发现不了的，只有客户端启动时才会炸。`javap` 那一步不能省。
+
+### 重聚焦之后的客户端表现怎么验
+
+遮罩淡出、失焦预览清空、实体突变停止这些都挂在"观测者是否在线"上，而正常流程要
+练一个候选观测者模型 → 装进核心 → 等 100 tick 才能到达那个状态。测试时直接：
+
+```
+/focaldecay refocus          # 等于重聚焦；再执行一次 /focaldecay refocus false 回到失焦
+```
+
+客户端日志会留一行 `Focal Decay: observer veil removed after refocus`，
+用来确认淡出确实走到了"卸载 PostChain"那一步（而不是只把强度设成 0）。
+淡出时长由 `postProcessRefocusFadeTicks` 决定（默认 50 tick = 2.5 秒，0 = 立刻切掉），
+想恢复"一直抖"的旧行为就把 `postProcessAfterRefocus` 置 true。
 
 

@@ -170,6 +170,13 @@ public final class ClientRenderCache {
     private static final float VEIL_BREATHE_MID = 0.85F;
     private static final float VEIL_BREATHE_AMPLITUDE = 0.15F;
     private boolean veilLoadFailed;
+    /**
+     * 重聚焦（观测者上线）后遮罩的残留强度：1 = 全强度，0 = 已完全移除。
+     * <p>
+     * 每帧按 {@code postProcessRefocusFadeTicks} 递减，到 0 就卸载整个 PostChain。
+     * 世界重新回到失焦状态（或开关被打开）时复位为 1。
+     */
+    private float veilRefocusFade = 1.0F;
 
     /** 呼吸曲线：cos 使往复两端平滑（速度为零），节拍均匀。 */
     private static float breatheFor(float phase) {
@@ -391,6 +398,32 @@ public final class ClientRenderCache {
             return;
         }
 
+        // 每帧真实时间（秒）。动画计时与遮罩淡出都要用，所以先算出来。
+        float frameSeconds = Mth.clamp(frameDeltaTicks, 0.0F, 2.0F) / 20.0F;
+
+        // ── 重聚焦之后移除遮罩 ───────────────────────────────────────────────
+        // 遮罩画的就是"失焦带来的不安定"，观测者核心上线之后这份不安定已经结束了，
+        // 继续留着抖动属于漏做状态处理。默认淡出（也遮住核心激活那一瞬的硬切），
+        // 淡到 0 就整个卸载 PostChain，连每帧一次的全屏 pass 都不再付。
+        if (!FocalDecayConfig.POST_PROCESS_AFTER_REFOCUS.get() && observerOnline) {
+            int fadeTicks = Math.max(0, FocalDecayConfig.POST_PROCESS_REFOCUS_FADE_TICKS.get());
+            if (veilRefocusFade > 0.0F) {
+                veilRefocusFade = fadeTicks <= 0
+                        ? 0.0F
+                        : Math.max(0.0F, veilRefocusFade - frameSeconds / (fadeTicks / 20.0F));
+            }
+            if (veilRefocusFade <= 0.0F) {
+                if (veil != null) {
+                    closeVeil();
+                    LOGGER.info("Focal Decay: observer veil removed after refocus");
+                }
+                return;
+            }
+        } else {
+            // 开关打开，或世界又回到失焦状态：恢复全强度（重新加载由下面的分支负责）。
+            veilRefocusFade = 1.0F;
+        }
+
         Object resourceManager = mc.getResourceManager();
         if (veil != null && resourceManager != veilResourceManager) {
             closeVeil(); // 资源重载（F3+T）后重建
@@ -437,12 +470,14 @@ public final class ClientRenderCache {
         // 2) getRealtimeDeltaTicks() 的单位是 <b>tick</b>，不是秒：源码是
         //    (time - lastUiMs) / msPerTick，而 msPerTick = 1000/20 = 50ms。
         //    60fps 下一帧 16.7ms → 0.333，即每秒累加 20。换算成秒要 / 20。
-        float frameSeconds = Mth.clamp(frameDeltaTicks, 0.0F, 2.0F) / 20.0F;
+        //    （frameSeconds 在本方法开头就算好了，淡出也要用。）
         veilTime += frameSeconds;
         float phase = (veilTime / VEIL_CYCLE_SECONDS) % 1.0F;
 
         float intensity = FocalDecayConfig.POST_INTENSITY.get().floatValue();
-        veil.setUniform("Fade", Mth.clamp(intensity * breatheFor(phase), 0.0F, 1.0F));
+        // Fade 在 shader 里同时乘在漂移、色散、着色三项上，所以淡到 0 就是"整个效果消失"，
+        // 而不是只去掉色调、留下抖动。
+        veil.setUniform("Fade", Mth.clamp(intensity * breatheFor(phase) * veilRefocusFade, 0.0F, 1.0F));
 
         // ⚠️ 波纹必须用自建的连续时间 uniform，<b>不能用内置的 Time</b>。
         // PostChain 每帧把 Time 归一化到 [0,1) 并在满 20 tick 时硬回绕：

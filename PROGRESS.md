@@ -898,6 +898,44 @@ new SingleTemplatePiece(ctx.structureTemplateManager(), TEMPLATE, Rotation.NONE,
 
 热路径开销几乎没变（`chance=1.00` 37→41 ns，`chance=0.01` 176→186 ns，在运行间波动范围内）。
 
+### 13.9 重聚焦之后移除 observer_veil 遮罩（2026-09-16，已实测配置与命令）
+
+**症状**（用户实机发现）：重聚焦（观测者核心上线）之后，画面上的"不安定感"还在继续。
+
+**根因**：`ClientRenderCache.updateVeil` 从头到尾没读过 `observerOnline`。
+遮罩画的就是"失焦带来的不安定"，而失焦已经结束了——纯粹是漏做状态处理。
+（同一时刻其它东西都正确停了：方块失焦预览、实体突变、交互转换都查 `observerOnline`。）
+
+**修法**：
+- 新增两个 CLIENT 配置：
+  - `postProcessAfterRefocus`（默认 **false**）——即"重聚焦后移除"；置 true 恢复旧的"一直抖"。
+  - `postProcessRefocusFadeTicks`（默认 50 = 2.5 秒，0 = 立刻切掉）。
+- 做成**淡出而不是硬切**：重聚焦那一瞬本来就有音效/粒子/广播，直接抽掉反而突兀。
+- 淡到 0 时**卸载整个 PostChain**，连每帧一次的全屏 pass 都不再付；
+  世界若回到失焦状态（或开关被打开），`veilRefocusFade` 复位为 1，下一帧重新加载。
+- 淡的是 `Fade` uniform，而 shader 里 `Fade` 同时乘在**漂移、色散、着色**三项上，
+  所以淡到 0 就是"整个效果消失"，不是只去掉色调却留下抖动（这一点是读 fsh 确认的，不是猜的）。
+
+**新增调试命令** `/focaldecay refocus [true|false]`（权限 2）：
+走的是和核心激活完全相同的 `FocalDecayWorldData.setObserverOnline`，所以看到的就是真实行为。
+存在的理由是重聚焦之后有一堆只在那一刻生效的表现需要反复看，
+而正常流程要练候选模型 → 装核心 → 等 100 tick。
+
+**验证**：
+- `runClient` 启动无异常，配置文件被重新生成且含新键
+  （`postProcessAfterRefocus = false`，`postProcessRefocusFadeTicks = 50`）；
+- devtest 数据包新增 `focaldecay refocus true` + `refocus false` 两条（**故意在末尾回到 false，
+  不留副作用**），服务端日志确认命令已注册且两条都执行成功：
+  ```
+  Focal Decay observerOnline = true (client veil fades out, defocus preview cleared)
+  Focal Decay observerOnline = false (defocus resumes)
+  ```
+- 同一次运行的突变自检全部照旧通过（`checks: frozen=0 asymmetric=0 crossClass=0 OK`，
+  selftest 十项全 PASS，热路径 35 / 147 ns）。
+
+**未经自动化验证的**：淡出动画本身要用眼睛看。进游戏执行 `/focaldecay refocus` 即可复现
+（2.5 秒内遮罩消失，日志出现 `observer veil removed after refocus`）。
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
