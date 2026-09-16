@@ -35,7 +35,7 @@
 
 ### 可选依赖
 
-- **Patchouli** —— 游戏内手册。不装就拿不到那本书。
+- **Patchouli** —— 游戏内手册。
 - **JEI** —— 配方、碎片来源与模型派生关系查询。
 
 ---
@@ -53,33 +53,6 @@
 
 本仓库由 NeoForge MDK 起步，构建走 [ModDevGradle](https://github.com/neoforged/ModDevGradle)，文档见 <https://docs.neoforged.net/>。开发环境的坑（音频后端、结构验证脚手架、Patchouli 的加载陷阱、可选依赖的类加载隔离等）都记在 [`PROGRESS.md`](PROGRESS.md) 里，动手之前值得翻一下。
 
----
-
-## CI
-
-| Workflow | 触发 | 干什么 |
-|---|---|---|
-| [`build.yml`](.github/workflows/build.yml) | 推送到 `main`、任何 PR、手动 | `./gradlew build`，把 `focal_decay-<版本>.jar` 传成 artifact（留 30 天） |
-| [`publish-modrinth.yml`](.github/workflows/publish-modrinth.yml) | **仅手动** | 构建 → 上传 Modrinth → 建 GitHub Release 并附 jar |
-
-版本号统一从 `gradle.properties` 的 `mod_version` 读，CI 不会另造一套，所以线上产物和本地 `./gradlew build` 出来的完全一致。
-
-### 发布到 Modrinth（预留，默认不跑）
-
-`publish-modrinth.yml` 不会自动触发，只在你于 Actions 页面点 **Run workflow** 时才跑。要真正启用上传，先在
-**Settings → Secrets and variables → Actions** 里配两项：
-
-| 类型 | 名字 | 值 |
-|---|---|---|
-| Secret | `MODRINTH_TOKEN` | 在 <https://modrinth.com/settings/pats> 建，勾 `VERSION_CREATE` 即可 |
-| Variable | `MODRINTH_PROJECT_ID` | Modrinth 项目 ID 或 slug |
-
-**没配也能安全地放着**：缺凭据时 workflow 照常构建、照常发 GitHub Release，只把 Modrinth 那一步跳过并给一条
-warning，不会红叉。另外确认 **Settings → Actions → General → Workflow permissions** 允许
-"Read and write permissions"，否则建 tag / Release 会因权限不足失败。
-
-手动触发时可填版本号（留空就用 `mod_version`）、发布通道（release / beta / alpha）、更新日志（留空自动用上一个
-tag 以来的 commit 生成），另有"试运行"开关可以走完整流程但不真的上传。
 
 ---
 
