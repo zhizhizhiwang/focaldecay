@@ -81,18 +81,31 @@ public record ObserverModelData(String type, List<String> trainedTargets, List<S
         return TYPE_CANDIDATE.equals(type) && progress >= requiredCandidatePoints(copies);
     }
 
-    /** 完成候选体所需的训练点数：基础值 + 复制代数带来的递增代价。 */
+    /**
+     * 完成候选体所需的训练点数：基础值 + 复制代数带来的递增代价。
+     * <p>
+     * 客户端预览不能用这个重载（它读本端配置），要用
+     * {@link com.zhizhiwang.focal_decay.mutation.MutationSettings#requiredCandidatePoints(int)} ——
+     * 训练点数是"练满 = 硬保护"的判据，
+     * 两端不一致就会出现"客户端以为有保护、服务端照样转换"。公式仍然只有下面一份。
+     */
     public static int requiredCandidatePoints(int copies) {
-        int base = Math.max(1, com.zhizhiwang.focal_decay.config.FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get());
+        return requiredCandidatePoints(copies,
+                com.zhizhiwang.focal_decay.config.FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get(),
+                com.zhizhiwang.focal_decay.config.FocalDecayConfig.TOTAL_STABILITY_COPY_TRAIN_PENALTY.get());
+    }
+
+    /** 训练点数公式（纯函数：参数显式给出，供服务端配置与客户端同步快照共用）。 */
+    public static int requiredCandidatePoints(int copies, int basePoints, int penaltyPerGeneration) {
+        int base = Math.max(1, basePoints);
         int generation = Math.max(0, copies);
         if (generation == 0) {
             return base;
         }
-        int penaltyPerGeneration = Math.max(0,
-                com.zhizhiwang.focal_decay.config.FocalDecayConfig.TOTAL_STABILITY_COPY_TRAIN_PENALTY.get());
+        int penalty = Math.max(0, penaltyPerGeneration);
         // 代价随代数递增：1 代 ×1、2 代 ×3（三角数），强化"越失真越难校准"
         int escalating = generation * (generation + 1) / 2;
-        return base + escalating * penaltyPerGeneration;
+        return base + escalating * penalty;
     }
 
     public static ObserverModelData blank() {

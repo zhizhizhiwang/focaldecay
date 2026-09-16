@@ -2,6 +2,7 @@ package com.zhizhiwang.focal_decay.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.zhizhiwang.focal_decay.block.ModBlocks;
+import com.zhizhiwang.focal_decay.mutation.MutationSettings;
 import com.zhizhiwang.focal_decay.structure.ThroneStructure;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -9,7 +10,6 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.blockentity.BeaconRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -18,7 +18,8 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 /**
  * 王座四根角柱的"折跃门式"信标光束（客户端渲染）。
  * 复用末地折跃门的 end_gateway_beam 贴图与 BeaconRenderer 绘制；
- * 单人可经集成服务器取世界种子（与失焦预览相同的多人限制）。
+ * 世界种子取自服务端同步下来的{@link MutationSettings 解析输入快照}
+ * （2026-09-17：以前在多人模式下取不到种子就直接不画，现在不再有单人/多人差别）。
  * <p>
  * 角柱与光束高度取自 {@code end_throne.nbt}：四角柱在原点 ±6、柱顶末地棒在原点 +17
  * （见 {@link ThroneStructure} 的模板偏移说明）。重搭模板时若挪了角柱，这里也要跟着改。
@@ -40,11 +41,11 @@ public final class ThroneBeamRenderer {
         if (level == null || level.dimension() != Level.END) {
             return;
         }
-        MinecraftServer server = mc.getSingleplayerServer();
-        if (server == null || server.overworld() == null) {
-            return; // 多人模式暂无世界种子同步
+        MutationSettings settings = ClientRenderCache.INSTANCE.mutationSettings();
+        if (settings == null) {
+            return; // 服务端快照未到：位置算不出来，画出来只会是错的
         }
-        BlockPos throne = ThroneStructure.thronePos(server.overworld().getSeed());
+        BlockPos throne = ThroneStructure.thronePos(settings.worldSeed());
         Vec3 camera = event.getCamera().getPosition();
         if (throne.distToCenterSqr(camera) > (double) MAX_DISTANCE * MAX_DISTANCE) {
             return;

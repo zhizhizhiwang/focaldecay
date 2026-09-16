@@ -114,6 +114,37 @@ Select-String -Path run\logs\latest.log -Pattern 'devtest\]|mutation\]|selftest\
 - 只回滚"失焦外观"：玩家真实放置/破坏的方块、锚固化写进世界的方块、右键转换过的方块都回不去；
   实体/天气也不倒带（负倍率下它们停住）。
 - 偏移超过 -128 时，超出出生周期表剪枝地平线的位置会显示成已崩坏而不是原样。
+- **倍率 ≠ 1 时"保护期"是 1 个显示周期**：出生周期与闸门都在显示时钟上（2026-09-17 修正，
+  见 `PROGRESS.md` §13.14）。所以 speed 7 时刚放下的方块只保护约 0.7 秒——这是刻意的，
+  "一个周期"在这个档位下本来就只有那么长。以前两者不同域，倍率 >1 会完全没有保护期、
+  <1 会永久不失焦。
+- `/focaldecay trace` 是**服务端**开关：输出写在**服务端**日志里。联机时在服务器上执行，
+  别在客户端日志里找（需要权限 2）。
+- 日志里的中文是 log4j 用 JVM 默认 Locale 打的月份名，编码是 JVM 默认字符集（中文 Windows 上通常是 GBK）。
+  读它用 GBK：`[System.IO.File]::ReadAllText($p, [Text.Encoding]::GetEncoding(936))`。
+
+### 量"客户端与服务端的失焦刻差了多久"
+
+失焦刻由 `gameTick / base_interval` 算，而客户端的 `gameTick` 是**本地自走**的
+（服务端每 20 tick 才校一次），所以掉帧时客户端会跑到前面、差出一个周期——
+那段时间里它会显示周期 N 而服务端按 N+1 解析。交互时客户端会把"我看到的刻"回报给服务端，
+服务端在物理可能的偏差内采用它（见 `PROGRESS.md` §13.12）。
+
+想看这个窗口实际有多大：
+
+```
+/focaldecay trace true      # 打开交互诊断
+# 然后正常挖一会儿方块
+/focaldecay trace false
+```
+
+日志里会出现（只在**回报确实改变了结果**时才打，所以它同时是"这个修复有没有在干活"的证据）：
+
+```
+[trace] left-click 12, 64, -30 stage=1 real=minecraft:stone target=minecraft:granite
+[trace]   period echo: client period=151 server period=152 -> kept the client's, otherwise minecraft:diorite instead of minecraft:granite
+```
+
 
 ### H 段：突变系统自检
 
@@ -134,6 +165,31 @@ Select-String -Path run\logs\latest.log -Pattern 'devtest\]|mutation\]|selftest\
 `[stress]` 一项是**并发**压力测试（16 线程并发调用状态迁移映射，断言不抛异常、结果与单线程一致）。
 它的规模是有讲究的：键空间必须**远超**缓存上限，否则并发阶段全是命中、什么都不验
 （第一版就是这么假通过的）。有上限地等待 10 秒，退化时给出可读的 FAIL 而不是把服务器拖死。
+
+`[sync]` 一项量的是**两端输入是否一致**（2026-09-17 新增，起因是一次真实的联机 bug）：
+
+| 行 | 含义 |
+|----|------|
+| `settings packet round-trip (13 fields)` | 手写的 `MutationSettings` 编解码逐字段往返（字段串位会静默地让两端算出不同世界） |
+| `prototype packet round-trip` | 原型机摘要的编解码往返（`bioActive` 由 int 改 boolean 时最容易串位） |
+| `client entry (snapshot) == server entry (config)` | 服务端入口（读本端配置）与客户端入口（用同步快照）在 5 种源方块 × 3 阶段 × 64 周期上逐位比对 |
+| `stage / clock / candidate-points parity` | 阶段划分、两根时钟、候选体训练点数的换算一致 |
+| `client view echo accepted only within a physically possible skew` | 客户端回报的显示刻只在"时钟自走能造成的偏差"内被采用，谎报值（含 `Long.MIN_VALUE` 这类溢出陷阱）一律拒绝 |
+| `client view echo decision (pos / age / skew)` | 回报的三条门槛：位置对得上、够新、偏差在界内 |
+| `client view packet round-trip` | C→S 回报包的编解码往返 |
+
+**这一项是这次修复的回归网**：只要有人把 `resolve` 的某个参数接错线、或者在快照里少同步一个量，
+它立刻变红。它**不能**替代真机验证——"包到底有没有发到客户端"只能在真客户端上看（见 §3）。
+
+`[sync]` 之外，客户端日志里还有一行值得看（它量的是"幽灵缓存的有效期判据有没有在干活"）：
+
+```
+Focal Decay: period 178 — cleared 105474 ghost entries in 631 sections (130 dropped mid-period because the real block changed), scheduled recompile
+```
+
+括号里的数字是**本周期里因为真实方块变化而作废的幽灵条目数**（挖掉/放下方块都会让它涨）。
+正常游玩时它应该有数；如果它长期是 0，说明缓存又开始只按周期判有效期了——
+那正是"挖掉失焦方块后，洞里 1~3 秒不出现"的成因（见 `PROGRESS.md` §13.13）。
 
 同一段里还会跑一次 `/focaldecay refocus true` + `refocus false`：
 用来确认这条调试命令已注册、翻转观测者状态不会抛异常。
@@ -243,11 +299,17 @@ java tools\structuregen\ThronePos.java 20260912
 面剔除、幽灵替换、mixin 注入这些只能在客户端上验，服务器端一行都跑不到。做法：
 
 ```powershell
-.\gradlew.bat runClient   # 会开一个窗口，验证完直接关掉
-Select-String -Path run\logs\latest.log -Pattern 'focal_decay.mixins|InvalidInjection|MixinApplyError'
+.\gradlew.bat runClient > run\client.log 2>&1   # 会开一个窗口，验证完直接关掉
+Select-String -Path run\client.log -Pattern 'Mixing .*focal_decay.mixins'
 ```
 
-NeoForge 的开发环境**默认开着 mixin 的 DEBUG 日志**，所以每次注入成功都会留一行：
+> ⚠️ **必须 grep 控制台重定向文件，不能 grep `latest.log`。**
+> `latest.log` 的级别是 INFO，而 mixin 的 `[mixin/]: Mixing ...` 是 **DEBUG**——
+> 它只在控制台（`logLevel = DEBUG` 那条运行配置）里出现。
+> 以前这里写的是"grep `run/logs/latest.log`"，那条命令**永远匹配不到任何东西**，
+> 却被当成"注入成功"的证据。
+
+NeoForge 的开发环境默认开着 mixin 的 DEBUG 日志，所以每次注入成功都会留一行：
 
 ```
 [mixin/]: Mixing client.BlockShouldRenderFaceMixin from focal_decay.mixins.json into net.minecraft.world.level.block.Block
@@ -266,6 +328,40 @@ javap -p -c -cp build\moddev\artifacts\neoforge-21.1.248-merged.jar net.minecraf
 
 本项目**没有启用 Mixin 注解处理器**（构建里没有 `*refmap*`），所以注入点写错在编译期
 是发现不了的，只有客户端启动时才会炸。`javap` 那一步不能省。
+
+### 局域网 / 专用服务器下怎么验（2026-09-17 新增）
+
+失焦预览是客户端自己算的，所以**凡是"两端必须一致"的东西（世界种子、SERVER 配置）出了问题，
+都只在真正连服务器时暴露**：单人模式下客户端能从集成服务器拿到种子，看上去一切正常。
+
+`build.gradle` 里为此注册了第二个客户端运行配置 `clientSecond`（独立目录 `run-client/`，
+并自动 `--quickPlayMultiplayer 127.0.0.1:25565`）：
+
+```powershell
+# 先把 run/world/datapacks 里的 devtest 挪开：它的 load 函数会在 60 秒后 stop 服务器
+Move-Item run\world\datapacks\devtest run\devtest.bak
+.\gradlew.bat runServer          > run\lan-server.log 2>&1   # 一个终端
+.\gradlew.bat runClientSecond    > run\lan-client.log  2>&1   # 另一个终端
+# 进世界后看客户端日志里这几行（latest.log 就有，它们是 INFO）
+Select-String -Path run-client\logs\latest.log -Pattern 'server mutation settings received|cleared .* ghost entries'
+```
+
+期望看到：
+
+```
+Focal Decay: server mutation settings received (seed=20260912 interval=100 wildChance=0.25 ...) — defocus preview enabled
+Focal Decay: period 156 — cleared 81475 ghost entries in 506 sections, scheduled recompile
+```
+
+- **第一行里的种子必须等于服务端世界的真实种子**（`run/server.properties` 的 `level-seed`）。
+  这正是 2026-09-17 修掉的那个 bug：客户端以前在多人模式下拿不到种子、退回 `0`，
+  于是两个人看到的方块不一样、挖下去掉落也对不上。
+- 第二行说明幽灵确实在产出（不是被"快照未到"的保守分支挡住）。
+- 顺带一提，`mutation index[...]` 那行两侧都会打；**两边的数字必须完全一样**
+  （池数 / wild 方块数 / 源数），那是最直接的"两端查表一致"证据。
+
+> 两个进程**不能共用 `run/`**：会抢 `logs/latest.log` 与 `options.txt`。这就是 `run-client/` 存在的理由
+> （`.gitignore` 已忽略它）。
 
 ### 重聚焦之后的客户端表现怎么验
 

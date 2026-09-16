@@ -25,6 +25,18 @@ public final class MutationTargets {
 
     /** 服务端入口：自行装配该维度的阶段/观察者状态、突变查表、保护、引导偏向与周期。 */
     public static BlockState resolveServer(ServerLevel level, BlockPos pos, BlockState state) {
+        return resolveServer(level, pos, state, MutationEventHandler.displayPeriodIndex(level));
+    }
+
+    /**
+     * 服务端入口（<b>周期由调用方给定</b>）：交互路径用客户端回报的显示刻
+     * （{@code InteractionHandler#interactionPeriod}），其余场合用服务端自己的那根指针。
+     * <p>
+     * 为什么要让交互路径吃客户端的刻度：玩家操作的是"他看到的东西"。客户端的
+     * {@code gameTime} 是本地自走的，服务端每 20 tick 才校一次，掉帧时两者会差出一个周期，
+     * 用服务端的周期解析就等于把他正在挖的那个方块换掉。
+     */
+    public static BlockState resolveServer(ServerLevel level, BlockPos pos, BlockState state, long periodIndex) {
         if (FocalDecayWorldData.get(level.getServer()).isObserverOnline()) {
             return state; // 失焦终止：无可突变目标
         }
@@ -32,7 +44,7 @@ public final class MutationTargets {
         MutationIndex index = MutationIndexes.get(level.dimension());
         MutationPoolManager manager = MutationPoolManager.get(level);
         return MutationHelper.resolve(state, pos, level.getSeed(),
-                MutationEventHandler.displayPeriodIndex(level), index,
+                periodIndex, index,
                 MutationHelper.mutationChance(stage), manager.getGuidedBias(pos, state, stage),
                 manager.protectionInfo(pos, state, stage), manager.getBlockBirthPeriod(pos));
     }

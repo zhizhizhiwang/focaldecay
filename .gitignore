@@ -42,6 +42,8 @@ bin/
 ### Minecraft Modding ###
 run/
 !**/src/**/run/
+# 第二个客户端实例的独立运行目录（见 build.gradle 的 clientSecond）
+run-client/
 **/src/generated/**/.cache/
 repo/
 !**/src/**/repo/

@@ -1,7 +1,9 @@
 package com.zhizhiwang.focal_decay.compat.patchouli;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
+import com.zhizhiwang.focal_decay.client.ClientRenderCache;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.mutation.MutationSettings;
 import net.minecraft.network.chat.Component;
 import vazkii.patchouli.api.PatchouliAPI;
 
@@ -41,8 +43,24 @@ public final class GuideMacroCompat {
     public static void registerScheduleMacro() {
         PatchouliAPI.get().registerCommand(SCHEDULE_COMMAND,
                 style -> Component.translatable("book.focal_decay.schedule",
-                        FocalDecayConfig.STAGE2_DAY.get(),
-                        FocalDecayConfig.STAGE3_DAY.get()).getString());
+                        stageDay(0), stageDay(1)).getString());
         FocalDecay.LOGGER.info("Registered Patchouli command {}", SCHEDULE_COMMAND);
+    }
+
+    /**
+     * 阶段天数：优先用服务端同步下来的快照（{@link MutationSettings}），拿不到才退回本端配置。
+     * <p>
+     * 手册是给玩家看"什么时候进入阶段 2/3"的，而这个数字是服务端说了算的：
+     * 专用服务器上客户端那份 {@code focal_decay-server.toml} 与服务器毫无关系，
+     * 照本端配置印出来的日程就是错的。
+     *
+     * @param index 0 = 阶段 2 起始日，1 = 阶段 3 起始日
+     */
+    private static int stageDay(int index) {
+        MutationSettings settings = ClientRenderCache.INSTANCE.mutationSettings();
+        if (settings != null) {
+            return index == 0 ? settings.stage2Day() : settings.stage3Day();
+        }
+        return index == 0 ? FocalDecayConfig.STAGE2_DAY.get() : FocalDecayConfig.STAGE3_DAY.get();
     }
 }

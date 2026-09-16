@@ -4,7 +4,6 @@ import com.zhizhiwang.focal_decay.block.entity.AnchorPrototypeBlockEntity;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
-import com.zhizhiwang.focal_decay.network.ModNetwork;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -22,7 +21,8 @@ import java.util.List;
  *  - 每 20 tick 结算一次：模型消耗 bioEnergy 维持效果，阶段 3 消耗双倍（可配置）；
  *  - 能量未满时，范围内（非玩家）生物每只损失 1 点生命值，按换算率补充 bioEnergy（不高于容量）；
  *  - bioEnergy 耗尽后效果失效：方块不再受保护、实体不再跳过突变（由 isProtected/isEntityProtected 判定）；
- *  - 能量"活跃↔耗尽"翻转时向维度广播区域数据，客户端即时更新预览与中键选取。
+ *  - 能量"活跃↔耗尽"翻转时由 {@code MutationPoolManager#updatePrototypeEffect} 发一条增量包，
+ *    客户端即时更新预览与中键选取（2026-09-17 起走单条增量，不再重发整张区域表）。
  */
 public final class BioStabilizerHandler {
     private static final int TICKS_PER_SECOND = 20;
@@ -64,7 +64,6 @@ public final class BioStabilizerHandler {
                                       ObserverModelData data, int radius) {
         int capacity = Math.max(0, FocalDecayConfig.BIO_ENERGY_CAPACITY.get());
         int energy = Math.max(0, Math.min(capacity, data.bioEnergy()));
-        boolean wasActive = energy > 0;
 
         // 1) 维持效果消耗能量（阶段 3 双倍）
         int drain = Math.max(0, FocalDecayConfig.BIO_DRAIN_PER_SECOND.get());
@@ -104,9 +103,7 @@ public final class BioStabilizerHandler {
         be.setChanged();
 
         MutationPoolManager manager = MutationPoolManager.get(level);
+        // 登记时会按"客户端能观察到的内容"决定要不要发增量包（生物稳定只发是否生效，不发能量值）
         manager.updatePrototypeEffect(level, be.getBlockPos(), model);
-        if (wasActive != (energy > 0)) {
-            ModNetwork.sendRegionDataToDimension(level);
-        }
     }
 }

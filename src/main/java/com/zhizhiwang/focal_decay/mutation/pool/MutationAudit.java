@@ -1,14 +1,22 @@
 package com.zhizhiwang.focal_decay.mutation.pool;
 
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
+import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
+import com.zhizhiwang.focal_decay.mutation.MutationSettings;
 import com.zhizhiwang.focal_decay.mutation.MutationStateMapper;
+import com.zhizhiwang.focal_decay.network.SyncClientViewPacket;
+import com.zhizhiwang.focal_decay.network.SyncMutationSettingsPacket;
+import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
+import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
@@ -302,11 +310,241 @@ public final class MutationAudit {
         out.add("[selftest]   chance=0.01, stairs + state transfer: "
                 + bench(index, Blocks.OAK_STAIRS, pos, seed, 0.01) + " ns");
         out.addAll(mapperStressTest(index));
+        out.addAll(syncSelfTest(level, pos));
         return out;
     }
 
     /** 基准采样次数。 */
     private static final int BENCH_ITERATIONS = 1_000_000;
+
+    // ------------------------------------------------------------------
+    // 两端输入一致性
+    // ------------------------------------------------------------------
+
+    /** 一致性采样的周期数。 */
+    private static final int SYNC_SAMPLE_PERIODS = 64;
+
+    /**
+     * 两端输入一致性自测（2026-09-17，起因是一次真实联机 bug：局域网里两个人看到的方块不一样，
+     * 挖下去掉落也对不上）。
+     * <p>
+     * 根因不是解析函数有分歧——那个函数两端共用——而是它<b>吃到了不同的输入</b>：
+     * 客户端在多人模式下拿不到世界种子（1.21 的登录包只给哈希种子），退回 {@code 0}；
+     * 而 {@code wild_chance} 这类 SERVER 配置客户端读的是自己那份 toml。
+     * 修法是让服务端把输入整份发下来（{@link com.zhizhiwang.focal_decay.network.SyncMutationSettingsPacket}）。
+     * <p>
+     * 于是有两条必须钉住的性质，缺一条修复就不成立：
+     * <ol>
+     *   <li><b>线格式无损</b>：快照经过编码/解码必须逐字段相同。手写的 13 字段编解码最容易出的错
+     *       就是字段串位——种子被读成周期长度之类，而且完全静默；</li>
+     *   <li><b>两条入口等价</b>：服务端入口（读本端配置）与客户端入口（用同步来的快照），
+     *       在同一份配置下必须给出<b>逐位相同</b>的方块状态。这一条也是这次重构的回归网：
+     *       把 {@code resolve} 里任何一个参数接错线，这里立刻红。</li>
+     * </ol>
+     */
+    public static List<String> syncSelfTest(ServerLevel level, BlockPos pos) {
+        List<String> out = new ArrayList<>();
+        MutationIndex index = MutationIndexes.get(level.dimension());
+        if (index.isEmpty()) {
+            out.add("[sync] index empty (tags not loaded?)  FAIL");
+            return out;
+        }
+        long seed = level.getSeed();
+        MutationSettings settings = MutationSettings.fromConfig(seed);
+
+        // ---- 1. 快照的线格式必须逐字段往返 ----
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        SyncMutationSettingsPacket.STREAM_CODEC.encode(buf, new SyncMutationSettingsPacket(settings));
+        MutationSettings decoded = SyncMutationSettingsPacket.STREAM_CODEC.decode(buf).settings();
+        out.add("[sync] settings packet round-trip (13 fields): "
+                + (decoded.equals(settings) ? "PASS" : "FAIL\n  sent=" + settings + "\n  read=" + decoded));
+
+        // 原型机摘要也走手写编解码（bioActive 由 int 改成 boolean 时最容易串位）
+        SyncRegionDataPacket.PrototypeData prototype = new SyncRegionDataPacket.PrototypeData(
+                4321L, 8, ObserverModelData.TYPE_BIO, List.of("minecraft:stone", "minecraft:oak_log"),
+                List.of("minecraft:pig"), true, "focal_decay:concept/stone", 5, 0.75, 2);
+        FriendlyByteBuf pbuf = new FriendlyByteBuf(Unpooled.buffer());
+        SyncRegionDataPacket.PrototypeData.STREAM_CODEC.encode(pbuf, prototype);
+        SyncRegionDataPacket.PrototypeData prototypeRead =
+                SyncRegionDataPacket.PrototypeData.STREAM_CODEC.decode(pbuf);
+        out.add("[sync] prototype packet round-trip: "
+                + (prototypeRead.equals(prototype) ? "PASS" : "FAIL -> " + prototypeRead));
+
+        // ---- 2. 客户端入口（快照）必须与服务端入口（本端配置）给出同一个目标 ----
+        int mismatch = 0;
+        String firstMismatch = "";
+        List<Block> sources = List.of(Blocks.STONE_BRICKS, Blocks.OAK_STAIRS, Blocks.OAK_LOG,
+                Blocks.STONE_SLAB, Blocks.OAK_FENCE);
+        for (Block source : sources) {
+            BlockState state = source.defaultBlockState();
+            for (int stage = 1; stage <= 3; stage++) {
+                double chance = MutationHelper.mutationChance(stage);
+                for (long period = 0; period < SYNC_SAMPLE_PERIODS; period++) {
+                    BlockState viaConfig = MutationHelper.resolve(state, pos, seed, period, index, chance,
+                            GuidedBias.NONE, MutationHelper.Protection.NONE, -1L);
+                    BlockState viaSnapshot = MutationHelper.resolve(state, pos, settings, stage, period, index,
+                            GuidedBias.NONE, MutationHelper.Protection.NONE, -1L);
+                    if (viaConfig != viaSnapshot) {
+                        mismatch++;
+                        if (firstMismatch.isEmpty()) {
+                            firstMismatch = "  " + id(source) + " stage=" + stage + " period=" + period
+                                    + ": config=" + viaConfig + " snapshot=" + viaSnapshot;
+                        }
+                    }
+                }
+            }
+        }
+        out.add("[sync] client entry (snapshot) == server entry (config) over "
+                + (sources.size() * 3 * SYNC_SAMPLE_PERIODS) + " samples: "
+                + (mismatch == 0 ? "PASS" : "FAIL (" + mismatch + ")\n" + firstMismatch));
+
+        // ---- 3. 阶段/时钟/训练点数：快照里的换算必须与本端配置一致 ----
+        boolean stageOk = true;
+        boolean clockOk = true;
+        boolean pointsOk = true;
+        for (long days = 0; days <= 10; days++) {
+            stageOk &= settings.stage(days) == MutationHelper.currentStage(days);
+        }
+        for (long tick = 0; tick < 5000; tick += 137) {
+            clockOk &= settings.displayPeriod(tick, 1.0, 0L) == MutationHelper.displayPeriod(tick, 1.0, 0L);
+            clockOk &= settings.storagePeriod(tick) == MutationHelper.blockPeriod(tick);
+        }
+        for (int copies = 0; copies <= 3; copies++) {
+            pointsOk &= settings.requiredCandidatePoints(copies)
+                    == ObserverModelData.requiredCandidatePoints(copies);
+        }
+        out.add("[sync] stage / clock / candidate-points parity: "
+                + ((stageOk && clockOk && pointsOk) ? "PASS"
+                : "FAIL stage=" + stageOk + " clock=" + clockOk + " points=" + pointsOk));
+
+        // ---- 4. 客户端回报的显示刻必须被夹在"物理可能"的范围内 ----
+        // 这是交互路径唯一的客户端输入，所以它必须只放行"时钟自走能造成的偏差"，
+        // 而不是任何客户端说什么就是什么。界内取值由 MAX_CLIENT_SKEW_TICKS 换算而来：
+        //   bound = ceil(|speed| × 100 / interval) + 1
+        // interval = 100 时：speed 1 → 2；speed 0（冻结）→ 1；speed 64 → 27。
+        long interval = Math.max(1L, MutationHelper.configBaseInterval());
+        long bound1 = (long) Math.ceil(InteractionHandler.MAX_CLIENT_SKEW_TICKS / (double) interval) + 1;        boolean skewOk = true;
+        String skewDetail = "";
+        skewOk &= MutationHelper.configBaseInterval() > 0; // interval 为 0 会让界变成无穷大
+        for (long delta : new long[]{-bound1, 0L, bound1}) {
+            boolean ok = InteractionHandler.periodWithinSkew(1000L, 1000L + delta, 1.0, interval);
+            skewOk &= ok;
+            if (!ok && skewDetail.isEmpty()) {
+                skewDetail = "  speed 1 delta=" + delta + " should be accepted";
+            }
+        }
+        for (long delta : new long[]{-bound1 - 1, bound1 + 1}) {
+            boolean ok = !InteractionHandler.periodWithinSkew(1000L, 1000L + delta, 1.0, interval);
+            skewOk &= ok;
+            if (!ok && skewDetail.isEmpty()) {
+                skewDetail = "  speed 1 delta=" + delta + " should be rejected";
+            }
+        }
+        // 冻结档（speed = 0）：两端都取 offset，偏差只可能是取整余量
+        skewOk &= InteractionHandler.periodWithinSkew(1000L, 1001L, 0.0, interval);
+        skewOk &= !InteractionHandler.periodWithinSkew(1000L, 1002L, 0.0, interval);
+        // 高速档（speed = 64）：同样的刻偏差能跨过更多周期，界必须跟着放大
+        long bound64 = (long) Math.ceil(64.0 * InteractionHandler.MAX_CLIENT_SKEW_TICKS / interval) + 1;
+        skewOk &= InteractionHandler.periodWithinSkew(1000L, 1000L + bound64, 64.0, interval);
+        skewOk &= !InteractionHandler.periodWithinSkew(1000L, 1000L + bound64 + 1, 64.0, interval);
+        // 谎报：荒唐值必须被拒；这里同时是"别用 Math.abs 做减法"的回归（会溢出成负数而误判通过）
+        skewOk &= !InteractionHandler.periodWithinSkew(1000L, Long.MAX_VALUE, 1.0, interval);
+        skewOk &= !InteractionHandler.periodWithinSkew(1000L, Long.MIN_VALUE, 1.0, interval);
+        out.add("[sync] client view echo accepted only within a physically possible skew: "
+                + (skewOk ? "PASS" : "FAIL (bound=" + bound1 + ", speed64 bound=" + bound64 + ")\n"
+                + skewDetail));
+
+        // ---- 5. 回报的取舍规则 + 线格式 ----
+        boolean chooseOk = true;
+        long server = 1000L;
+        // 位置对 + 够新 + 偏差在界内 → 采用客户端的
+        chooseOk &= InteractionHandler.chooseInteractionPeriod(server, server + bound1, 1L, true, 1.0, interval)
+                == server + bound1;
+        // 位置不符 / 过期 / 未来时间戳 → 一律退回服务端
+        chooseOk &= InteractionHandler.chooseInteractionPeriod(server, server + 1, 1L, false, 1.0, interval) == server;
+        chooseOk &= InteractionHandler.chooseInteractionPeriod(server, server + 1,
+                InteractionHandler.CLIENT_VIEW_TTL_TICKS + 1L, true, 1.0, interval) == server;
+        chooseOk &= InteractionHandler.chooseInteractionPeriod(server, server + 1, -5L, true, 1.0, interval) == server;
+        // 偏差超出物理可能 → 退回服务端
+        chooseOk &= InteractionHandler.chooseInteractionPeriod(server, server + bound1 + 1, 1L, true, 1.0, interval)
+                == server;
+        out.add("[sync] client view echo decision (pos / age / skew): " + (chooseOk ? "PASS" : "FAIL"));
+
+        SyncClientViewPacket viewPacket = new SyncClientViewPacket(123456789L, 4242L);
+        FriendlyByteBuf vbuf = new FriendlyByteBuf(Unpooled.buffer());
+        SyncClientViewPacket.STREAM_CODEC.encode(vbuf, viewPacket);
+        out.add("[sync] client view packet round-trip: "
+                + (SyncClientViewPacket.STREAM_CODEC.decode(vbuf).equals(viewPacket) ? "PASS" : "FAIL"));
+
+        out.add(birthGateSelfTest(level, pos, seed, index));
+        return out;
+    }
+
+    /**
+     * 诞生周期闸门必须与调试倍率无关（2026-09-17 的真实 bug：右键长按把方块来回转换、刚放下的方块立刻失焦）。
+     * <p>
+     * 闸门是 {@code resolve} 里的 {@code periodIndex < birthPeriod + 1}，比的是<b>显示刻</b>。
+     * 诞生周期曾经记在<b>存储刻</b>上，而 {@code /focaldecay period speed} 会让两者按倍率分家：
+     * 倍率 7 时显示刻是存储刻的 7 倍，"刚出生"的方块一上来就满足 {@code >= birth + 1}，
+     * 闸门形同不存在。
+     * <p>
+     * 三条断言，在 speed = 1 / 7 / 0.5 下各跑一遍：
+     * <ol>
+     *   <li>诞生那一刻（同一个显示刻）必须原样返回；</li>
+     *   <li>过一个显示周期后必须能变（否则就是反向的 bug：方块永远冻住）；</li>
+     *   <li><b>倍率 ≠ 1 时，用存储刻当诞生周期必须给出<b>不同</b>的判定</b>——这条是"测试确实能抓到那个 bug"
+     *       的自证。两个方向都错：倍率 &gt; 1 时存储刻偏小、闸门一上来就开（方块立刻失焦、右键来回转换）；
+     *       倍率 &lt; 1 时存储刻偏大、闸门迟迟不开（放下的方块长期不失焦）。</li>
+     * </ol>
+     */
+    private static String birthGateSelfTest(ServerLevel level, BlockPos pos, long seed, MutationIndex index) {
+        FocalDecayWorldData worldData = FocalDecayWorldData.get(level.getServer());
+        double savedSpeed = worldData.getClockSpeed();
+        long savedOffset = worldData.getClockOffset();
+        BlockState source = Blocks.STONE_BRICKS.defaultBlockState();
+        boolean frozenOk = true;
+        boolean mutatesOk = true;
+        boolean discriminating = true;
+        // 逐条记下失败原因：只留最后一条会把"倍率 7 时闸门根本没关"这种真正的病因盖掉
+        List<String> failures = new ArrayList<>();
+        try {
+            for (double speed : new double[]{1.0, 7.0, 0.5}) {
+                worldData.setClock(speed, 0L);
+                long now = MutationEventHandler.displayPeriodIndex(level);
+                long birth = MutationEventHandler.birthPeriodIndex(level, Long.MIN_VALUE);
+                long wrongBirth = MutationEventHandler.storagePeriodIndex(level);
+
+                if (MutationHelper.resolve(source, pos, seed, now, index, 1.0, GuidedBias.NONE,
+                        MutationHelper.Protection.NONE, birth) != source) {
+                    frozenOk = false;
+                    failures.add("speed=" + speed + ": newborn block mutated right away");
+                }
+                // 抽到自己也是合法结果（自环），所以往后多看两个周期再判"能不能变"
+                boolean mutates = false;
+                boolean differs = false;
+                for (long p = now; p <= now + 3; p++) {
+                    BlockState good = MutationHelper.resolve(source, pos, seed, p, index, 1.0, GuidedBias.NONE,
+                            MutationHelper.Protection.NONE, birth);
+                    BlockState wrong = MutationHelper.resolve(source, pos, seed, p, index, 1.0, GuidedBias.NONE,
+                            MutationHelper.Protection.NONE, wrongBirth);
+                    mutates |= p > now && good != source;
+                    differs |= good != wrong;
+                }
+                if (!mutates) {
+                    mutatesOk = false;
+                    failures.add("speed=" + speed + ": still frozen after three periods");
+                }
+                if (speed != 1.0 && !differs) {
+                    discriminating = false;
+                    failures.add("speed=" + speed + ": storage-clock birth gives the same verdict");
+                }
+            }
+        } finally {
+            worldData.setClock(savedSpeed, savedOffset);
+        }
+        return "[sync] birth gate (newborn frozen / next period mutates / storage clock would differ): "
+                + ((frozenOk && mutatesOk && discriminating) ? "PASS" : "FAIL " + String.join("; ", failures));
+    }
 
     // ------------------------------------------------------------------
     // 并发压力测试
@@ -331,7 +569,8 @@ public final class MutationAudit {
      * 之所以值得放进常规自检：这类错误只在多人/多核的真实编译负载下偶发，
      * 光看代码（"映射是纯函数，缓存不影响正确性"）很容易漏掉。
      */
-    public static List<String> mapperStressTest(MutationIndex index) {        List<String> out = new ArrayList<>();
+    public static List<String> mapperStressTest(MutationIndex index) {
+        List<String> out = new ArrayList<>();
         // 样本：带属性的方块状态 × 同形态类的候选。状态数够多，才能把哈希表撑到反复扩容。
         List<BlockState> sources = new ArrayList<>();
         for (Block block : new Block[]{

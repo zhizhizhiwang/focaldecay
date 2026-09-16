@@ -97,7 +97,7 @@ public class ContainerLootProcessor extends StructureProcessor {
         }
         ResourceLocation id = ResourceLocation.tryParse(raw.trim());
         if (id == null) {
-            FocalDecay.LOGGER.warn("[focal_decay] container_loot processor: 配置项 site_loot_table 不是合法的资源位置: {}",
+            FocalDecay.LOGGER.warn("[focal_decay] container_loot processor: site_loot_table is not a valid ResourceLocation: {}",
                     raw);
             return null;
         }

@@ -1057,6 +1057,231 @@ java.lang.ArrayIndexOutOfBoundsException: Index 8192 out of bounds for length 40
 （前面几次 `runClient` 只开到主菜单，没有世界，所以没暴露出来）。
 用户下次进世界正常游玩即可确认。
 
+> **2026-09-17 补记**：这条"没验证"在 §13.12 的局域网测试里被补上了——
+> 专用服务器 + 第二个客户端实例，客户端编译了 506 个区块节、缓存了 8 万个幽灵条目，
+> 期间没有任何异常。也就是说编译路径这次是真的跑过了（而且是在多人模式下跑的）。
+
+### 13.12 联机不一致：客户端算失焦用的输入跟服务端不是同一份（2026-09-17）
+
+**用户报告**：局域网联机里两个玩家看到的方块不一致，而且客户端"破坏和掉落物对不上"。
+
+**根因不在解析函数，在它的输入。** `MutationHelper.resolve` 是两端共用的同一个函数，
+但它吃的输入里有三样客户端**天然拿不到或拿的是错的**：
+
+1. **世界种子**（决定性的一条）。`ClientRenderCache.worldSeed()` 的写法是
+   "有集成服务器就用它的种子，否则返回 `0`"：
+
+   ```java
+   var server = mc.getSingleplayerServer();
+   if (server != null && server.overworld() != null) return server.overworld().getSeed();
+   return 0L;   // ← 多人模式走这里
+   ```
+
+   而 1.21 的登录包里**只有给生物群系缩放用的哈希种子**（`CommonPlayerSpawnInfo.seed`），
+   真实种子只发给管理员（`/seed` 要权限）。于是房主（集成服务器，拿得到真种子）和
+   客人（拿 `0`）看到的是**两个不同的世界**，挖下去自然是"看到的和掉出来的不是一个东西"。
+   两个客人之间倒是能对上（都用 `0`）——这也解释了为什么症状表现为"房主与客人不同步"。
+2. **SERVER 配置**。`wild_chance`、每阶段概率、`base_interval`、阶段天数、语义锁定强度、
+   引导 q 折半、候选体训练点数，客户端读的都是**它自己那份** `focal_decay-server.toml`。
+   专用服务器上两份文件毫无关系；局域网里两台客户端也可能各改各的。
+   代码注释里一直写着"Server 配置会同步到客户端"，但**没有任何代码在做这件事**。
+3. **原型机名单不完整**。有效原型机列表不落盘，由方块实体的 `onLoad` 重建，所以登录时发出的
+   整表只包含"此刻已加载区块"里的原型机。玩家走到远处某个原型机旁边时，
+   区块加载让服务端开始保护那片区域，客户端却一直以为没人保护、继续画幽灵——
+   挖下去服务端按硬保护返回原方块，掉落又对不上。同一类问题的第二个入口。
+
+**修法**：把"两端必须一致"从**约定**变成**数据结构**。
+
+- 新增 `MutationSettings` 记录：世界种子 + 上面那 8 类静态配置，`fromConfig(seed)` 是服务端权威值。
+- 新增 `SyncMutationSettingsPacket`（登录/换维度时发一次）。客户端预览**只**用同步下来的这一份。
+- `MutationHelper.resolve` 拆成两个重载、共用一个私有实现：
+  服务端入口吃 `(worldSeed, chance)`（本端配置），客户端入口吃 `MutationSettings` + 阶段。
+  **公式仍然只有一份**（这次重构的回归网就是 `[sync]` 那一项）。
+- **客户端收到快照之前不渲染任何幽灵**。显示不出来是可见、可诊断的；"显示错了"才是真 bug。
+  这一条把整类问题从"静默错误"降级成"功能暂缺"。
+- 新增 `SyncPrototypePacket`：单条原型机效果的增删改。原型机的每次登记（含 `onLoad` 重建）
+  都会按"客户端能观察到的字段变了没有"决定要不要发一条。
+  生物稳定因此改发**是否生效**而不是能量数值——能量每刻都在变，发数值就没法与包体做结构比较，
+  增量会退化成每刻一包；改成 boolean 之后 `PrototypeData.equals` 恰好等于"客户端看到的东西变了没有"。
+  顺带干掉两处"变化就重发整张区域表"（那张表还挂着随建造无上限增长的诞生周期表）。
+- 顺带修好的同类问题：
+  - `ThroneBeamRenderer` 以前在多人模式下取不到种子**直接不画光束**，现在用同一份快照；
+  - Patchouli 手册的"阶段日程"宏以前印的是**客户端本地的** `stage2_day/stage3_day`；
+  - 引导模型并列决胜（q 相等时）以前按**列表顺序**取第一个，而增量同步之后两端的列表顺序
+    不保证一致（服务端是登记顺序，客户端是"快照 + 增量到达顺序"）。
+    改成按中心坐标字典序（`GuidedConcept#betterGuided`，两端共用）。
+  - `applyBirthPeriod` / `applyPrototype` 不再丢弃"整表还没到"时的增量：
+    两边都可能比整表先到（另一位玩家在你登录的同一刻放方块 / 区块在登录流程中加载）。
+
+**验证（全部实跑）**：
+
+| 项目 | 结果 |
+|---|---|
+| `[sync] settings packet round-trip (13 fields)` | PASS |
+| `[sync] prototype packet round-trip` | PASS |
+| `[sync] client entry (snapshot) == server entry (config) over 960 samples` | PASS |
+| `[sync] stage / clock / candidate-points parity` | PASS |
+| 其余自检（audit / selftest / stress / period） | 全 PASS，热路径 38 ns（chance=1）/ 219 ns（stage 1） |
+| **真·局域网**：专用服务器 + `runClientSecond` | 客户端日志：`server mutation settings received (seed=20260912 ...)`——**真种子**（修之前这里是 `0`）；两侧 `mutation index` 行数字完全一致（37 pools / wild=598 / 598 sources / 0 slices dropped）；`period 156 — cleared 81475 ghost entries in 506 sections`；无任何异常 |
+
+**这一节留下的工具**：`build.gradle` 里的 `clientSecond` 运行配置（独立 `run-client/` 目录 +
+自动 `--quickPlayMultiplayer`），跑法见 `tools/README.md` §3。
+两个进程不能共用 `run/`（会抢 `latest.log` 与 `options.txt`），这就是它的存在理由。
+
+**已知的残余不一致（2026-09-17 当天已一并修掉）**：**显示刻的相位**。
+客户端的 `level.getGameTime()` 是本地自走的计数器，服务端每 **20 tick** 才用
+`ClientboundSetTimePacket` 校一次（`MinecraftServer#tickChildren` 里 `tickCount % 20 == 0`）。
+两边都以 20 TPS 跑时差半个 RTT（局域网 ≤1 tick），但**服务器掉帧时**客户端会跑在前面，
+两次校准之间最多领先 20 tick —— 那段时间里客户端显示的是周期 N、服务端按 N+1 解析，
+挖下去就可能对不上。
+
+修法（经用户确认后实施）：**客户端在交互时回报"我看到的显示刻"**。
+
+- 新增 C2S 包 `SyncClientViewPacket`（位置 + 显示刻），由 `MultiPlayerGameModeMixin` 在
+  `startDestroyBlock` / `useItemOn` 的 **HEAD** 注入发出——原版紧接着才发交互包，
+  两条包在同一条连接上顺序到达，服务端处理交互时回报已经在手上了。
+- 服务端用 `InteractionHandler#interactionPeriod` 挑指针，三条门槛都过才采用客户端的：
+  **位置对得上**（把回报绑到这一次交互）、**足够新**（TTL 40 tick）、
+  **偏差在物理可能的范围内**。任何一条不过就退回服务端自己的显示刻。
+- 偏差界是 `ceil(|speed| × 100 / interval) + 1` 个周期（`periodWithinSkew`）：
+  客户端时钟最多领先 5 秒（服务端掉到 4 TPS 的极端情况），换算成周期就是这个数，
+  默认配置下是 ±2、冻结档 ±1、64 倍速档 ±27。用"上界比较"而不是 `Math.abs(a-b) <= bound`——
+  后者在客户端报来 `Long.MIN_VALUE` 时会溢出成负数、反而判成通过。
+- 取舍规则与偏差界都是**纯函数**，`[sync]` 段里逐条断言（含谎报值）。
+- 诊断：`/focaldecay trace true` 之后，当回报确实改变了结果，日志会打一行
+  `period echo: client period=A server period=B -> kept the client's, otherwise X instead of Y`。
+  想量"这个窗口到底有多大"，打开它玩一局即可。
+
+**这一节留下的工具**：`build.gradle` 里的 `clientSecond` 运行配置（独立 `run-client/` 目录 +
+自动 `--quickPlayMultiplayer`），跑法见 `tools/README.md` §3。
+两个进程不能共用 `run/`（会抢 `latest.log` 与 `options.txt`），这就是它的存在理由。
+
+**没有端到端验证的**：
+- 原型机增量的"区块后加载"路径。自动化跑里没有触发点（测试世界的原型机在客户端登录前就加载完了），
+  只有编解码往返与代码复核。想实测：登录后走到一个**远处**的原型机旁边，
+  看客户端是否停止在那片范围里画幽灵。
+- 显示刻回报的**发送**（需要真人按下左键/右键）。已验证的是：mixin 注入成功、
+  客户端正常运行（`runClientSecond` 无 `InvalidInjection`）、取舍规则与编解码全部自测通过。
+  真人玩一局即可确认闭环。
+
+### 13.13 挖掉失焦方块后，洞要等 1~3 秒才出现（2026-09-17）
+
+**用户报告**：生存模式挖掉一个**失焦**的方块后，掉落立刻是对的（§13.12 已修），
+但周围方块**朝它的那一面**过 1~3 秒才画出来（像是方块还在那儿挡着）；挖没失焦的方块没有这个问题。
+
+**根因：客户端幽灵缓存的"有效期"只看了周期，没看真实方块。**
+
+`ClientRenderCache.targetCache` 里存的是"这个位置显示成什么"，而一条幽灵其实是
+`(真实方块, 位置, 种子, 周期)` 的函数。旧判据只有 `entry.period == 当前周期`。于是挖掉方块时：
+
+| 环节 | 真实方块 | 旧判据给出 | 结果 |
+|---|---|---|---|
+| 网格（`SectionCompilerMixin` → `resolve`） | 空气 | `isCandidate(空气)` 为假 → 直接返回空气 | 方块**消失**了 ✓ |
+| 面剔除（`BlockShouldRenderFaceMixin` → `ghostState`） | 空气 | 周期没变 → **返回缓存里那条幽灵** | 邻块朝这里的面被判为"被挡住" → **不画** ✗ |
+
+于是同一个区块节里，网格说"这里是空气"，剔除判据说"这里是块不透明方块"——
+玩家看到的就是"方块没了，但周围的面还当他还在"。恢复要等下一轮表面扫描
+（`scanSection` 把条目 `removeEntry` 掉再标脏重编译）——扫描一圈 1~3 秒，正好对上。
+挖普通方块时没有幽灵条目，`ghostState` 走 `evaluated` 负缓存返回真实状态（空气）✓，所以看不出问题。
+
+**修法**：把"有效期"补成真实方块 + 周期两条：
+
+- `Entry` 增加 `real` 字段（算这条幽灵时那个位置的真实方块），有效性 = `real == 当前真实 && period == 当前周期`。
+- `evaluated` 从 `Set<Long>` 变成 `Map<Long, BlockState>`（判定时的真实方块）：
+  "这里没有幽灵"同样是真实方块的函数，方块一换它可能就有了幽灵——那会让剔除判据与网格再次对不上。
+- 四条读路径（`resolve` / `ghostState` / `miningState` / `visibleState`）全部改用新判据；
+  编译路径作废走 `dropEntry`，扫描路径作废走 `removeEntry`，两处都计数。
+- **不需要新的 mixin**：玩家挖掉方块时原版会标记 3×3×3 区块节重编译（`LevelRenderer.blockChanged`
+  → `setBlockDirty`），而玩家操作带 `UPDATE_IMMEDIATE` 标志，**当帧同步重建**——
+  修好的判据在那一帧就生效，洞是立刻出现的。
+
+**诊断**：周期日志那行的末尾多了 `(N dropped mid-period because the real block changed)`。
+
+**验证（真·局域网，自动化探针）**：写了一个 QA 数据包，把玩家传送到固定位置，
+每轮把**脚下两格**的 33×2×33 换成基岩、15 秒后从绝对坐标的暂存区克隆回来。
+
+| 项目 | 结果 |
+|---|---|
+| 客户端日志 | `period 178 — ... (130 dropped ...)`、`181 — 251`、`185 — 361`、`189 — 234`、`193 — 348`，五轮探针合计 **2057** 条陈旧条目被作废，与探针轮次一一对应 |
+| 同期对照 | 没有方块变化时该计数为 0（最终验收那轮就是 `(0 dropped ...)`），说明它量的确实是"真实方块变了" |
+| 编译路径确实在跑 | `ghostState` 每周期被调用约 550 万次（探针期实测），也就是剔除路径是热的、判据真的被执行到 |
+
+**这个探针返工了四次，每次都值得记**（自动化验证"看得见的现象"很容易验成假象）：
+
+1. 第一版用服务端 `/fill` 换基岩、只保持 5 秒 → 0 条。服务端命令**不带 `UPDATE_IMMEDIATE`**，
+   走的是异步重编译，而表面扫描更快，条目先被扫描删掉了（那条路径当时还不计数）。
+2. 改成 15 秒 + 33×3×33 → 还是 0：**把玩家自己的格子也填成了基岩**，生存模式玩家直接窒息死亡，
+   客户端停在死亡界面——**什么都不渲染，自然什么都不作废**。加 `doImmediateRespawn` 才暴露出来。
+3. 暂存区用了 `~ ~300 ~`（相对玩家） → 玩家 y≈101 时目标 y=401，**超出世界高度**，
+   `clone` 静默失败 → 只填不还原，世界被改。
+4. 玩家连续死亡 + 世界被改，出生点高度图一路漂到 y≈301，探针填的全是空气 → 还是 0。
+   最后把玩家 `tp` 到固定地点、暂存区改成**绝对坐标**（y=260）才跑通。
+
+**付出的代价（已告知用户）**：探针在开发测试世界 `run/world` 里留下过东西——
+出生点附近的**地面**被换成过基岩（部分没能还原），高空还有过暂存副本。
+高空那部分已经用 `fill ... air` 清掉了（y=150..318，地表在 101，那一段本来是空的）；
+地面那一小块还原不了原样（原方块没有记录）。`run/world` 是可再生的测试世界
+（`tools/README.md` 里重跑世界生成测试本来就要求删掉它），用户的存档在 `run/saves/` 未受影响。
+
+### 13.14 右键长按把方块来回转换 / 刚放下的方块立刻失焦（2026-09-17）
+
+**用户报告**（联机，客户端在第三方启动器里跑）：① 右键**长按**某个方块时它在两种状态之间反复切换，
+频率等于右键触发频率，到该方块下一次正常跳变时停；② 客户端刚放下的方块立刻失焦；
+③ 客户端开了 `trace` 但日志里没有输出；④ 日志里的中文是 GB2312。
+
+**根因（①②同源）：诞生周期记在存储时钟上，而闸门比的是显示时钟。**
+
+闸门在 `MutationHelper.resolve` 里：`fromPeriod = birthPeriod + 1; if (periodIndex < fromPeriod) return source;`。
+`periodIndex` 走的是**显示时钟**（`/focaldecay period` 拨的那根），而诞生周期当时记在**存储时钟**上
+（`storagePeriodIndex`，不受倍率影响）。默认档位两者逐位相同，所以一直没暴露；
+**用户把失焦时钟开到了 speed 7**（他日志里一次会话 181 秒推进了 254 个周期 = 1.403 周期/秒 = 倍率 7.01），
+于是显示刻是存储刻的 7 倍：
+
+| 场景 | 存储刻出生值 | 显示刻当前值 | 闸门 | 现象 |
+|---|---|---|---|---|
+| 放下方块 | `gameTime/100` | `7×gameTime/100` | 一上来就开 | **立刻失焦**（②） |
+| 右键转换后 | 同上 | 同上 | 每次点击都重开 | **来回转换**（①，每次点击都重新"出生"一次） |
+| 倍率 0.5（反向） | `gameTime/100` | `0.5×gameTime/100` | 迟迟不开 | 方块**长期不失焦**（用户没遇到，测试里抓到了） |
+
+**修法**：让闸门的两个操作数同域——出生周期改记**显示时钟**，并且取
+`max(服务端显示刻, 行动客户端回报的显示刻)`（两端 gameTime 会漂，倍率越高同样的刻偏差折算出的周期差越大；
+取更晚的读数使两边的闸门只会晚开、不会早开）。剪枝地平线也跟着改到显示时钟（用存储刻会在加速时永不删除、
+在减速时把刚放下的记录删掉）。
+
+- 放置：`MutationEventHandler.onBlockPlaced` → `birthPeriodIndex(level, InteractionHandler.recentClientPeriod(placer))`。
+  放置事件的方块的坐标是**被点击格子的邻格**，所以这里用"不看位置、只看 5 刻内最新一次回报"的查询
+  （`recentClientPeriod`），而不是交互判定用的那套"位置必须对得上"。
+- 转换：`InteractionHandler.onRightClickBlock` → `birthPeriodIndex(level, periodIndex)`，`periodIndex`
+  就是刚刚解析用的那一刻（客户端回报的那根指针）。
+- `storagePeriodIndex` 保留但**只用于自测参照**（证明默认档位下显示时钟与真实时间轴逐位相同）。
+
+**③ `trace` 没输出**：`trace` 是**服务端**开关（`InteractionHandler.traceEnabled`），输出写在**服务端**日志里。
+用户是连别人的服务器玩（日志里有 `Connecting to fda2:...:3022`，没有任何 `Server thread` 行），
+他给我的是**客户端**日志，所以看不到。要在服务器上执行 `/focaldecay trace true`（需要权限 2）并看**服务端**的日志。
+（顺带修正：`ClientRenderDebug` 只是一个跨线程可见的开关，本身不产生任何输出。）
+
+**④ 日志是 GB2312**：
+- 中文来自 **log4j 的日期格式用了 JVM 默认 Locale**（`zh_CN` → 时间戳里的"9月"），不是我们写的；
+- 编码是 **JVM 的默认字符集**（`file.encoding`，这类启动器常显式设成 GBK），NeoForge 的 log4j2 配置没有钉死 UTF-8。
+  用 UTF-8 读就会看到 `159鏈?026` 这种乱码；按 GBK（cp936）读一切正常。
+  想读就 `[System.IO.File]::ReadAllText($p, [Text.Encoding]::GetEncoding(936))`，想改就让启动器加 `-Dfile.encoding=UTF-8`。
+- 我们能做且已经做了的：**自己的日志消息一律 ASCII**。这次清掉了三处破折号 `—`
+  （`period ... - cleared`、`- defocus preview enabled`、`settings changed - ghost cache dropped`）
+  和一处 `ContainerLootProcessor` 里的中文警告——按 GBK 写进日志再按 UTF-8 读就是乱码。
+
+**验证**：`/focaldecay mutation selftest` 新增 `[sync] birth gate`，在 speed = 1 / 7 / 0.5 下断言
+"新生方块那一刻保持原样、过一个显示周期必须能变、且用存储刻当出生值会给出**不同**判定"。
+A/B 实跑（无头服务器）：
+
+| 版本 | 结果 |
+|---|---|
+| 改回存储刻（旧行为） | `FAIL speed=7.0: newborn block mutated right away; speed=7.0: storage-clock birth gives the same verdict; speed=0.5: still frozen after three periods; ...` |
+| 修好之后 | `PASS` |
+
+**顺带说明**：这位用户的调试时钟（speed 7）不是 bug——那是 `/focaldecay period speed` 的正常档位；
+bug 是"闸门在倍率 ≠ 1 时失效/永久关闭"。默认档位（speed 1 / offset 0）下这次修改**逐位等价于旧行为**
+（`blockPeriod` 与 `displayPeriod(1,0)` 相同，旧存档里的诞生周期值域也一样）。
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
@@ -1093,3 +1318,24 @@ java.lang.ArrayIndexOutOfBoundsException: Index 8192 out of bounds for length 40
     而且键是 `long`，用 `ConcurrentHashMap` 反而要把刚消掉的装箱分配加回来。
     回归防线是 `/focaldecay mutation selftest` 里的 `[stress]` 一项，
     它的**规模**很关键（见 §13.11）。
+14. **失焦预览的输入必须是服务端那一份**（2026-09-17，用一次真实的联机不一致换来的）：
+    `MutationHelper.resolve` 两端共用，但"算得一样"的前提是**喂进去的输入一样**。
+    客户端天然拿不到的东西有三类，别再假设它们一致：
+    - **世界种子**：1.21 的登录包只给哈希种子，真种子要管理员权限；客户端以前退回 `0`；
+    - **SERVER 配置**：客户端读的是自己那份 toml，不是服务器的；
+    - **不落盘、靠区块加载重建的状态**（有效原型机列表）：登录快照只有已加载区块里的那些。
+
+    规则：**凡是进入 `resolve` 的静态输入，都必须由服务端显式下发**
+    （`MutationSettings` + `SyncMutationSettingsPacket`）；拿不到就**不画幽灵**，
+    绝不拿本端默认值猜。加新配置项/新状态时，问自己两句：
+    "客户端怎么知道这个值？""不一致时是静默算错，还是能看出来？"
+    回归网是 `[sync]` 那一项（编解码往返 + 两个入口逐位比对）。详见 §13.12。
+15. **缓存一条"派生值"时，有效期要把它的全部输入都算进去**（2026-09-17，用"洞里 1~3 秒不出现"换来的）：
+    失焦幽灵是 `(真实方块, 位置, 种子, 周期)` 的函数，而客户端缓存最初只拿**周期**当有效期。
+    于是方块被挖掉（周期没变）时，网格路径算出"空气"、剔除路径却拿旧幽灵当"这里有不透明方块"，
+    两者对不上——方块没了，但邻块朝它的面不画。
+    - 规则：**缓存校验必须覆盖所有输入**，"时间没过期"不等于"结论还成立"。
+    - 客户端 `targetCache` / `evaluated` 现在都存"判定时的真实方块"，任一不符即作废
+      （`Entry.validFor`；两条作废路径 `dropEntry` / `removeEntry` 都计数）。
+    - 周期日志里的 `N dropped mid-period because the real block changed` 就是这把尺子：
+      正常游玩应该有数，长期为 0 说明判据失效了。详见 §13.13。

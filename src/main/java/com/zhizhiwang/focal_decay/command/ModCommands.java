@@ -203,7 +203,7 @@ public final class ModCommands {
         report(source, "Focal Decay period clock: speed=" + data.getClockSpeed()
                 + " offset=" + data.getClockOffset()
                 + (changed ? "" : " (unchanged)")
-                + "  — storage clock unaffected, restart resets it");
+                + "  - storage clock unaffected, restart resets it");
         return changed ? 1 : 0;
     }
 

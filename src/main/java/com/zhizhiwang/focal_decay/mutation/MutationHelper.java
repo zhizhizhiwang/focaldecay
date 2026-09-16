@@ -28,7 +28,8 @@ import net.minecraft.world.level.block.state.BlockState;
  *   <li>在选中池里按<b>源方块的形态类</b>取候选，用确定性索引选中，再做状态迁移。</li>
  * </ol>
  * 每一步消耗的随机步数都是 (源方块, 形态类, 配置) 的纯函数，所以两端永远同步推进；
- * 唯一要求是 {@code wild_chance} 这类配置在两端一致（SERVER 配置会同步到客户端）。
+ * 唯一要求是"配置与种子在两端一致"——这一条由 {@link MutationSettings} 用数据结构保证，
+ * 而不是靠约定：客户端预览只能用服务端发来的那一份快照（见本类下面两个 {@code resolve} 重载）。
  */
 public final class MutationHelper {
 
@@ -64,6 +65,10 @@ public final class MutationHelper {
     /**
      * 统一的方块识别函数：生存破坏、创造中键选取、右键交互、渲染预览、锚固化共用。
      * 受硬保护的位置、非转换源、以及没抽中的情况都返回原方块。
+     * <p>
+     * <b>本重载是服务端入口</b>：参数来自本端配置与真实世界种子。客户端预览<b>不要</b>用它——
+     * 客户端的配置与种子都可能与服务端不同，必须走
+     * {@link #resolve(BlockState, BlockPos, MutationSettings, int, long, MutationIndex, GuidedBias, Protection, long)}。
      *
      * @param index       预计算的突变查表（本维度的语义池 / 大池 / 源门控 / 形态类）
      * @param chance      当前阶段的每周期命中概率
@@ -74,6 +79,27 @@ public final class MutationHelper {
     public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed, long periodIndex,
                                      MutationIndex index, double chance, GuidedBias bias,
                                      Protection protection, long birthPeriod) {
+        return resolveInternal(source, pos, worldSeed, chance, FocalDecayConfig.WILD_CHANCE.get(), periodIndex,
+                index, bias, protection, birthPeriod);
+    }
+
+    /**
+     * <b>两端共用入口</b>：全部静态输入取自 {@link MutationSettings} 快照，因此服务端（{@code fromConfig}）
+     * 与客户端（服务端同步下来的那份）只要拿的是同一份快照，结果必然逐位相同。
+     *
+     * @param settings 输入快照（种子、周期长度、阶段划分、概率、保护强度……）
+     * @param stage    当前阶段（由 {@link MutationSettings#stage} 得出；随天数变化，所以不入快照）
+     */
+    public static BlockState resolve(BlockState source, BlockPos pos, MutationSettings settings, int stage,
+                                     long periodIndex, MutationIndex index, GuidedBias bias,
+                                     Protection protection, long birthPeriod) {
+        return resolveInternal(source, pos, settings.worldSeed(), settings.blockChance(stage),
+                settings.wildChance(), periodIndex, index, bias, protection, birthPeriod);
+    }
+
+    private static BlockState resolveInternal(BlockState source, BlockPos pos, long worldSeed, double chance,
+                                              double wildChance, long periodIndex, MutationIndex index,
+                                              GuidedBias bias, Protection protection, long birthPeriod) {
         if (protection.hard() || chance <= 0.0 || index == null || index.isEmpty()) {
             return source;
         }
@@ -110,7 +136,6 @@ public final class MutationHelper {
         if (localCount == 0 && wildCount == 0) {
             return source;
         }
-        double wildChance = FocalDecayConfig.WILD_CHANCE.get();
         double softChance = protection.softChance();
         boolean biased = bias != null && bias.active(shapeClass);
         int conceptCount = biased ? bias.pool().count(shapeClass) : 0;
@@ -179,15 +204,24 @@ public final class MutationHelper {
     /**
      * 阶段判定：按末日天数（FocalDecayWorldData，20 分钟游戏日 +1，玩家为 0 暂停）。
      * 阶段可配置关闭（enable_stage_system=false 时恒为阶段 1）。
+     * <p>
+     * 这是<b>读本端配置</b>的入口（服务端用）。客户端预览走 {@link MutationSettings#stage}，
+     * 两者共用下面这个纯函数，所以阶段划分公式只有一份。
      */
     public static int currentStage(long days) {
-        if (!FocalDecayConfig.ENABLE_STAGE_SYSTEM.get()) {
+        return stageFor(days, FocalDecayConfig.ENABLE_STAGE_SYSTEM.get(),
+                FocalDecayConfig.STAGE2_DAY.get(), FocalDecayConfig.STAGE3_DAY.get());
+    }
+
+    /** 阶段划分（纯函数：给定参数必然给出同一结果，供 {@link MutationSettings} 复用）。 */
+    public static int stageFor(long days, boolean stageSystem, int stage2Day, int stage3Day) {
+        if (!stageSystem) {
             return 1;
         }
-        if (days >= FocalDecayConfig.STAGE3_DAY.get()) {
+        if (days >= stage3Day) {
             return 3;
         }
-        if (days >= FocalDecayConfig.STAGE2_DAY.get()) {
+        if (days >= stage2Day) {
             return 2;
         }
         return 1;
@@ -204,16 +238,28 @@ public final class MutationHelper {
 
     /** 当前阶段的方块转换概率（Server 配置，同步到客户端）。 */
     public static double mutationChance(int stage) {
+        return chanceFor(stage, FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE1.get(),
+                FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE2.get(),
+                FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE3.get());
+    }
+
+    /** 每阶段命中概率（纯函数，供 {@link MutationSettings} 复用）。 */
+    public static double chanceFor(int stage, double chance1, double chance2, double chance3) {
         return switch (stage) {
-            case 2 -> FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE2.get();
-            case 3 -> FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE3.get();
-            default -> FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE1.get();
+            case 2 -> chance2;
+            case 3 -> chance3;
+            default -> chance1;
         };
     }
 
     /** 当前周期索引：gameTick / conversionInterval。 */
     public static long periodIndex(long gameTick, long conversionInterval) {
         return gameTick / Math.max(1L, conversionInterval);
+    }
+
+    /** 周期基准（tick），下限 1：配置写成 0 会让除零把周期变成无穷大。 */
+    public static long configBaseInterval() {
+        return Math.max(1L, FocalDecayConfig.BASE_INTERVAL.get());
     }
 
     /**
@@ -226,20 +272,29 @@ public final class MutationHelper {
      * 这个方块何时出现"，只有存真实轴，"回滚之后后来放置的方块显示为原样"才有意义。
      */
     public static long blockPeriod(long gameTick) {
-        return gameTick / Math.max(1L, FocalDecayConfig.BASE_INTERVAL.get());
+        return scaledPeriod(gameTick, configBaseInterval(), 1.0, 0L);
     }
 
     /**
      * 失焦解析用的周期（**显示时钟**，2026-09-16）：带调试倍率与偏移，
      * 也就是 {@code /focaldecay period} 能拨动的那根指针。
      * <p>
+     * 这是<b>读本端配置</b>的入口（服务端用）；客户端预览走 {@link MutationSettings#displayPeriod}，
+     * 两者共用下面这个纯函数 —— 周期长度是"两端必须一致"的量之一，公式只能有一份。
+     */
+    public static long displayPeriod(long gameTick, double speed, long offset) {
+        return scaledPeriod(gameTick, configBaseInterval(), speed, offset);
+    }
+
+    /**
+     * 时钟推进（纯函数，供 {@link MutationSettings} 复用）：
      * <pre>
      *   scaled = floor(gameTick * speed)
      *   period = floorDiv(scaled, base_interval) + offset
      * </pre>
      * <b>先乘后除是刻意的</b>：{@code speed = 1.0} 时 {@code floor(gameTick * 1.0) == gameTick}
-     * （gameTick 远小于 2^53，double 精确），于是 {code floorDiv(gameTick, interval)} 与
-     * {@link #blockPeriod} 逐位相同 —— 默认档位下这个函数<b>完全不改变现有行为</b>。
+     * （gameTick 远小于 2^53，double 精确），于是 {@code floorDiv(gameTick, interval)} 与
+     * {@link #blockPeriod} 逐位相同 —— 默认档位下这条路径<b>完全不改变现有行为</b>。
      * 如果写成 {@code floor(gameTick * speed / interval)}，浮点除法会在"整除边界"上有少 1 的风险。
      * <p>
      * 用 {@link Math#floorDiv} 而不是 {@code /}：负倍率（倒带）时除法要向负无穷取整，
@@ -249,8 +304,8 @@ public final class MutationHelper {
      * @param speed  流速倍率：1 = 正常，0 = 冻结（配合 offset 逐刻步进），负 = 倒带，&gt;1 = 加速
      * @param offset 偏移（刻）：负数 = 回滚
      */
-    public static long displayPeriod(long gameTick, double speed, long offset) {
+    public static long scaledPeriod(long gameTick, long baseInterval, double speed, long offset) {
         long scaled = (long) Math.floor(gameTick * speed);
-        return Math.floorDiv(scaled, Math.max(1L, FocalDecayConfig.BASE_INTERVAL.get())) + offset;
+        return Math.floorDiv(scaled, Math.max(1L, baseInterval)) + offset;
     }
 }

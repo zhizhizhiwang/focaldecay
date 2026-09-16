@@ -7,6 +7,8 @@ import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
+import com.zhizhiwang.focal_decay.network.ModNetwork;
+import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -58,6 +60,14 @@ public class MutationPoolManager extends SavedData {
     }
 
     private final List<PrototypeEffect> prototypeEffects = new ArrayList<>();
+    /**
+     * 上一次<b>发给客户端</b>的效果摘要（位置 -> 摘要）。增量同步的判据：
+     * 新摘要与这里存的不相等才发包。存的是"客户端现在以为的样子"，所以
+     * "客户端能观察到的字段变了没有"这个问题不需要另写一份签名去维护。
+     * <p>
+     * 瞬态，不落盘：它描述的是网络同步状态，不是世界状态。
+     */
+    private final Map<BlockPos, SyncRegionDataPacket.PrototypeData> syncedEffects = new HashMap<>();
     /** 玩家放置方块的"诞生周期"（位置 -> 放置时的 periodIndex）。 */
     private final Map<BlockPos, Long> blockBirthPeriods = new HashMap<>();
 
@@ -109,21 +119,49 @@ public class MutationPoolManager extends SavedData {
      * 原型机模型变化时更新效果：有有效模型（非空白）则加入/更新，否则移除。
      * 模型半径：语义锁定/引导 = 基础半径，生物稳定 +4，完全稳定固定 32。
      * 登记期顺带把该模型用得上的查表算好（被训练方块集合、概念邻域池）。
+     * <p>
+     * <b>顺带做增量同步</b>（2026-09-17）：效果只在"客户端能观察到的字段"真的变了时才发一条包。
+     * 以前这里是"变化就重发整张区域表"，而区域表里还挂着随建造无上限增长的诞生周期表；
+     * 更要紧的是 {@code onLoad} 那条路径（区块加载时重建效果）根本没发包，
+     * 于是客户端在远处原型机的保护范围里会继续画幽灵，挖下去自然对不上。
+     * <p>
+     * 为什么判据用"与上次发出的摘要比较"而不是"数据变了没有"：生物稳定模型的能量每刻都在变，
+     * 但客户端只关心它是否大于 0。摘要里发的正是"是否生效"，所以比较摘要恰好等于比较
+     * "客户端看到的东西"，不会退化成每刻一包。
      */
     public void updatePrototypeEffect(ServerLevel level, BlockPos pos, ItemStack modelStack) {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
         ObserverModelData data = modelStack.getItem() instanceof ObserverModelItem
                 ? ObserverModelItem.getData(modelStack) : null;
         if (data == null || ObserverModelData.TYPE_BLANK.equals(data.type())) {
+            syncRemoval(level, pos);
             return;
         }
         MutationIndex index = MutationIndexes.get(level.dimension());
-        prototypeEffects.add(new PrototypeEffect(pos.immutable(), radiusFor(data), data,
-                parseTrained(data.trainedTargets()), conceptPool(data, index)));
+        PrototypeEffect effect = new PrototypeEffect(pos.immutable(), radiusFor(data), data,
+                parseTrained(data.trainedTargets()), conceptPool(data, index));
+        prototypeEffects.add(effect);
+        syncAddition(level, effect);
     }
 
-    public void removePrototypeEffect(BlockPos pos) {
+    /** 移除某个位置的原型机效果（方块被破坏/模型被取出）；变化时广播删除增量。 */
+    public void removePrototypeEffect(ServerLevel level, BlockPos pos) {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
+        syncRemoval(level, pos);
+    }
+
+    private void syncAddition(ServerLevel level, PrototypeEffect effect) {
+        SyncRegionDataPacket.PrototypeData packet = ModNetwork.prototypeData(effect);
+        SyncRegionDataPacket.PrototypeData previous = syncedEffects.put(effect.center(), packet);
+        if (!packet.equals(previous)) {
+            ModNetwork.sendPrototype(level, effect.center(), packet);
+        }
+    }
+
+    private void syncRemoval(ServerLevel level, BlockPos pos) {
+        if (syncedEffects.remove(pos) != null) {
+            ModNetwork.sendPrototype(level, pos, null);
+        }
     }
 
     private static Set<Block> parseTrained(List<String> trainedTargets) {
@@ -237,10 +275,11 @@ public class MutationPoolManager extends SavedData {
      * 无引导则返回 {@link GuidedBias#NONE}。
      * <p>
      * 概念邻域与成员判定都取自效果里登记期算好的 {@link ClassifiedPool}，
-     * 逐方块只做一次 {@code boolean[]} 查表和一次半径比较。
+     * 逐方块只做一次 {@code boolean[]} 查表和一次半径比较。并列决胜规则见
+     * {@link GuidedConcept#betterGuided}。
      */
     public GuidedBias getGuidedBias(BlockPos pos, BlockState original, int stage) {
-        GuidedBias best = null;
+        PrototypeEffect best = null;
         double bestQ = 0.0;
         for (PrototypeEffect effect : prototypeEffects) {
             ClassifiedPool concept = effect.concept();
@@ -251,13 +290,14 @@ public class MutationPoolManager extends SavedData {
                 continue;
             }
             double q = GuidedConcept.effectiveQ(effect.data().stabilityStrength(), stage);
-            if (q <= bestQ) {
+            // 决胜规则与客户端共用（并列按中心坐标）：增量同步之后两端的遍历顺序不保证一致
+            if (!GuidedConcept.betterGuided(q, effect.center(), bestQ, best == null ? null : best.center())) {
                 continue;
             }
             bestQ = q;
-            best = new GuidedBias(concept, q);
+            best = effect;
         }
-        return best == null ? GuidedBias.NONE : best;
+        return best == null ? GuidedBias.NONE : new GuidedBias(best.concept(), bestQ);
     }
 
     private static boolean withinRadius(BlockPos pos, PrototypeEffect effect) {

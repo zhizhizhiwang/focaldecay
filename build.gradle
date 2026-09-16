@@ -140,6 +140,30 @@ neoForge {
         }
     }
 
+    // 第二个客户端实例：给"局域网 / 专用服务器"这类必须两个进程同时跑的验证用。
+    // 与主 client 共用 run/ 是不行的——两个进程会抢 run/logs/latest.log 与 options.txt。
+    // 用法（先起服务器，再起这个）：
+    //   .\gradlew.bat runServer
+    //   .\gradlew.bat runClientSecond
+    // 它会直接连上本机 25565（服务器脚本里写死），跳过主菜单，进世界后即可观察失焦预览。
+    // 关键日志：run-client/logs/latest.log 里的 "server mutation settings received (seed=...)"
+    // ——种子与服务端一致才说明多人模式下的两端输入真的对齐了（见 PROGRESS §13.12）。
+    runs {
+        register('clientSecond') {
+            client()
+            gameDirectory = project.file('run-client')
+            programArguments.addAll '--quickPlayMultiplayer', '127.0.0.1:25565'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            logLevel = org.slf4j.event.Level.DEBUG
+            environment 'ALSOFT_DRIVERS', 'null'
+            jvmArguments.addAll(
+                    '-XX:+HeapDumpOnOutOfMemoryError',
+                    '-XX:ErrorFile=hs_err_pid%p.log'
+            )
+        }
+    }
+
     mods {
         // define mod <-> source bindings
         // these are used to tell the game which sources are for which mod

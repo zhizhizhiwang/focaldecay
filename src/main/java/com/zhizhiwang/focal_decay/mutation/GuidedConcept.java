@@ -4,6 +4,7 @@ import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -161,16 +162,51 @@ public final class GuidedConcept {
 
     /** 效果期完备度：阶段 3 按配置减半（服务端与客户端共用，保证预览一致）。 */
     public static double effectiveQ(double storedQ, int stage) {
+        return effectiveQ(storedQ, stage, FocalDecayConfig.GUIDED_STAGE3_HALVE.get());
+    }
+
+    /**
+     * 效果期完备度（纯函数：折半开关显式给出）。
+     * <p>
+     * 客户端预览走这个重载并传入 {@link MutationSettings} 里的开关值：完备度 q 直接乘在
+     * "抽中引导池"的概率上，两端取值不同就会抽出不同的目标。
+     */
+    public static double effectiveQ(double storedQ, int stage, boolean halveInStage3) {
         double q = storedQ;
-        if (stage >= 3 && FocalDecayConfig.GUIDED_STAGE3_HALVE.get()) {
+        if (stage >= 3 && halveInStage3) {
             q *= 0.5;
         }
         return Math.max(0.0, Math.min(1.0, q));
     }
 
+    /**
+     * 多个引导模型同时生效时取哪一个：q 大者胜，<b>q 相等按中心坐标字典序</b>。
+     * <p>
+     * 决胜规则必须与顺序无关，而且要两端共用：服务端按"登记顺序"遍历效果列表，
+     * 客户端按"登录快照 + 单条增量到达顺序"遍历——增量同步之后这两个顺序不保证一致
+     * （例如区块重载会让服务端把某个效果移到列表末尾）。若只比 q，两个同概念、同完备度的
+     * 引导模型在两台机器上会挑中不同的那个，抽出来的目标自然不同。
+     *
+     * @param bestPos 当前最优模型中心；{@code null} 表示还没有最优
+     */
+    public static boolean betterGuided(double q, BlockPos pos, double bestQ, BlockPos bestPos) {
+        if (bestPos == null) {
+            return true;
+        }
+        if (q != bestQ) {
+            return q > bestQ;
+        }
+        if (pos.getX() != bestPos.getX()) {
+            return pos.getX() < bestPos.getX();
+        }
+        if (pos.getY() != bestPos.getY()) {
+            return pos.getY() < bestPos.getY();
+        }
+        return pos.getZ() < bestPos.getZ();
+    }
+
     /** 概念显示名：优先语言键（tag.block.命名空间.路径），缺失回退原始 ID。 */
-    public static Component displayName(String tagId) {
-        if (tagId.isEmpty()) {
+    public static Component displayName(String tagId) {        if (tagId.isEmpty()) {
             return Component.literal("?");
         }
         String key = "tag.block." + tagId.replace(':', '.').replace('/', '.');

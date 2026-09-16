@@ -6,7 +6,6 @@ import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.menu.AnchorPrototypeMenu;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationPoolManager;
-import com.zhizhiwang.focal_decay.network.ModNetwork;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -125,7 +124,6 @@ public class AnchorPrototypeBlockEntity extends BlockEntity implements MenuProvi
                             MutationPoolManager.radiusFor(ObserverModelItem.getData(modelStack)));
                 }
                 manager.updatePrototypeEffect(serverLevel, worldPosition, modelStack);
-                ModNetwork.sendRegionDataToDimension(serverLevel);
             }
         }
     }
