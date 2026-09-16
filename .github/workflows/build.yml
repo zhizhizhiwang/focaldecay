@@ -1,25 +1,103 @@
 name: Build
 
-on: [push, pull_request]
+# 自动构建：推送到 main、向 main 提 PR、以及手动触发时，
+# 跑一次完整的 Gradle 构建，并把可玩的 mod jar 传成 artifact。
+#
+# 发布（GitHub Release + Modrinth）在另一个手动 workflow 里，见 publish-modrinth.yml。
+#
+# 产物：build/libs/focal_decay-<版本>.jar（版本来自 gradle.properties 的 mod_version）
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 这个 workflow 只读仓库，不需要写权限。
+permissions:
+  contents: read
+
+# 同一分支/PR 上连续推送时，取消上一次还没跑完的构建，省 runner 时间。
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: Gradle build (Minecraft 1.21.1 / Java 21)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
+      - name: Checkout
+        uses: actions/checkout@v5
 
-      - name: Setup JDK 21
-        uses: actions/setup-java@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
         with:
+          distribution: temurin
           java-version: '21'
-          distribution: 'temurin'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      # 自动缓存 ~/.gradle（依赖、wrapper、configuration cache）。
+      # 首次运行要下 Minecraft + NeoForge，之后会快很多。
+      #
+      # validate-wrappers 会比对 gradle-wrapper.jar 与 Gradle 官方发布的校验和：
+      # 这个 jar 是提交进仓库的二进制，被人换掉的话所有跑 CI 的人都跟着中招。
+      # 以前这步由独立的 gradle/actions/wrapper-validation 负责，现在合并进了 setup-gradle。
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          validate-wrappers: true
 
-      - name: Build with Gradle
-        run: ./gradlew build
+      # 版本号只从 gradle.properties 读，不在这里另设一套，
+      # 保证 CI 产物和本地 ./gradlew build 出来的东西完全一致。
+      - name: Read mod version
+        id: meta
+        run: |
+          set -euo pipefail
+          version=$(grep -E '^mod_version=' gradle.properties | cut -d= -f2 | tr -d ' \r')
+          mc_version=$(grep -E '^minecraft_version=' gradle.properties | cut -d= -f2 | tr -d ' \r')
+          {
+            echo "version=$version"
+            echo "mc_version=$mc_version"
+            echo "jar=focal_decay-$version.jar"
+          } >> "$GITHUB_OUTPUT"
+          echo "mod_version=$version, minecraft=$mc_version"
+
+      - name: Build
+        run: ./gradlew build --stacktrace
+
+      # mod 构建偶尔会"成功"但没产出 jar（比如 archivesName 被改错），
+      # 所以这里显式确认一次，别让后面的 artifact 上传报一句看不太懂的错。
+      - name: Verify jar
+        id: jar
+        run: |
+          set -euo pipefail
+          jar="build/libs/${{ steps.meta.outputs.jar }}"
+          if [ ! -f "$jar" ]; then
+            echo "::error::构建结束了，但没找到产物 $jar"
+            ls -l build/libs || true
+            exit 1
+          fi
+          ls -l "$jar"
+          echo "size=$(du -h "$jar" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload mod jar
+        uses: actions/upload-artifact@v5
+        with:
+          name: focal-decay-${{ steps.meta.outputs.version }}
+          path: build/libs/${{ steps.meta.outputs.jar }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Job summary
+        run: |
+          {
+            echo "### Focal Decay ${{ steps.meta.outputs.version }} 构建成功"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| Minecraft | \`${{ steps.meta.outputs.mc_version }}\` |"
+            echo "| 产物 | \`${{ steps.meta.outputs.jar }}\`（${{ steps.jar.outputs.size }}） |"
+            echo "| 触发 | \`${{ github.event_name }}\` @ \`${GITHUB_SHA:0:7}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

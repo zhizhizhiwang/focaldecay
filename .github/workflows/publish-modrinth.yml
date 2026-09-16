@@ -1,0 +1,277 @@
+name: Publish (Modrinth + GitHub Release)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 预留的发布 workflow：不会自动触发，只在 Actions 页面手动 "Run workflow"。
+#
+# 启用前请在仓库 Settings → Secrets and variables → Actions 里配两项：
+#
+#   Secret   MODRINTH_TOKEN        Modrinth 个人访问令牌（PAT）
+#                                  https://modrinth.com/settings/pats
+#                                  只需要 VERSION_CREATE 权限
+#   Variable MODRINTH_PROJECT_ID   Modrinth 项目 ID 或 slug，例如 focal-decay
+#
+# 没配齐也不会红叉：workflow 照常构建、照常发 GitHub Release，
+# 只把 Modrinth 那一步跳过并给一条 warning —— 所以现在就可以放心留着。
+#
+# 另外确认 Settings → Actions → General → Workflow permissions 允许
+# "Read and write permissions"，否则下面申请的 contents: write 会降级成只读，
+# 建 tag / Release 那一步会失败。
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（留空 = 用 gradle.properties 里的 mod_version）'
+        required: false
+        type: string
+      version_type:
+        description: 'Modrinth 发布通道'
+        required: true
+        default: release
+        type: choice
+        options:
+          - release
+          - beta
+          - alpha
+      changelog:
+        description: '更新日志（留空 = 自动用上一个 tag 以来的 commit 生成）'
+        required: false
+        type: string
+      modrinth_id:
+        description: 'Modrinth 项目 ID/slug（留空 = 用仓库 Variable MODRINTH_PROJECT_ID）'
+        required: false
+        type: string
+      create_github_release:
+        description: '同时创建 GitHub Release 并附上 jar'
+        required: true
+        default: true
+        type: boolean
+      dry_run:
+        description: '试运行：走完整流程但不真的上传到 Modrinth'
+        required: true
+        default: false
+        type: boolean
+
+# 建 tag / Release 需要写权限。
+permissions:
+  contents: write
+
+# 发布不允许并发，后一次排队等前一次跑完。
+concurrency:
+  group: publish-modrinth
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build & publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      MODRINTH_PROJECT_ID: ${{ inputs.modrinth_id || vars.MODRINTH_PROJECT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # 自动生成 changelog 需要完整历史
+          fetch-tags: true # git describe 需要 tag
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      # 版本号默认沿用 gradle.properties，也可以用输入临时覆盖（会以 -Pmod_version= 传给 Gradle，
+      # 于是 jar 文件名、neoforge.mods.toml 里的 version 会一起跟着变）。
+      - name: Resolve version
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION" ]; then
+            version="$INPUT_VERSION"
+            gradle_args="-Pmod_version=$version"
+          else
+            version=$(grep -E '^mod_version=' gradle.properties | cut -d= -f2 | tr -d ' \r')
+            gradle_args=""
+          fi
+          # 版本号会进 jar 文件名、git tag 和 Modrinth 版本号，先把奇怪的输入挡在外面
+          if ! printf '%s' "$version" | grep -qE '^[0-9A-Za-z][0-9A-Za-z._+-]*$'; then
+            echo "::error::非法版本号 '$version'（只允许字母、数字和 . _ + -）"
+            exit 1
+          fi
+          mc_version=$(grep -E '^minecraft_version=' gradle.properties | cut -d= -f2 | tr -d ' \r')
+          {
+            echo "version=$version"
+            echo "mc_version=$mc_version"
+            echo "tag=v$version"
+            echo "jar=focal_decay-$version.jar"
+            echo "gradle_args=$gradle_args"
+          } >> "$GITHUB_OUTPUT"
+          echo "本次发布：$version（Minecraft $mc_version）"
+
+      - name: Build
+        env:
+          GRADLE_ARGS: ${{ steps.meta.outputs.gradle_args }}
+        run: |
+          set -euo pipefail
+          # 这里故意不加引号：空字符串会消失，有值时正好拆成一个 -Pmod_version=x 参数
+          ./gradlew build --stacktrace ${GRADLE_ARGS:-}
+          jar="build/libs/${{ steps.meta.outputs.jar }}"
+          if [ ! -f "$jar" ]; then
+            echo "::error::构建结束了，但没找到产物 $jar"
+            ls -l build/libs || true
+            exit 1
+          fi
+          ls -l "$jar"
+
+      - name: Generate release notes
+        env:
+          INPUT_CHANGELOG: ${{ inputs.changelog }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ -n "$INPUT_CHANGELOG" ]; then
+            printf '%s\n' "$INPUT_CHANGELOG" > build/RELEASE_NOTES.md
+          else
+            prev_tag=$(git describe --tags --abbrev=0 --exclude="$TAG" 2>/dev/null || true)
+            if [ -n "$prev_tag" ]; then
+              echo "自 $prev_tag 以来的改动：" > build/RELEASE_NOTES.md
+              git log --pretty=format:'- %s (%h)' "$prev_tag"..HEAD >> build/RELEASE_NOTES.md
+            else
+              echo "还没有历史 tag，列出最近 30 个 commit：" > build/RELEASE_NOTES.md
+              git log -30 --pretty=format:'- %s (%h)' >> build/RELEASE_NOTES.md
+            fi
+            printf '\n' >> build/RELEASE_NOTES.md
+          fi
+          echo "----- build/RELEASE_NOTES.md -----"
+          cat build/RELEASE_NOTES.md
+
+      # workflow_dispatch 的 boolean 输入在不同路径下可能是真布尔也可能是字符串，
+      # 这里统一归一化成 'true'/'false' 输出，后面各步只比较字符串，避免踩坑。
+      # 顺便检查 Modrinth 凭据是否配齐。
+      - name: Preflight
+        id: pre
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          INPUT_CREATE_RELEASE: ${{ inputs.create_github_release }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          case "${INPUT_CREATE_RELEASE,,}" in
+            true) echo "create_release=true"  >> "$GITHUB_OUTPUT" ;;
+            *)    echo "create_release=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+          case "${INPUT_DRY_RUN,,}" in
+            true) echo "dry_run=true"  >> "$GITHUB_OUTPUT" ;;
+            *)    echo "dry_run=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+          if [ -z "${MODRINTH_TOKEN:-}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::未配置 secret MODRINTH_TOKEN，跳过 Modrinth 上传。jar 仍会构建，GitHub Release 照常创建。"
+          elif [ -z "${MODRINTH_PROJECT_ID:-}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::未配置 MODRINTH_PROJECT_ID（仓库 Variable），跳过 Modrinth 上传。"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Modrinth 凭据就绪，项目：$MODRINTH_PROJECT_ID"
+          fi
+
+      # 上传 Modrinth。想换掉这个第三方 action 时的备选：
+      #   · 直接调 Modrinth 官方 REST API：POST https://api.modrinth.com/v2/version（multipart）
+      #   · Modrinth 官方 Gradle 插件 Minotaur：id 'com.modrinth.minotaur'
+      # 版本号固定用 @v3.3；想更保险可以改成 @v3.3.0 或某个 commit SHA。
+      - name: Publish to Modrinth
+        if: steps.pre.outputs.enabled == 'true'
+        uses: Kira-NT/mc-publish@v3.3
+        with:
+          modrinth-id: ${{ env.MODRINTH_PROJECT_ID }}
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+
+          files: build/libs/${{ steps.meta.outputs.jar }}
+          name: Focal Decay ${{ steps.meta.outputs.version }}
+          version: ${{ steps.meta.outputs.version }}
+          version-type: ${{ inputs.version_type }}
+          changelog: build/RELEASE_NOTES.md
+          loaders: neoforge
+          game-versions: ${{ steps.meta.outputs.mc_version }}
+
+          # Modrinth 上的项目 slug。JEI 和 Patchouli 都是软依赖（不装也能正常玩），
+          # 所以标 optional；哪天不想要这两条，整段 dependencies 删掉即可。
+          dependencies: |
+            jei(optional)
+            patchouli(optional)
+
+          dry-run: ${{ steps.pre.outputs.dry_run }}
+          retry-attempts: 2
+          retry-delay: 10000
+
+      # 用 runner 自带的 gh CLI 发 Release，不额外依赖第三方 action。
+      # 放在 Modrinth 之后：万一 Modrinth 那边失败，不至于先留下一个 tag。
+      - name: Create GitHub Release
+        if: steps.pre.outputs.create_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          TITLE: Focal Decay ${{ steps.meta.outputs.version }}
+          JAR: build/libs/${{ steps.meta.outputs.jar }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在 → 覆盖 jar 与说明"
+            gh release upload "$TAG" "$JAR" --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file build/RELEASE_NOTES.md
+          else
+            gh release create "$TAG" "$JAR" \
+              --title "$TITLE" \
+              --notes-file build/RELEASE_NOTES.md \
+              --target "$GITHUB_SHA"
+          fi
+          echo "Release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"
+
+      # 单纯只要一个 jar 时（create_github_release=false + dry_run=true），
+      # 也能从 Actions 页面把产物下下来。
+      - name: Upload jar artifact
+        if: success()
+        uses: actions/upload-artifact@v5
+        with:
+          name: focal-decay-${{ steps.meta.outputs.version }}
+          path: build/libs/${{ steps.meta.outputs.jar }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### 发布 ${{ steps.meta.outputs.version }}"
+            echo ""
+            echo "| 目标 | 结果 |"
+            echo "|---|---|"
+            echo "| 构建 | ${{ job.status }} |"
+            echo "| 产物 | \`${{ steps.meta.outputs.jar }}\` |"
+            if [ "${{ steps.pre.outputs.enabled }}" = "true" ]; then
+              if [ "${{ steps.pre.outputs.dry_run }}" = "true" ]; then
+                echo "| Modrinth | 试运行，未真的上传 |"
+              else
+                echo "| Modrinth | 已上传到 \`${MODRINTH_PROJECT_ID}\` |"
+              fi
+            else
+              echo "| Modrinth | 跳过（凭据未配置） |"
+            fi
+            if [ "${{ steps.pre.outputs.create_release }}" = "true" ]; then
+              echo "| GitHub Release | \`${{ steps.meta.outputs.tag }}\` |"
+            else
+              echo "| GitHub Release | 未创建（按输入跳过） |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -2,11 +2,11 @@
 
 ![Build](https://github.com/zhizhizhiwang/focaldecay/actions/workflows/build.yml/badge.svg)
 
-一个基于 **SCP-CN-2999《Observator Ex Machina》** 的 Minecraft 模组。游戏内文本中英双语。
+一个基于 **SCP-CN-2999《Observator Ex Machina》** 的 Minecraft 模组。
 
 > 观测者阵列于 10/02/2021 下线。此后，事物的语义开始随机漂移，表现为物质形态的不可逆改变。
 
-一块石头会变成别的东西，一只牛会变成别的生物，天气也会开始不讲道理。你看到的一切都可能是假的，但你能挖到、能打开、能拿走的东西又是真的。而且失焦只会越来越快。
+一块石头会变成别的东西，一只牛会变成别的生物，天气也会开始不讲道理。而且失焦只会越来越快。
 
 你要在这个持续崩坏的世界里活下去，收集上一迭代留下的语义碎片，最后把一个新的观测者送上王座。
 
@@ -14,14 +14,14 @@
 
 ## 玩法大概
 
-- **所见即所得** —— 世界的真实方块并没有变，变的是你看得见的那一层。掉落、右键界面、中键选取全部按「看得见的那个方块」结算：视觉、交互、产出三者一致，只是与「实际」无关。
+- **失焦** —— 世界的真实方块将会不断失焦改变, 这即是一种干扰, 也是获取资源的契机。
 - **失焦会加速** —— 方块按固定周期结算，阶段越高命中率越高；下界与末地各有自己的池子；生物与天气到后期也会加入。已经漂移的东西不会复原。
-- **局部稳定** —— 观测者基座是现场唯一可部署的稳定装置。插进一枚 OBSR 模型，就能把一片区域锁在当下的形态。基座内外的对比是这个模组最直观的一幕。
-- **训练分类器** —— 空白原型放进训练终端指定方向，取出来右键方块或生物记录目标，再回终端完成训练。终端会依据记录表解析出一个*概念*和它的完备度 q。
-- **五种型号** —— 语义锁定、引导突变、生物稳定、完全稳定、候选观测者。功能互不相同，不可互换；后期阶段会侵蚀其中两种的效果。
-- **七枚语义碎片** —— 每一枚都对应上一迭代发生过的一个事件。全部来自一次性里程碑，没有随机箱子。
+- **局部稳定** —— 观测者基座是现场唯一可部署的稳定装置。插进一枚 OBSR 模型，就能把一片区域锁在当下的形态。
+- **训练分类器** —— 空白原型放进训练终端指定方向，取出来右键方块记录目标，再回终端完成训练。终端会依据记录表解析出一个*概念*和它的完备度 q。
+- **五种型号** —— 语义锁定、引导突变、生物稳定、完全稳定、候选观测者。功能互不相同；后期阶段会侵蚀其中两种的效果。
+- **七枚语义碎片** —— 每一枚都对应上一迭代发生过的一个事件。全部来自一次性里程碑，纪念品。
 - **王座与核心** —— 末地虚空中的王座。登座仪式激活 OBSR-EX；在观测者核心安装一枚已完成的候选观测者，失焦终止。
-- **现场作业手册** —— 进入世界自动发放《失焦事件现场作业手册》。装上 Patchouli 就能读，体例是上一迭代的基金会档案。
+- **现场作业手册** —— 进入世界自动发放《失焦事件现场作业手册》。需要 Patchouli mod，体例是上一迭代的基金会档案。
 
 ---
 
@@ -52,6 +52,34 @@
 （Windows 下把 `./gradlew` 换成 `gradlew.bat`。）
 
 本仓库由 NeoForge MDK 起步，构建走 [ModDevGradle](https://github.com/neoforged/ModDevGradle)，文档见 <https://docs.neoforged.net/>。开发环境的坑（音频后端、结构验证脚手架、Patchouli 的加载陷阱、可选依赖的类加载隔离等）都记在 [`PROGRESS.md`](PROGRESS.md) 里，动手之前值得翻一下。
+
+---
+
+## CI
+
+| Workflow | 触发 | 干什么 |
+|---|---|---|
+| [`build.yml`](.github/workflows/build.yml) | 推送到 `main`、任何 PR、手动 | `./gradlew build`，把 `focal_decay-<版本>.jar` 传成 artifact（留 30 天） |
+| [`publish-modrinth.yml`](.github/workflows/publish-modrinth.yml) | **仅手动** | 构建 → 上传 Modrinth → 建 GitHub Release 并附 jar |
+
+版本号统一从 `gradle.properties` 的 `mod_version` 读，CI 不会另造一套，所以线上产物和本地 `./gradlew build` 出来的完全一致。
+
+### 发布到 Modrinth（预留，默认不跑）
+
+`publish-modrinth.yml` 不会自动触发，只在你于 Actions 页面点 **Run workflow** 时才跑。要真正启用上传，先在
+**Settings → Secrets and variables → Actions** 里配两项：
+
+| 类型 | 名字 | 值 |
+|---|---|---|
+| Secret | `MODRINTH_TOKEN` | 在 <https://modrinth.com/settings/pats> 建，勾 `VERSION_CREATE` 即可 |
+| Variable | `MODRINTH_PROJECT_ID` | Modrinth 项目 ID 或 slug |
+
+**没配也能安全地放着**：缺凭据时 workflow 照常构建、照常发 GitHub Release，只把 Modrinth 那一步跳过并给一条
+warning，不会红叉。另外确认 **Settings → Actions → General → Workflow permissions** 允许
+"Read and write permissions"，否则建 tag / Release 会因权限不足失败。
+
+手动触发时可填版本号（留空就用 `mod_version`）、发布通道（release / beta / alpha）、更新日志（留空自动用上一个
+tag 以来的 commit 生成），另有"试运行"开关可以走完整流程但不真的上传。
 
 ---
 
