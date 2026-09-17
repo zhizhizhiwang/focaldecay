@@ -47,3 +47,10 @@ run-client/
 **/src/generated/**/.cache/
 repo/
 !**/src/**/repo/
+
+## other
+
+MODRINTH.md
+PROGRESS.md
+PROXYAI.md
+TRAILER.md
