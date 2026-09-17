@@ -18,7 +18,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Navigation:$() Holding a $(bold)completed OBSR-3$() and right-clicking empty space in the End generates a particle beam pointing at the Throne, and gives the remaining distance.$(br2)This navigation can be used any number of times."
+      "text": "$(bold)Navigation:$() Holding a $(bold)completed OBSR-3$() and right-clicking empty space in the End generates a particle beam pointing at the Throne, and gives the remaining distance."
     }
   ]
 }

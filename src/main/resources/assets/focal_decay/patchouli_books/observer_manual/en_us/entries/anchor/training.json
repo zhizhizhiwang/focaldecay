@@ -18,7 +18,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(li)4. Repeat recording until the table is full or you judge it sufficient.$(br)$(li)5. Return the prototype to the terminal and choose \"Finish Training\".$(br2)The record table has a capacity limit. Duplicate entries do not count.",
+      "text": "$(li)4. Repeat recording until the table is full or you judge it sufficient.$(br)$(li)5. Return the prototype to the terminal and finish training.$(br2)The record table has a capacity limit. Duplicate entries do not count.",
       "title": "Procedure (cont.)"
     },
     {

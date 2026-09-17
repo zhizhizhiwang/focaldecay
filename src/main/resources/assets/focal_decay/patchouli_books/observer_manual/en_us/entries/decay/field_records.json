@@ -32,7 +32,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)- Conclusion$()$(br2)All four were listed as \"suspected\" in the records of that period, because their cause could not be confirmed with certainty."
+      "text": "$(bold)- Conclusion$()$(br2)All four were listed as \"suspected\" in the records of that period; at the time their cause could not be confirmed with certainty."
     }
   ]
 }

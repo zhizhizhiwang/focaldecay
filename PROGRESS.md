@@ -1282,6 +1282,41 @@ A/B 实跑（无头服务器）：
 bug 是"闸门在倍率 ≠ 1 时失效/永久关闭"。默认档位（speed 1 / offset 0）下这次修改**逐位等价于旧行为**
 （`blockPeriod` 与 `displayPeriod(1,0)` 相同，旧存档里的诞生周期值域也一样）。
 
+### 13.15 观测者核心 GUI：文字溢出、与"物品栏"重叠（2026-09-17，已换新贴图）
+
+**现象**：右键 `observer_core` 打开界面，提示文字一路画到面板外面，并且和"物品栏"三个字叠在一起。
+
+**根因**（三件事叠在一起，换贴图后会一起暴露）：
+
+1. **"物品栏"是默认行为带出来的。** `ObserverCoreMenu` 一个槽位都没加，但 `ObserverCoreScreen` 没有覆写
+   `renderLabels`，于是 `AbstractContainerScreen` 照常画 `playerInventoryTitle`——位置是
+   `inventoryLabelY = imageHeight - 94 = 72`，而提示文字画在 `topPos + 68`（字高 9px → 占 68~77）。
+   两者**必然**重叠。
+2. **提示文字不折行。** `gui.focal_decay.core_hint` 那句中文 24 个字约 216px，比 176px 宽的面板还长，
+   `drawString` 直接一路画到屏幕外。
+3. **深色贴图要求文字换色。** 新面板底色是 `rgb(35,39,44)`，而原版标签色与原来的提示色都是 `0x404040`，
+   在这个底色上基本看不见。
+
+**修法**：
+
+- 贴图换成 `textures/gui/observer_core.png`（256x256 画布，实际面板占左上角 176x166，与 `anchor_prototype`
+  / `training_terminal` 同规格）。
+- 覆写 `renderLabels` 且**不调 `super`**，只画标题——无槽位界面本来就没有物品栏，那个标签没有任何意义。
+- 提示改用 `graphics.drawWordWrap(...)`，按 160px 正文宽自动折行：中文 2 行、英文 ≤4 行，中英文都不会再溢出。
+- 文字换亮色：标题 `0xE8E8E8`、提示 `0x9AA0A6`，状态沿用绿 `0x55FF55` / 红 `0xFF5555`。
+- `imageWidth`/`imageHeight` 显式写成 176x166，把"代码尺寸必须跟贴图对齐"这层耦合摆到明面上。
+
+**坑 1：`renderLabels` 用的是面板相对坐标。** vanilla 在调用它之前已经把 pose 平移到 `(leftPos, topPos)`
+（`javap -c` 看 `AbstractContainerScreen#render`：translate 在前、`renderLabels` 在后），所以里面写字**不要**
+再加 `leftPos/topPos`，否则会整体偏出去一个面板。
+
+**坑 2：`blit` 的 7 参数重载按 256x256 取 UV。** 它内部调的是 `blit(..., 256, 256)`，所以贴图必须是
+256x256 画布、面板放在左上角；换成别的画布尺寸会采样错位。
+
+**验证**：`./gradlew compileJava` 通过。布局按"面板 176x166、正文宽 160、字高 9px"验算：标题 y=8、
+状态 y=30、按钮 56~76、提示自 y=92 起（最坏 4 行 = 36px，到 128），全部落在 166 高的面板内；
+折行由 `drawWordWrap` 保证，横向溢出结构上不可能发生。**未做客户端实机截图。**
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8

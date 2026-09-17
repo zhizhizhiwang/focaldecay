@@ -15,9 +15,9 @@
 ## 玩法大概
 
 - **失焦** —— 世界的真实方块将会不断失焦改变, 这即是一种干扰, 也是获取资源的契机。
-- **失焦会加速** —— 方块按固定周期结算，阶段越高命中率越高；下界与末地各有自己的池子；生物与天气到后期也会加入。已经漂移的东西不会复原。
+- **失焦阶段** —— 方块发生失焦的概率将分阶段提升；生物与天气到后期也会加入。已经漂移的东西不会复原。
 - **局部稳定** —— 观测者基座是现场唯一可部署的稳定装置。插进一枚 OBSR 模型，就能把一片区域锁在当下的形态。
-- **训练分类器** —— 空白原型放进训练终端指定方向，取出来右键方块记录目标，再回终端完成训练。终端会依据记录表解析出一个*概念*和它的完备度 q。
+- **训练分类器** —— 空白原型放进训练终端指定方向，取出来右键方块记录目标，再回终端完成训练。三种可训练模型分别有不同的功能。
 - **五种型号** —— 语义锁定、引导突变、生物稳定、完全稳定、候选观测者。功能互不相同；后期阶段会侵蚀其中两种的效果。
 - **七枚语义碎片** —— 每一枚都对应上一迭代发生过的一个事件。全部来自一次性里程碑，纪念品。
 - **王座与核心** —— 末地虚空中的王座。登座仪式激活 OBSR-EX；在观测者核心安装一枚已完成的候选观测者，失焦终止。
@@ -49,21 +49,15 @@
 ./gradlew runData        # 改过 data/ 下的 Provider 后重新生成 JSON
 ```
 
-（Windows 下把 `./gradlew` 换成 `gradlew.bat`。）
-
-本仓库由 NeoForge MDK 起步，构建走 [ModDevGradle](https://github.com/neoforged/ModDevGradle)，文档见 <https://docs.neoforged.net/>。开发环境的坑（音频后端、结构验证脚手架、Patchouli 的加载陷阱、可选依赖的类加载隔离等）都记在 [`PROGRESS.md`](PROGRESS.md) 里，动手之前值得翻一下。
+本仓库由 NeoForge MDK 起步，构建走 [ModDevGradle](https://github.com/neoforged/ModDevGradle)，文档见 <https://docs.neoforged.net/>。
 
 
 ---
 
-## 仓库里的其他文档
-
-| 文件 | 内容 |
-|---|---|
-| [`PROXYAI.md`](PROXYAI.md) | 模组完整技术设计大纲 |
-| [`PROGRESS.md`](PROGRESS.md) | 开发进度、踩坑记录与关键约定 |
-| [`TRAILER.md`](TRAILER.md) | 宣传片分幕大纲 |
-| [`tools/README.md`](tools/README.md) | 结构与数据包验证脚手架 |
+## 版权申明
+ - 使用了根据CC-BY-SA 3.0 授权的项目  **SCP-CN-2999 "Observator Ex Machina"** <https://scp-wiki-cn.wikidot.com/scp-cn-2999>
+ - 资产与文本使用 CC-BY-SA 4.0 协议授权
+ - 代码使用GPLv3 授权
 
 ---
 

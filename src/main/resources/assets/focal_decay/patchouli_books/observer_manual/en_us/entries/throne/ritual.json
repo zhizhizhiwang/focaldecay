@@ -13,7 +13,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Prerequisites:$()$(br2)$(li)carry an inactive OBSR-EX;$(br)$(li)carry an Observer Base, or have one already placed near the Throne.$(br2)Both are required."
+      "text": "$(bold)Prerequisites:$()$(br2)$(li)carry an inactive OBSR-EX;$(br)$(li)place an Observer Base near the Throne.$(br2)Both are required."
     },
     {
       "type": "patchouli:text",
@@ -21,11 +21,11 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Settlement:$() when the ritual completes, the inactive OBSR-EX in the base is replaced by an activated version.$(br2)If the base holds a different specification, the activated model is handed directly back to you.$(br2)Other contents of the base are unaffected."
+      "text": "$(bold)Settlement:$() when the ritual completes, the inactive OBSR-EX in the base is replaced by an activated version."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Appendix: Ritual Requirements$()$(br2)The ritual does not require you to defeat anything.$(br2)The executor must be present for its whole duration, remaining in place until it is complete."
+      "text": "$(bold)Appendix: Ritual Requirements$()$(br2)The ritual does not require you to defeat anything.$(br2)The executor must remain present to sustain the ritual."
     }
   ]
 }

@@ -22,7 +22,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Aftermath:$() Termination is not repair. What has already drifted will not come back. The world will stop in the state it was in at the moment you completed it."
+      "text": "$(bold)Aftermath:$() Termination is not repair. What has already drifted will not come back. The world will stop in the state it was in at the moment you completed it, but anything that escaped the gaze of the unfinished Observer has a chance to recover."
     },
     {
       "type": "patchouli:text",

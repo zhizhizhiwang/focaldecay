@@ -7,7 +7,7 @@
   "pages": [
     {
       "type": "patchouli:text",
-      "text": "$(bold)Description:$() Five OBSR specifications are available in the field, all differentiated from the same prototype. Their functions are distinct and they are not interchangeable.",
+      "text": "$(bold)Description:$() Five OBSR specifications are available in the field, all differentiated from the same prototype. Their functions are distinct.",
       "title": "Model Overview"
     },
     {
@@ -21,7 +21,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Stage decay:$() The intensification of defocus erodes the effectiveness of stabilisation devices.$(br2)$(li)OBSR-2's lock becomes probabilistic in the final stage, re-judging whether it holds each round;$(br)$(li)OBSR-1's completeness is halved in the final stage."
+      "text": "$(bold)Stage decay:$() The intensification of defocus erodes the effectiveness of stabilisation devices.$(br2)$(li)OBSR-2's lock becomes probabilistic in the final stage;$(br)$(li)OBSR-1's completeness is halved in the final stage."
     },
     {
       "type": "patchouli:text",
@@ -33,7 +33,7 @@
     },
     {
       "type": "patchouli:text",
-      "text": "A Candidate Observer built around a copy requires more training, the more so at higher generations.$(br2)There is only one original. Where it goes is your decision."
+      "text": "A Candidate Observer built around a copy requires more training, the more so at higher generations.$(br2)There is only one original. Use it with care."
     }
   ]
 }

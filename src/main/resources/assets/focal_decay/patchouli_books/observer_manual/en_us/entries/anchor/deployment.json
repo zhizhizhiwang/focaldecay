@@ -10,15 +10,11 @@
       "type": "patchouli:crafting",
       "recipe": "focal_decay:anchor_prototype",
       "title": "Construction",
-      "text": "The Observer Base is the only deployable reality stabilisation device in the field.$(br2)Its construction is four iron legs, four redstone, one eye of ender.$(br2)What makes it work is that it knows where to look."
+      "text": "The Observer Base is the only deployable reality stabilisation device in the field.$(br2)Its construction is four iron legs, four redstone, one eye of ender."
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Deployment:$() The base has one model slot.$(br2)$(li)With the slot empty it produces no effect;$(br)$(li)once a model is inserted it takes effect immediately, over a cubic region centred on the base."
-    },
-    {
-      "type": "patchouli:text",
-      "text": "At the moment of insertion the base first solidifies the blocks in range to their current state, and only then applies protection.$(br2)Skip that step and blocks which have not yet drifted are latched permanently in their present form."
+      "text": "$(bold)Deployment:$() The base has one model slot.$(br2)$(li)With the slot empty it serves only as decoration;$(br)$(li)once a model is inserted it takes effect, over a cubic region centred on the base."
     },
     {
       "type": "patchouli:text",
