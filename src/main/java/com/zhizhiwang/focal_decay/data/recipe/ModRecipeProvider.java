@@ -61,17 +61,12 @@ public class ModRecipeProvider extends RecipeProvider {
         // ---- 候选观测者 OBSR-3：O E O / E X E / O S O
         //      (O=原型 E=末影之眼 X=已激活的 OBSR-EX S=下界之星) ----
         // 以"工作中的 OBSR-EX"为材料，呼应主线：新观测者由上一迭代留下的完备分类器派生。
-        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.OBSERVER_MODEL_CANDIDATE.get())
-                .pattern("OEO")
-                .pattern("EXE")
-                .pattern("OSO")
-                .define('O', ModItems.OBSERVER_MODEL_BLANK.get())
-                .define('E', Items.ENDER_EYE)
-                .define('X', ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get())
-                .define('S', Items.NETHER_STAR)
-                .unlockedBy("has_total_stability_model_activated",
-                        has(ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get()))
-                .save(recipeOutput);
+        // 做成特殊配方（而不是 shaped）是为了把 X 的**复制代数**抄给结果——副本合成的 OBSR-3
+        // 训练增益更低（见 ObserverModelData#candidateGain），shaped 配方产不出带组件的物品。
+        SpecialRecipeBuilder.special(
+                (net.minecraft.world.item.crafting.CraftingBookCategory category) ->
+                        new DeriveCandidateRecipe(category))
+                .save(recipeOutput, "focal_decay:derive_candidate");
 
         // ---- 空白观测模型：书 + 金锭 + 青金石 + 铜锭（任意形状） ----
         ShapelessRecipeBuilder.shapeless(RecipeCategory.MISC, ModItems.OBSERVER_MODEL_BLANK.get())

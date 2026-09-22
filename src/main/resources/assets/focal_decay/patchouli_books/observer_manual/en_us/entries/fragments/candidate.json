@@ -12,10 +12,9 @@
       "title": "OBSR-3"
     },
     {
-      "type": "patchouli:crafting",
-      "recipe": "focal_decay:observer_model_candidate",
-      "title": "Construction",
-      "text": "Built around an $(bold)activated OBSR-EX$(). The previous iteration's complete classifier is sealed in the centre, with prototypes, eyes of ender and a nether star around it.$(br2)Crafting consumes that OBSR-EX."
+      "type": "patchouli:text",
+      "text": "$(bold)Construction:$() crafted at a crafting table around an $(bold)activated OBSR-EX$().$(br2)Crafting consumes that OBSR-EX.$(br2)An OBSR-3 made from a copy needs more training, the higher the generation the more (see $(italic)Model Specifications$()).$(br2)For the full layout, see JEI: press $(bold)R$() on OBSR-3, or $(bold)U$() on an activated OBSR-EX.",
+      "title": "Construction"
     },
     {
       "type": "patchouli:text",

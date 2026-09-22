@@ -356,13 +356,13 @@ public final class MutationAudit {
         FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
         SyncMutationSettingsPacket.STREAM_CODEC.encode(buf, new SyncMutationSettingsPacket(settings));
         MutationSettings decoded = SyncMutationSettingsPacket.STREAM_CODEC.decode(buf).settings();
-        out.add("[sync] settings packet round-trip (13 fields): "
+        out.add("[sync] settings packet round-trip (11 fields): "
                 + (decoded.equals(settings) ? "PASS" : "FAIL\n  sent=" + settings + "\n  read=" + decoded));
 
-        // 原型机摘要也走手写编解码（bioActive 由 int 改成 boolean 时最容易串位）
+        // 原型机摘要也走手写编解码（bioActive / candidateComplete 由 int 改成 boolean 时最容易串位）
         SyncRegionDataPacket.PrototypeData prototype = new SyncRegionDataPacket.PrototypeData(
                 4321L, 8, ObserverModelData.TYPE_BIO, List.of("minecraft:stone", "minecraft:oak_log"),
-                List.of("minecraft:pig"), true, "focal_decay:concept/stone", 5, 0.75, 2);
+                List.of("minecraft:pig"), true, "focal_decay:concept/stone", true, 0.75);
         FriendlyByteBuf pbuf = new FriendlyByteBuf(Unpooled.buffer());
         SyncRegionDataPacket.PrototypeData.STREAM_CODEC.encode(pbuf, prototype);
         SyncRegionDataPacket.PrototypeData prototypeRead =
@@ -398,10 +398,9 @@ public final class MutationAudit {
                 + (sources.size() * 3 * SYNC_SAMPLE_PERIODS) + " samples: "
                 + (mismatch == 0 ? "PASS" : "FAIL (" + mismatch + ")\n" + firstMismatch));
 
-        // ---- 3. 阶段/时钟/训练点数：快照里的换算必须与本端配置一致 ----
+        // ---- 3. 阶段/时钟：快照里的换算必须与本端配置一致 ----
         boolean stageOk = true;
         boolean clockOk = true;
-        boolean pointsOk = true;
         for (long days = 0; days <= 10; days++) {
             stageOk &= settings.stage(days) == MutationHelper.currentStage(days);
         }
@@ -409,13 +408,37 @@ public final class MutationAudit {
             clockOk &= settings.displayPeriod(tick, 1.0, 0L) == MutationHelper.displayPeriod(tick, 1.0, 0L);
             clockOk &= settings.storagePeriod(tick) == MutationHelper.blockPeriod(tick);
         }
-        for (int copies = 0; copies <= 3; copies++) {
-            pointsOk &= settings.requiredCandidatePoints(copies)
-                    == ObserverModelData.requiredCandidatePoints(copies);
+        out.add("[sync] stage / clock parity: "
+                + ((stageOk && clockOk) ? "PASS" : "FAIL stage=" + stageOk + " clock=" + clockOk));
+
+        // ---- 3b. 候选观测者（OBSR-3）的训练增益 ----
+        // 2026-09-17 修的真实 bug：派生配方曾把 OBSR-EX 的复制代数整个丢掉，"副本合成的 -3 更难练"
+        // 从未生效（练满永远是 100 点）。这里把"增益表 → 需求 → 显示百分比 → 练满判定"整条链钉住，
+        // 断言全是结构性的（配置改了也成立），具体数字打进日志备查。
+        List<? extends Number> gains = FocalDecayConfig.CANDIDATE_COPY_GAIN.get();
+        int candidateBase = FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get();
+        int need0 = ObserverModelData.requiredCandidatePoints(0, candidateBase, gains);
+        int need1 = ObserverModelData.requiredCandidatePoints(1, candidateBase, gains);
+        int need2 = ObserverModelData.requiredCandidatePoints(2, candidateBase, gains);
+        int fragmentPoints = Math.max(0, FocalDecayConfig.CANDIDATE_FRAGMENT_POINTS.get());
+        // 需求随代数单调不减；顶点恒为 100% 且不会超过；碎片注入的百分比随代数递减
+        boolean candidateOk = need0 <= need1 && need1 <= need2
+                && ObserverModelData.candidatePercent(need0, need0) == 100
+                && ObserverModelData.candidatePercent(need0 - 1, need0) == 99
+                && ObserverModelData.candidatePercent(need0 * 3, need0) == 100;
+        String candidateDetail = "";
+        if (need1 > need0) {
+            int share0 = ObserverModelData.candidatePercent(fragmentPoints, need0);
+            int share1 = ObserverModelData.candidatePercent(fragmentPoints, need1);
+            int share2 = ObserverModelData.candidatePercent(fragmentPoints, need2);
+            candidateOk &= share1 < share0 && share2 <= share1;
+            candidateDetail = ", fragment " + share0 + "% / " + share1 + "% / " + share2 + "%";
         }
-        out.add("[sync] stage / clock / candidate-points parity: "
-                + ((stageOk && clockOk && pointsOk) ? "PASS"
-                : "FAIL stage=" + stageOk + " clock=" + clockOk + " points=" + pointsOk));
+        // "练满 = 硬保护"用的就是同一份数据：差一点不算练满，够了才算
+        candidateOk &= !candidate(need1 - 1, 1).candidateComplete() && candidate(need1, 1).candidateComplete();
+        out.add("[sync] candidate training (required " + need0 + "/" + need1 + "/" + need2
+                + ", 100% cap, copy penalty): " + (candidateOk ? "PASS" : "FAIL")
+                + candidateDetail);
 
         // ---- 4. 客户端回报的显示刻必须被夹在"物理可能"的范围内 ----
         // 这是交互路径唯一的客户端输入，所以它必须只放行"时钟自走能造成的偏差"，
@@ -478,6 +501,12 @@ public final class MutationAudit {
 
         out.add(birthGateSelfTest(level, pos, seed, index));
         return out;
+    }
+
+    /** 自测用：造一个候选体数据（只关心进度与代数）。 */
+    private static ObserverModelData candidate(int progress, int copies) {
+        return new ObserverModelData(ObserverModelData.TYPE_CANDIDATE, List.of(), List.of(),
+                0.0, "", progress, 0, false, copies);
     }
 
     /**

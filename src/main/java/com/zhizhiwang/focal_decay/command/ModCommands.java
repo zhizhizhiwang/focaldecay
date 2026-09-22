@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
+import com.zhizhiwang.focal_decay.data.recipe.DeriveCandidateRecipe;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuideAdvancementHandler;
@@ -137,6 +138,11 @@ public final class ModCommands {
         ServerLevel level = source.getLevel();
         BlockPos pos = BlockPos.containing(source.getPosition());
         for (String line : MutationAudit.selfTest(level, pos)) {
+            report(source, line);
+        }
+        // 派生配方的自测放在这里而不是 MutationAudit 里：它测的是 data 层的配方，
+        // 由命令层把各项自检串起来，两边都不用互相依赖。
+        for (String line : DeriveCandidateRecipe.selfTest(level)) {
             report(source, line);
         }
         return 1;
@@ -297,10 +303,11 @@ public final class ModCommands {
             source.sendSuccess(() -> Component.literal("§cobserver_model_data: 无（该物品没有模型数据）"), false);
         } else {
             source.sendSuccess(() -> Component.literal("§aobserver_model_data:"), false);
+            int required = ObserverModelData.requiredCandidatePoints(data.copies());
             source.sendSuccess(() -> Component.literal("  type=" + data.type()
                     + "  copies=" + data.copies()
-                    + "  progress=" + data.progress()
-                    + "  required=" + ObserverModelData.requiredCandidatePoints(data.copies())), false);
+                    + "  progress=" + data.progress() + "/" + required
+                    + "  percent=" + ObserverModelData.candidatePercent(data.progress(), required) + "%"), false);
             source.sendSuccess(() -> Component.literal("  complete=" + data.candidateComplete()
                     + "  targets=" + data.trainedTargets().size()
                     + "  entities=" + data.trainedEntities().size()

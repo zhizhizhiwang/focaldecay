@@ -187,9 +187,20 @@ H 段还会跑一次 `/focaldecay throne selftest`（王座仪式的**现场条�
 [ritual] site check (empty / inactive EX / other model / base removed): PASS
 ```
 
-它在执行者头顶临时放一座观测者基座，依次验证"空基座 / 装了未激活 OBSR-EX / 装了别的模型 /
+它在执行者头顶临时放一座观察者基座，依次验证"空基座 / 装了未激活 OBSR-EX / 装了别的模型 /
 基座被拆"四种判定，跑完把原地块还原（不留痕）。这四条覆盖的是"仪式期间取走模型或拆掉基座必须中断"
 这条规则的全部输入——触发路径（真人手持 OBSR-EX 右键基座）仍需实机确认，见 `PROGRESS.md` §13.15。
+
+`/focaldecay mutation selftest` 末尾还有两行与 OBSR-3 训练曲线有关（见 `PROGRESS.md` §13.16）：
+
+```
+[sync] candidate training (required 100/143/200, 100% cap, copy penalty): PASS, fragment 10% / 7% / 5%
+[recipe] OBSR-3 derivation carries the OBSR-EX copy generation: PASS (training needed: original 100, generation 2 200)
+```
+
+`[recipe]` 用的是一张**内存里搭出来的合成网格**（不碰世界），验证"派生配方会把所用 OBSR-EX 的
+复制代数抄进结果"——2026-09-17 之前它是工作台 shaped 配方，代数整个丢掉，
+所以"副本合成的 OBSR-3 更难练"这条设计从未生效。
 
 `[sync]` 之外，客户端日志里还有一行值得看（它量的是"幽灵缓存的有效期判据有没有在干活"）：
 

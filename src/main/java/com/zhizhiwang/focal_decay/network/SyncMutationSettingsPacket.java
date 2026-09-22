@@ -50,9 +50,7 @@ public record SyncMutationSettingsPacket(MutationSettings settings) implements C
                 buf.readDouble(),
                 buf.readDouble(),
                 buf.readDouble(),
-                buf.readBoolean(),
-                buf.readVarInt(),
-                buf.readVarInt()));
+                buf.readBoolean()));
     }
 
     private static void encode(FriendlyByteBuf buf, SyncMutationSettingsPacket packet) {
@@ -68,8 +66,6 @@ public record SyncMutationSettingsPacket(MutationSettings settings) implements C
         buf.writeDouble(s.wildChance());
         buf.writeDouble(s.semanticLockStage3());
         buf.writeBoolean(s.guidedStage3Halve());
-        buf.writeVarInt(s.candidatePoints());
-        buf.writeVarInt(s.copyTrainPenalty());
     }
 
     @Override

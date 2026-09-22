@@ -78,7 +78,8 @@ public final class ModNetwork {
     /**
      * 原型机效果的线格式（增量包与整表快照共用同一份编码）。
      * <p>
-     * 只带客户端<b>能观察到</b>的量：生物稳定发的是"是否生效"而不是能量数值，
+     * 只带客户端<b>能观察到</b>的量：生物稳定发"是否生效"而不是能量数值，候选体发"是否练满"
+     * 而不是"进度 + 代数"（完成线取决于训练增益表，公式不该同步到两端）。
      * 于是这个 record 的 {@code equals} 就等于"客户端看到的东西变了没有"，
      * {@link MutationPoolManager} 靠它决定要不要发增量包。
      */
@@ -86,8 +87,8 @@ public final class ModNetwork {
         return new SyncRegionDataPacket.PrototypeData(
                 effect.center().asLong(), effect.radius(), effect.data().type(),
                 effect.data().trainedTargets(), effect.data().trainedEntities(),
-                effect.data().bioEnergy() > 0, effect.data().concept(), effect.data().progress(),
-                effect.data().stabilityStrength(), effect.data().copies());
+                effect.data().bioEnergy() > 0, effect.data().concept(), effect.data().candidateComplete(),
+                effect.data().stabilityStrength());
     }
 
     /** 向单个玩家发送当前全局末日天数与调试时钟。 */

@@ -1,7 +1,6 @@
 package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
-import com.zhizhiwang.focal_decay.data.ObserverModelData;
 
 /**
  * 失焦解析的<b>输入快照</b>（2026-09-17，联机一致性修复）。
@@ -39,9 +38,7 @@ public record MutationSettings(
         double chanceStage3,
         double wildChance,
         double semanticLockStage3,
-        boolean guidedStage3Halve,
-        int candidatePoints,
-        int copyTrainPenalty) {
+        boolean guidedStage3Halve) {
 
     /**
      * 从<b>本端配置</b>构造快照。服务端调用它得到权威值；客户端只在单人/集成服务器场景下用它兜底
@@ -59,9 +56,7 @@ public record MutationSettings(
                 FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE3.get(),
                 FocalDecayConfig.WILD_CHANCE.get(),
                 FocalDecayConfig.SEMANTIC_LOCK_STAGE3_STRENGTH.get(),
-                FocalDecayConfig.GUIDED_STAGE3_HALVE.get(),
-                FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get(),
-                FocalDecayConfig.TOTAL_STABILITY_COPY_TRAIN_PENALTY.get());
+                FocalDecayConfig.GUIDED_STAGE3_HALVE.get());
     }
 
     /**
@@ -70,8 +65,7 @@ public record MutationSettings(
      */
     public MutationSettings withChance(double chance) {
         return new MutationSettings(worldSeed, baseInterval, stageSystem, stage2Day, stage3Day,
-                chance, chance, chance, wildChance, semanticLockStage3, guidedStage3Halve,
-                candidatePoints, copyTrainPenalty);
+                chance, chance, chance, wildChance, semanticLockStage3, guidedStage3Halve);
     }
 
     /** 当前阶段。 */
@@ -92,10 +86,5 @@ public record MutationSettings(
     /** 存储刻（诞生周期用）：永远走真实时间轴，与调试倍率无关。 */
     public long storagePeriod(long gameTick) {
         return MutationHelper.scaledPeriod(gameTick, baseInterval, 1.0, 0L);
-    }
-
-    /** 候选观测者练满所需训练点数（客户端用它复算"已练满 = 硬保护"）。 */
-    public int requiredCandidatePoints(int copies) {
-        return ObserverModelData.requiredCandidatePoints(copies, candidatePoints, copyTrainPenalty);
     }
 }

@@ -58,10 +58,18 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.BooleanValue THRONE_RITUAL_PAUSE_ON_LEAVE;
     public static final ModConfigSpec.IntValue CANDIDATE_REQUIRED_POINTS;
     public static final ModConfigSpec.IntValue CANDIDATE_FRAGMENT_POINTS;
+    /**
+     * 候选体训练进度的每点增益，下标 = 复制代数（超出表长取最后一个）。
+     * <p>
+     * {@code 1.0} = 训练一个方块 +1%（顶点仍是 100%）；{@code [1.0, 0.7, 0.5]} 表示
+     * 原件/一代副本/二代副本每点分别只涨 1% / 0.7% / 0.5%，也就是分别需要 100 / 143 / 200 点练满。
+     * 碎片注入的 {@code candidate_fragment_points} 走同一套增益，所以默认档下一枚碎片是
+     * 10% / 7% / 5%。
+     */
+    public static final ModConfigSpec.ConfigValue<List<? extends Double>> CANDIDATE_COPY_GAIN;
     public static final ModConfigSpec.DoubleValue ENDER_DRAGON_TOTAL_STABILITY_DROP_CHANCE;
     public static final ModConfigSpec.IntValue TOTAL_STABILITY_COPY_PENALTY;
     public static final ModConfigSpec.IntValue TOTAL_STABILITY_MAX_COPIES;
-    public static final ModConfigSpec.IntValue TOTAL_STABILITY_COPY_TRAIN_PENALTY;
     public static final ModConfigSpec.ConfigValue<String> SITE_LOOT_TABLE;
 
     static {
@@ -199,12 +207,25 @@ public final class FocalDecayConfig {
                 .comment("Pause the ritual when the player leaves the radius; otherwise it fails.")
                 .define("throne_ritual_pause_on_leave", true);
         CANDIDATE_REQUIRED_POINTS = builder
-                .comment("Training points required for the Candidate Observer model to reach 100%"
-                        + " (each unique trained target = +1).")
+                .comment("The 100% mark for the Candidate Observer model (OBSR-3). It is the CAP, not a"
+                        + " per-generation requirement: copied models reach it more slowly, see"
+                        + " candidate_copy_gain.")
                 .defineInRange("candidate_required_points", 100, 1, 10000);
         CANDIDATE_FRAGMENT_POINTS = builder
-                .comment("Training points granted by feeding one Semantic Fragment to the Candidate Observer.")
+                .comment("Training points granted by feeding one Semantic Fragment to the Candidate Observer.",
+                        "Points, not percent: the actual percent gained is this value times the model's"
+                        + " candidate_copy_gain entry (10 / 7 / 5 percent at the defaults).")
                 .defineInRange("candidate_fragment_points", 10, 1, 1000);
+        CANDIDATE_COPY_GAIN = builder
+                .comment("Training gain per point, indexed by copy generation (entries beyond the list"
+                        + " length reuse the last one). Index 0 is the original.",
+                        "1.0 = one trained target grants +1% of the candidate_required_points cap;"
+                        + " 0.7 means a generation-1 Candidate Observer only gains 0.7% per target and"
+                        + " therefore needs ~143 targets instead of 100.",
+                        "The same factors scale the fragment recipe, and they apply no matter how the"
+                        + " OBSR-3 was made - what matters is the copy generation of the OBSR-EX used.")
+                .defineList("candidate_copy_gain", List.of(1.0D, 0.7D, 0.5D),
+                        obj -> obj instanceof Number n && n.doubleValue() > 0.0);
         ENDER_DRAGON_TOTAL_STABILITY_DROP_CHANCE = builder
                 .comment("Chance (0-1) for the Ender Dragon to leave a relic chest after death"
                         + " (Total Stability Model + Aaron's Vow fragment). 1.0 = always;"
@@ -221,11 +242,6 @@ public final class FocalDecayConfig {
                         + " a generation-1 copy and a generation-2 copy may exist, and generation 2"
                         + " can no longer be copied. 0 disables copying entirely.")
                 .defineInRange("total_stability_max_copies", 2, 0, 16);
-        TOTAL_STABILITY_COPY_TRAIN_PENALTY = builder
-                .comment("Extra training points required for a Candidate Observer (OBSR-3) built from a"
-                        + " copied OBSR-EX. Escalates with generation: 1x at generation 1, 3x at"
-                        + " generation 2. 0 makes copies as good as the original.")
-                .defineInRange("total_stability_copy_train_penalty", 50, 0, 10000);
         SITE_LOOT_TABLE = builder
                 .comment("Loot table used by the loot containers inside the Site-CN-25 structure"
                         + " (focal_decay:site_cn_25, the buried white-concrete room)."

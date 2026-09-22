@@ -127,6 +127,15 @@
   4. 生物稳定模型 `bio_stabilizer_model` — 无需训练；消耗周围生物生命值换取能量，范围内所有方块与生物稳定
   5. 完全稳定模型——**两个独立物品**：`total_stability_model`（未激活，末影龙掉落）与 `total_stability_model_activated`（已激活，王座仪式后）；已激活模型 + 空白模型可复制（获取见 §5.4）
   6. 候选观测者模型 `observer_model_candidate` — **主线道具（2026-08-21 新设计）**：本质是无数量上限的"空白模型"，不经过训练终端；手持右键世界方块/生物收集目标（每个唯一目标 +1 进度），或通过配方"候选模型 + 语义碎片"注入知识（+`candidate_fragment_points`）；进度达到 `candidate_required_points`（默认 100）即 100% 完成。完成后的候选模型**兼具完全稳定模型效果**（插入原型机 = 半径 32 硬保护），并可在观测者核心处**安装为新观测者**（消耗模型 → 失焦终止 = 胜利）。**不可复制**。
+     - **训练增益按复制代数递减（2026-09-17 修正）**：顶点恒为 100%（`candidate_required_points`），副本只是每点涨得少——`candidate_copy_gain`（默认 `[1.0, 0.7, 0.5]`）按 `copies` 取值，所以原件/一代副本/二代副本分别要 **100 / 143 / 200** 点练满，一枚碎片（默认 10 点）分别给 **10% / 7% / 5%**。
+     - 派生配方（OBSR-3）因此必须是**特殊配方**而不是工作台 shaped 配方：结果要把所用 OBSR-EX 的 `copies` 抄过去，而 shaped 配方只能产出注册时的默认物品（2026-09-17 之前就是这样，代数整个丢掉，"副本更难练"从未生效）。
+     - **特殊配方必须显式登记 JEI 工作台扩展**（2026-09-22 修）：JEI 自带的工作台扩展只接手 `!recipe.isSpecial()` 的配方，特殊配方既不展示也不进 R/U 索引——表现就是"对 OBSR-3 按 R 什么都查不到"。做法见 `compat/jei/DeriveCandidateExtension` + `FocalDecayJeiPlugin#registerVanillaCategoryExtensions`：用 `ICraftingGridHelper` 铺网格与产物，配方同时实现 `getIngredients()` / `getResultItem()`，并让 `matches()` 与展示网格共用同一个形状定义（形状只写在 `DeriveCandidateRecipe#materialAt` 一处）。详见 PROGRESS §13.17 与约定 16。⚠️ JEI 索引的是**服务端同步过来的配方表**，联机时客户端旧 jar 救不了新服务端的配方。
+     - **配方只给通用提示，不铺开摆法**：特殊配方不进原版配方书（摆法由 JEI 的工作台配方页展示），
+       所以来路写在这三处——手册《OBSR-3 候选观测者》的"构造"页（一句"在工作台以一枚已激活的
+       OBSR-EX 为核心合成" + 指向 JEI）、JEI 的工作台配方页（摆法由 JEI 自己画，2026-09-22 起按 R/U 可查）
+       与 JEI 信息页 `jei.focal_decay.info.candidate`（补充"用副本合成的需要更多训练"）。
+       物品提示同样简短：普通模型显示"第 %s 代副本"，OBSR-3 只显示"第 %s 代"，
+       训练量的差别写在手册《型号规格》页。
 
 ### 3.4 观测者核心块（Observer Core Block，修复路径保留）
 - **注册名**：`observer_core`
@@ -627,7 +636,7 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
 - **新增可配置项（2026-08-19 规划，均带默认值便于整合包修改）**：
   - 原型机：`prototype_radius`（默认 8，替代 `anchor_radius` 语义）、各模型半径加成（生物稳定 +4）、完全稳定锚半径（固定 32）
   - 语义锁定：`semantic_lock_stage3_strength`（阶段3保护强度，默认 0.5 = 效果减半；1.0 = 不衰减）
-  - 候选观测者：`candidate_required_points`（训练进度要求，默认 100）、`candidate_fragment_points`（单枚碎片注入点数，默认 10）
+  - 候选观测者：`candidate_required_points`（**顶点**/100% 线，默认 100）、`candidate_fragment_points`（单枚碎片注入**点数**，默认 10，实际百分比按增益折算）、`candidate_copy_gain`（每点增益，按复制代数取值，默认 `[1.0, 0.7, 0.5]` —— 2026-09-17 取代原 `total_stability_copy_train_penalty`：副本的代价体现在"每点涨得慢"，而不是"顶点更高"）
   - 训练终端：训练所需能量/时长（**FE 默认消耗 0，单模组不启用**）、空白模型记录数量上限、经验瓶回退开关、训练交互冷却
   - 生物稳定模型：生命值→能量换算、`bioEnergy` 消耗速率、阶段3双倍消耗开关、范围内实体稳定开关
   - 引导模型：`guided_min_trained`（最少有效训练数，默认 2）、`guided_q_multiplier` / `guided_q_cap`（q 倍率与上限）、`guided_stage3_halve`（阶段3 q 减半开关，默认开）

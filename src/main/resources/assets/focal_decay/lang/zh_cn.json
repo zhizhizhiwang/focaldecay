@@ -100,6 +100,7 @@
   "jei.focal_decay.derive.candidate": "合成即为候选体。手持右键记录目标，或与语义碎片结合注入知识",
 
   "jei.focal_decay.info.prototype": "OBSR 原型：未经训练的空白分类器。本身没有功能，只有一张可写记录表。",
+  "jei.focal_decay.info.candidate": "以一枚已激活的 OBSR-EX 为核心在工作台合成。用副本合成的 OBSR-3 需要更多训练量，代数越高越多。",
   "jei.focal_decay.info.total_inactive": "OBSR-EX（未激活）：参数写在硬件上，需在末地王座完成登座仪式后载入。",
   "jei.focal_decay.info.bio": "OBSR-Health：无需训练。以周围生物的生命维持稳定，能量耗尽后效果中止。",
   "jei.focal_decay.info.anchor": "观测者基座：置入 OBSR 模型后，为周围区域提供现实稳定。空置时没有任何效果。",
@@ -127,6 +128,7 @@
 
   "tooltip.focal_decay.fragment_source": "来源：%s",
   "tooltip.focal_decay.model_copies": "第 %s 代副本。覆盖范围缩减。",
+  "tooltip.focal_decay.candidate_generation": "第 %s 代",
   "tooltip.focal_decay.model_next_step": "训练：置入训练终端指定方向，右键方块或生物记录目标，再返回终端完成训练",
 
   "focal_decay.manual.name": "失焦事件现场作业手册",

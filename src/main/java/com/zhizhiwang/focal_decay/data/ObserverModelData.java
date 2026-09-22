@@ -82,30 +82,50 @@ public record ObserverModelData(String type, List<String> trainedTargets, List<S
     }
 
     /**
-     * 完成候选体所需的训练点数：基础值 + 复制代数带来的递增代价。
+     * 候选体训练进度的每点增益：下标 = 复制代数，超出表长取最后一个（2026-09-17）。
      * <p>
-     * 客户端预览不能用这个重载（它读本端配置），要用
-     * {@link com.zhizhiwang.focal_decay.mutation.MutationSettings#requiredCandidatePoints(int)} ——
-     * 训练点数是"练满 = 硬保护"的判据，
-     * 两端不一致就会出现"客户端以为有保护、服务端照样转换"。公式仍然只有下面一份。
+     * <b>为什么用增益而不是"需求点数"</b>：需求的顶点是 {@code candidate_required_points}（100%）不变，
+     * 所以"副本更难练"只能体现在"每点涨得慢"上——这样进度条永远 0~100%，
+     * 逐次训练的体感也正好是"训练一个方块 +1% / +0.7% / +0.5%"。
+     * 副本的代价因此是<b>更长的训练清单</b>（143 / 200 个目标），不是一个更大的数字上限。
+     */
+    public static double candidateGain(int copies, List<? extends Number> gains) {
+        if (gains == null || gains.isEmpty()) {
+            return 1.0;
+        }
+        int index = Math.max(0, Math.min(copies, gains.size() - 1));
+        Number entry = gains.get(index);
+        double gain = entry == null ? 1.0 : entry.doubleValue();
+        // 防御：<=0 会让需求变成无穷大（练不满），>1 会让副本比原件还快
+        return gain <= 0.0 ? 1.0 : Math.min(1.0, gain);
+    }
+
+    /**
+     * 练满所需的训练点数 = 顶点 / 增益（向上取整）：{@code 1.0/0.7/0.5 → 100/143/200}。
+     * <p>
+     * 客户端预览不能用这个重载（它读本端配置），要用服务端同步过来的"是否练满"判定
+     * （{@code SyncRegionDataPacket.PrototypeData#candidateComplete}）——训练量是
+     * "练满 = 硬保护"的判据，两端不一致就会出现"客户端以为有保护、服务端照样转换"。
+     * 公式仍然只有下面一份。
      */
     public static int requiredCandidatePoints(int copies) {
         return requiredCandidatePoints(copies,
                 com.zhizhiwang.focal_decay.config.FocalDecayConfig.CANDIDATE_REQUIRED_POINTS.get(),
-                com.zhizhiwang.focal_decay.config.FocalDecayConfig.TOTAL_STABILITY_COPY_TRAIN_PENALTY.get());
+                com.zhizhiwang.focal_decay.config.FocalDecayConfig.CANDIDATE_COPY_GAIN.get());
     }
 
-    /** 训练点数公式（纯函数：参数显式给出，供服务端配置与客户端同步快照共用）。 */
-    public static int requiredCandidatePoints(int copies, int basePoints, int penaltyPerGeneration) {
+    /** 训练点数公式（纯函数：参数显式给出，供服务端配置与自测共用）。 */
+    public static int requiredCandidatePoints(int copies, int basePoints, List<? extends Number> gains) {
         int base = Math.max(1, basePoints);
-        int generation = Math.max(0, copies);
-        if (generation == 0) {
-            return base;
+        return (int) Math.ceil(base / candidateGain(copies, gains));
+    }
+
+    /** 显示用进度百分比（0~100）：<b>顶点恒为 100%</b>，副本只是涨得慢。 */
+    public static int candidatePercent(int progress, int required) {
+        if (required <= 0) {
+            return 100;
         }
-        int penalty = Math.max(0, penaltyPerGeneration);
-        // 代价随代数递增：1 代 ×1、2 代 ×3（三角数），强化"越失真越难校准"
-        int escalating = generation * (generation + 1) / 2;
-        return base + escalating * penalty;
+        return (int) Math.max(0, Math.min(100, Math.round(progress * 100.0 / required)));
     }
 
     public static ObserverModelData blank() {
@@ -119,7 +139,19 @@ public record ObserverModelData(String type, List<String> trainedTargets, List<S
 
     /** 候选观测者模型：无数量上限的"空白模型"，进度从 0 开始。 */
     public static ObserverModelData candidate() {
-        return new ObserverModelData(TYPE_CANDIDATE, List.of(), List.of(), 0.0, "", 0, 0, false, 0);
+        return candidate(0);
+    }
+
+    /**
+     * 候选观测者模型（带复制代数）。
+     * <p>
+     * 用副本 OBSR-EX 合成出来的 OBSR-3 要<b>记住那份 EX 是第几代</b>——训练增益按它递减
+     * （见 {@link #candidateGain}）。派生配方曾经是普通 shaped 配方，只能产出注册时的默认物品，
+     * 代数永远丢掉，于是"副本合成的 OBSR-3 更难练"这条设计从来没有生效过。
+     */
+    public static ObserverModelData candidate(int copies) {
+        return new ObserverModelData(TYPE_CANDIDATE, List.of(), List.of(), 0.0, "", 0, 0, false,
+                Math.max(0, copies));
     }
 
     /**

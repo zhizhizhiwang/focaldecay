@@ -12,10 +12,9 @@
       "title": "OBSR-3"
     },
     {
-      "type": "patchouli:crafting",
-      "recipe": "focal_decay:observer_model_candidate",
-      "title": "构造",
-      "text": "以$(bold)已激活的 OBSR-EX$()为核心合成。上一迭代的完备分类器封在中间，外圈是原型、末影之眼与下界之星。$(br2)合成消耗那枚 OBSR-EX。"
+      "type": "patchouli:text",
+      "text": "$(bold)构造：$()在工作台以一枚$(bold)已激活的 OBSR-EX$()为核心合成。$(br2)合成消耗那枚 OBSR-EX。$(br2)用副本合成的 OBSR-3 需要更多训练量，代数越高越多（见$(italic)型号规格$()）。$(br2)完整摆法见 JEI：对 OBSR-3 按 $(bold)R$()，或对已激活的 OBSR-EX 按 $(bold)U$()。",
+      "title": "构造"
     },
     {
       "type": "patchouli:text",

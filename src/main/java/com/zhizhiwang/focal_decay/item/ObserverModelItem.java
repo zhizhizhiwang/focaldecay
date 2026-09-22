@@ -70,10 +70,15 @@ public class ObserverModelItem extends Item {
     public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltipComponents, TooltipFlag tooltipFlag) {
         ObserverModelData data = getData(stack);
 
-        // 复制代数：损耗必须让玩家看得见，否则"半径变小"会显得莫名其妙
+        // 复制代数：损耗必须让玩家看得见，否则"半径变小"会显得莫名其妙。
+        // 候选体（OBSR-3）只写"第几代"——它是**派生自**某代 OBSR-EX，不是副本本身，
+        // 训练量的差别留给手册（型号规格页），tooltip 不展开。
         if (data != null && data.copies() > 0) {
-            tooltipComponents.add(Component.translatable("tooltip.focal_decay.model_copies", data.copies())
-                    .withStyle(ChatFormatting.RED));
+            boolean candidate = ObserverModelData.TYPE_CANDIDATE.equals(data.type());
+            tooltipComponents.add(Component.translatable(candidate
+                            ? "tooltip.focal_decay.candidate_generation"
+                            : "tooltip.focal_decay.model_copies", data.copies())
+                    .withStyle(candidate ? ChatFormatting.GOLD : ChatFormatting.RED));
         }
 
         // 静态 lore：按物品本身判断（未训练/无数据组件时也能显示）
@@ -119,8 +124,8 @@ public class ObserverModelItem extends Item {
                 tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_complete")
                         .withStyle(ChatFormatting.DARK_PURPLE));
             } else {
-                int required = requiredCandidatePoints(data);
-                int percent = (int) Math.min(100, Math.round(data.progress() * 100.0 / required));
+                // 百分比由 candidatePercent 统一算：顶点恒为 100%，副本只是涨得慢
+                int percent = ObserverModelData.candidatePercent(data.progress(), requiredCandidatePoints(data));
                 tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_progress", percent)
                         .withStyle(ChatFormatting.AQUA));
                 tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_hint")

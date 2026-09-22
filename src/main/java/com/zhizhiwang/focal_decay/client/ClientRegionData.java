@@ -57,10 +57,16 @@ final class ClientRegionData {
         }
     }
 
-    /** 客户端侧原型机效果镜像。 */
+    /**
+     * 客户端侧原型机效果镜像。
+     * <p>
+     * {@code candidateComplete} 是<b>服务端算好的判定</b>，而不是"进度 + 代数"两个原始值：
+     * 完成线取决于训练增益表（一代副本要 143 点、二代 200 点），让客户端自己复算就等于
+     * 把一条配置公式同步到两端；直接同步结论既省一次公式对齐，也不会因为两端配置不同而"以为有保护"。
+     */
     private record ClientPrototype(BlockPos center, int radius, String type,
                                    Set<Block> trainedBlocks, Set<String> trainedEntities,
-                                   boolean bioActive, String concept, int progress, double q, int copies) {
+                                   boolean bioActive, String concept, boolean candidateComplete, double q) {
     }
 
     /**
@@ -165,7 +171,7 @@ final class ClientRegionData {
     private static ClientPrototype toClientPrototype(SyncRegionDataPacket.PrototypeData p) {
         return new ClientPrototype(BlockPos.of(p.pos()), p.radius(), p.type(),
                 parseBlocks(p.trainedTargets()), Set.copyOf(p.trainedEntities()), p.bioActive(),
-                p.concept(), p.progress(), p.q(), p.copies());
+                p.concept(), p.candidateComplete(), p.q());
     }
 
     /** 把同步来的方块 ID 列表解析成方块集合（保护判定要在热路径上做 O(1) 命中）。 */
@@ -217,8 +223,7 @@ final class ClientRegionData {
             if (ObserverModelData.TYPE_BIO.equals(prototype.type()) && prototype.bioActive()) {
                 return MutationHelper.Protection.HARD;
             }
-            if (ObserverModelData.TYPE_CANDIDATE.equals(prototype.type())
-                    && prototype.progress() >= settings.requiredCandidatePoints(prototype.copies())) {
+            if (ObserverModelData.TYPE_CANDIDATE.equals(prototype.type()) && prototype.candidateComplete()) {
                 return MutationHelper.Protection.HARD; // 已完成候选 = 完全稳定
             }
             if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(prototype.type())) {

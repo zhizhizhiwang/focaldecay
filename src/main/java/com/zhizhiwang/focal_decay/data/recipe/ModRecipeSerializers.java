@@ -18,6 +18,11 @@ public final class ModRecipeSerializers {
             RECIPE_SERIALIZERS.register("crafting_special_feedfragment",
                     FeedSemanticFragmentRecipe.Serializer::new);
 
+    /** OBSR-3 派生：要把所用 OBSR-EX 的复制代数抄进结果，所以必须是特殊配方。 */
+    public static final DeferredHolder<RecipeSerializer<?>, RecipeSerializer<?>> DERIVE_CANDIDATE =
+            RECIPE_SERIALIZERS.register("crafting_special_derivecandidate",
+                    DeriveCandidateRecipe.Serializer::new);
+
     private ModRecipeSerializers() {
     }
 }

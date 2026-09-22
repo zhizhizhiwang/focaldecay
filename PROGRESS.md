@@ -1435,6 +1435,135 @@ bug 是"闸门在倍率 ≠ 1 时失效/永久关闭"。默认档位（speed 1 /
 **没有自动化验证的**：触发路径本身（需要真人右键）。
 `[ritual]` 覆盖的是"现场条件"这个判据；"右键基座启动 / 右键王座不启动"只能实机确认，已写进手册文案。
 
+### 13.16 OBSR-3：用副本 OBSR-EX 合成却不需要更多训练（2026-09-17）
+
+**用户报告**：设定上"用复制次数更多的 OBSR-EX 合成的 OBSR-3 应该需要更多训练"，
+实际上练到 100 就判定练满了。
+
+**根因有两层，缺一不可**：
+
+1. **代数根本没传过去（真正的 bug）**。OBSR-3 的派生配方原本是普通**工作台 shaped 配方**
+   （`ShapedRecipeBuilder`），而 shaped 配方只能产出"注册时的那个默认物品"——带不上任何组件。
+   于是无论用原件还是二代副本合成，结果都是 `copies = 0` 的候选体，
+   `requiredCandidatePoints(copies)` 里的惩罚项永远吃不到。
+2. **惩罚的写法与"顶点 100%"这条约束相冲**。旧实现是"提高点数需求"（100 + 三角数 × 惩罚，
+   默认 100/150/250）。用户要的是**顶点保持 100%**、让每次训练涨得更少。
+
+**修法**（按用户给的口径）：
+
+- 需求改为 `ceil(顶点 / 增益)`：新增配置 `candidate_copy_gain`（默认 `[1.0, 0.7, 0.5]`，下标 = 代数），
+  于是原件/一代/二代分别要 **100 / 143 / 200** 点，而**顶点恒为 100%**
+  （`ObserverModelData.candidatePercent` 统一算百分比，进度条不会出现 150/150 这种数字）。
+- **碎片配方自动跟着削弱**：碎片加的是"点数"（默认 10），百分比由增益折算 → 10% / 7% / 5%，
+  配方本身一行都不用改（这正是把惩罚放在"增益"而不是"需求"上的好处）。
+- 派生配方改成**特殊配方** `DeriveCandidateRecipe`（与复制/注入两个配方同类）：
+  `assemble` 读出 X 位那枚已激活 OBSR-EX 的 `copies`，写进结果。
+  代价是不进原版配方书（JEI 的 `model_derivation` 页与手册照旧展示，与另两个特殊配方一致）。
+- 顺带简化：**"是否练满"改为服务端算好再同步**（`PrototypeData.candidateComplete`），
+  客户端不再拿"进度 + 代数"自己复算一条配置公式——那是"两端配置不同 → 客户端以为有硬保护"的老坑。
+  `MutationSettings` 因此去掉 `candidatePoints` / `copyTrainPenalty` 两个字段（13 → 11）。
+
+**验证**（无头服务器，`[sync]` / `[recipe]` 两行）：
+
+```
+[sync] candidate training (required 100/143/200, 100% cap, copy penalty): PASS, fragment 10% / 7% / 5%
+[recipe] OBSR-3 derivation carries the OBSR-EX copy generation: PASS (training needed: original 100, generation 2 200)
+```
+
+`[recipe]` 的 A/B（确认它抓得住旧行为）：把 `assemble` 改回"代数丢掉" →
+`FAIL matches=true copies=0`；改回来 → `PASS`。
+
+**数据兼容**：配方文件由 datagen 重生成（`observer_model_candidate.json` 被 `derive_candidate.json` 取代）。
+老存档里已经合成出来的 OBSR-3 `copies = 0`，不会追溯变成"副本"——它们本来就按原件的训练量练的，
+保持原样最不意外。配置项 `total_stability_copy_train_penalty` 已删除（改由 `candidate_copy_gain` 表达）。
+
+**连带修的一处（"配方消失了"）**：手册 `fragments/candidate` 那页用的是 `patchouli:crafting`
+并指向 `focal_decay:observer_model_candidate`——配方文件随这次改动换了名字，
+那一页就会渲染成"配方缺失"。按"只给通用提示、不铺开配方"的口径：
+
+- 手册那一页换成纯文字："在工作台以一枚$(bold)已激活的 OBSR-EX$()为核心合成"，不描述外圈摆法；
+- JEI 侧加了一条信息页 `jei.focal_decay.info.candidate`（同样是通用提示）——
+  特殊配方本来就不会出现在 JEI 的合成类别里，不补这一条玩家就完全看不到来路；
+- tooltip 回到简短版：普通模型只显示"第 %s 代副本"，**候选体只显示"第 %s 代"**
+  （它是派生自某代 EX，不是副本本身），训练量差别留在手册"型号规格"页。
+
+**顺手加的检查**：遍历手册里所有 `"recipe":` 引用，必须都能在
+`src/generated/resources/data/focal_decay/recipe/` 里找到对应文件——这次的坑正是"改名后引用没跟上"，
+而 Patchouli 只在打开那一页时才渲染失败，不跑一遍根本不会发现（`focaldecay:observer_model_candidate` → 缺失）。
+
+### 13.17 JEI 里对 OBSR-3 按 R / 对 OBSR-EX 按 U 查不到合成配方（2026-09-22）
+
+**用户报告**（对 §13.16 那句"配方消失了"的澄清）："在 JEI 页面中对着 OBSR-3 按 R、
+对着 OBSR-EX 按 U，都无法找到合成 OBSR-3 的配方了。"
+
+**根因**：§13.16 把派生配方从 shaped 换成了**特殊配方**，而 **JEI 自带的工作台类别只接手非特殊配方**：
+
+```
+CraftingRecipeCategory#isHandled     -> getOptionalRecipeExtension(...).isPresent()
+CraftingCategoryExtension#isHandled  -> !recipe.isSpecial()      // CustomRecipe 恒为 true
+```
+
+特殊配方于是既不展示、也不进 `RecipeMap` 的输入/输出索引；而按 R / 按 U 走的正是
+`InternalRecipeManagerPlugin` 在这两张按物品 UID 建的表里查（`RecipeMap#getRecipes`），
+表里没有它 → **两个方向都什么都查不到**。附带澄清一个常见误解：JEI 的物品 UID 默认**只按物品**算
+（`SubtypeManager#getSubtypeData` 在没有 subtype interpreter 时返回 null），
+所以"手持的 OBSR-3 带 `copies` 组件"不是原因。
+
+**还有一个容易踩的前提**：JEI 索引的是**服务端同步过来的配方表**（`ClientLevel#getRecipeManager`）。
+所以"客户端 jar 里还留着旧的 shaped 配方、服务端已经换成特殊配方"时，JEI 一样查不到——
+这也解释了 2026-09-21 那个仍含 `observer_model_candidate.json` 的客户端 jar 为什么表现相同。
+
+**修法**：走 JEI 为这种情况准备的正式入口——**原版类别扩展**，而不是再自己画一个自定义类别：
+
+1. `DeriveCandidateRecipe` 覆盖 `getIngredients()`（3×3、行优先、9 格）与 `getResultItem()`。
+   **网格只有 `materialAt(x, y)` 一处定义**，`matches()` 也改成 `materialAt(x, y).test(stack)`，
+   从根上排除"JEI 画的图 ≠ 工作台真正接受的摆法"。
+2. 新增 `compat/jei/DeriveCandidateExtension implements ICraftingCategoryExtension<DeriveCandidateRecipe>`：
+   `createAndSetOutputs(...)` + `createAndSetIngredients(..., 3, 3)`，并给出 `getWidth/getHeight = 3`
+   （不给的话 JEI 会按无序配方把材料排成一长条）。
+3. `FocalDecayJeiPlugin#registerVanillaCategoryExtensions` 里
+   `registration.getCraftingCategory().addExtension(DeriveCandidateRecipe.class, new DeriveCandidateExtension())`。
+
+这样这条配方出现在 **JEI 的原生工作台类别**里：产物在输出槽 → **对 OBSR-3 按 R 命中**；
+九个材料在输入槽 → **对已激活的 OBSR-EX 按 U 命中**。`getIngredients()` 不只是画图用的，它同时是**索引源**。
+
+> **OBSR-EX 有两枚**：能用来合成的是**已激活**那枚（`total_stability_model_activated`）。
+> 对**未激活**的 OBSR-EX 按 U 命中的是"登座仪式"那条派生（未激活 → 已激活），
+> 那是设计里的上一环，不是漏配。
+
+**验证（客户端实机 + JEI 自己的查询 API）**：临时在 `onRuntimeAvailable` 挂了一段探针
+（验证完已删除），用 `createRecipeCategoryLookup().limitFocus(...)` 与
+`createRecipeLookup(RecipeTypes.CRAFTING)` 复现"按 R / 按 U"：
+
+```
+[jei-probe] R on OBSR-3 (candidate) -> categories=[minecraft:crafting, focal_decay:feed_fragment, focal_decay:model_derivation, jei:information] craftingRecipes=1 derivationRecipes=1
+[jei-probe] U on activated OBSR-EX  -> categories=[minecraft:crafting, focal_decay:copy_model, focal_decay:model_derivation] craftingRecipes=1 derivationRecipes=1
+[jei-probe] U on inactive OBSR-EX   -> categories=[focal_decay:model_derivation, jei:information] craftingRecipes=0 derivationRecipes=1
+[jei-probe] U on OBSR prototype     -> categories=[minecraft:crafting, focal_decay:copy_model, focal_decay:model_derivation, jei:information] craftingRecipes=3 derivationRecipes=3
+```
+
+**A/B（确认探针抓得住坏状态）**：把 `addExtension(...)` 注释掉重跑 → R 命中的
+`minecraft:crafting` 整类消失、`craftingRecipes=0`；恢复后 `craftingRecipes=1`。
+
+**无头自测**（`/focaldecay mutation selftest`，不需要客户端）：
+
+```
+[recipe] OBSR-3 derivation carries the OBSR-EX copy generation: PASS (training needed: original 100, generation 2 200)
+[recipe] JEI grid == accepted pattern (9 slots shown, representative items craft, output shown): PASS
+```
+
+第二条钉的是"JEI 展示的网格 == `matches()` 接受的摆法"：拿 `getIngredients()` 里每种材料的
+**代表物品**摆一遍，必须真的合得出来，顺带确认 `getResultItem` 展示的是 OBSR-3。
+（A/B：把 `getIngredients()` 改回空表，这条会 `FAIL slots=0`。）
+
+**手册与文案**：`fragments/candidate` 的"构造"页补一句"完整摆法见 JEI：对 OBSR-3 按 R，
+或对已激活的 OBSR-EX 按 U"；JEI 信息页 `jei.focal_decay.info.candidate` 顺带补上复制代数的后果。
+
+**顺带发现（不是本模组的 bug）**：在 JEI 配方界面打开时退出世界，客户端会崩在
+`RecipeGuiLayouts: Recipe crashed: IllegalStateException: Jei Client Configs have not been created yet`
+——JEI 在"运行时已停"之后仍去构造错误配方布局（`RecipeLayoutDrawableErrored` → `Internal.getJeiRuntime()`）。
+而当时代码正在被重新编译，新旧混杂的类是撞进这条异常路径的最短路径（见约定 17）。
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
@@ -1492,3 +1621,20 @@ bug 是"闸门在倍率 ≠ 1 时失效/永久关闭"。默认档位（speed 1 /
       （`Entry.validFor`；两条作废路径 `dropEntry` / `removeEntry` 都计数）。
     - 周期日志里的 `N dropped mid-period because the real block changed` 就是这把尺子：
       正常游玩应该有数，长期为 0 说明判据失效了。详见 §13.13。
+16. **特殊配方要在 JEI 里可查，必须注册"工作台类别扩展"**（2026-09-22，用"按 R 什么都查不到"换来的）：
+    JEI 自带的工作台扩展 `CraftingCategoryExtension#isHandled` 就是 `!recipe.isSpecial()`，
+    而 `CustomRecipe` 恒为特殊配方 → JEI **既不展示也不建索引**，按 R / 按 U 两个方向都查不到。
+    做法：`FocalDecayJeiPlugin#registerVanillaCategoryExtensions` 里
+    `registration.getCraftingCategory().addExtension(配方类.class, 扩展)`，
+    扩展里用 `ICraftingGridHelper` 给网格 + 产物；配方同时实现 `getIngredients()` / `getResultItem()`，
+    并让 `matches()` 与展示网格**共用同一个形状定义**（否则"JEI 画的图"和"真能合的摆法"会漂移）。
+    自定义类别（`registration.addRecipes`）只适合"原版没有的配方类型"，别拿它替代工作台类别。详见 §13.17
+17. **客户端运行期间不要重新编译**（2026-09-22，用一次崩溃换来的）：
+    `build/classes/java/main` 就是开发客户端的 classpath，编译后已加载的类不会更新、
+    没加载的类却会换成新的，混出来的状态最容易撞进 JEI 的异常路径
+    （实测：`RecipeGuiLayouts: Recipe crashed: IllegalStateException: Jei Client Configs have not been created yet`，
+    停在 JEI 配方界面时退出世界即崩）。流程固定为：**关客户端 → 编译 → 重开**。
+18. **查 JEI 的 API 行为不要去猜**：`~/.gradle/caches/modules-2/.../jei-*-sources.jar`
+    里有完整源码（`mezz/jei/library/...` 是实现，不只是 API），`javap` 只适合查签名。
+    本轮"为什么特殊配方查不到"就是直接读 `CraftingCategoryExtension` / `RecipeManagerInternal` /
+    `RecipeMap` 定下来的，比在界面上试快得多。

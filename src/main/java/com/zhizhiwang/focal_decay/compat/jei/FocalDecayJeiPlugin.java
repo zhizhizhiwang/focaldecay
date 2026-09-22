@@ -2,12 +2,14 @@ package com.zhizhiwang.focal_decay.compat.jei;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.block.ModBlocks;
+import com.zhizhiwang.focal_decay.data.recipe.DeriveCandidateRecipe;
 import com.zhizhiwang.focal_decay.item.ModItems;
 import mezz.jei.api.IModPlugin;
 import mezz.jei.api.JeiPlugin;
 import mezz.jei.api.registration.IRecipeCatalystRegistration;
 import mezz.jei.api.registration.IRecipeCategoryRegistration;
 import mezz.jei.api.registration.IRecipeRegistration;
+import mezz.jei.api.registration.IVanillaCategoryExtensionRegistration;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -26,6 +28,8 @@ import java.util.List;
  *       因此不会像自定义类别那样被归到"用途(U)"。</li>
  *   <li><b>「观测模型派生」类别</b>：原型 → 各型号。结果模型放在<b>输出槽</b>，
  *       因此对型号按 R 能查到它的来路；若放成输入槽，JEI 会当成"用途"，方向就反了。</li>
+ *   <li><b>原版工作台类别的扩展</b>（{@link DeriveCandidateExtension}）：OBSR-3 的派生配方是
+ *       特殊配方，JEI 默认不接手，因此必须显式登记，否则对 OBSR-3 按 R 什么都查不到。</li>
  * </ul>
  * 原版配方（原型机、空白模型、生物稳定模型、训练终端、两个特殊配方等）由 JEI 自动读取配方表展示。
  */
@@ -52,6 +56,17 @@ public final class FocalDecayJeiPlugin implements IModPlugin {
                 new SpecialRecipeCategory(guiHelper, SpecialRecipeCategory.FEED_FRAGMENT,
                         "gui.focal_decay.jei.feed_fragment",
                         new ItemStack(ModItems.FRAGMENT_SEMANTIC.get())));
+    }
+
+    /**
+     * OBSR-3 的派生配方是特殊配方：JEI 自带的工作台扩展只接手 {@code !isSpecial()} 的配方，
+     * 不登记这个扩展的话，这条配方在 JEI 里等于不存在——对 OBSR-3 按 R、对已激活的 OBSR-EX 按 U
+     * 都查不到（用户 2026-09-17 报告的问题）。
+     */
+    @Override
+    public void registerVanillaCategoryExtensions(IVanillaCategoryExtensionRegistration registration) {
+        registration.getCraftingCategory()
+                .addExtension(DeriveCandidateRecipe.class, new DeriveCandidateExtension());
     }
 
     @Override
@@ -151,6 +166,9 @@ public final class FocalDecayJeiPlugin implements IModPlugin {
 
         info(registration, ModItems.OBSERVER_MODEL_BLANK, "jei.focal_decay.info.prototype");
         info(registration, ModItems.TOTAL_STABILITY_MODEL, "jei.focal_decay.info.total_inactive");
+        // 候选观测者：派生配方是特殊配方，JEI 不会把它当原版配方展示，所以给一条**通用**的合成提示
+        // （只说"在工作台以已激活的 OBSR-EX 为核心合成"，不铺开整张配方——那是留给玩家自己拼的）
+        info(registration, ModItems.OBSERVER_MODEL_CANDIDATE, "jei.focal_decay.info.candidate");
         info(registration, ModItems.BIO_STABILIZER_MODEL, "jei.focal_decay.info.bio");
         info(registration, ModItems.ANCHOR_PROTOTYPE, "jei.focal_decay.info.anchor");
         info(registration, ModBlocks.TRAINING_TERMINAL, "jei.focal_decay.info.terminal");

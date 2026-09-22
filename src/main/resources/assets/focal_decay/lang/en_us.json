@@ -100,6 +100,7 @@
   "jei.focal_decay.derive.candidate": "Crafting yields the candidate body. Right-click to record targets, or combine with semantic fragments to inject knowledge",
 
   "jei.focal_decay.info.prototype": "OBSR Prototype: an untrained blank classifier. It has no function of its own, only a writable record table.",
+  "jei.focal_decay.info.candidate": "Crafted at a crafting table around an activated OBSR-EX. A candidate made from a copy needs more training, more for each generation.",
   "jei.focal_decay.info.total_inactive": "OBSR-EX (inactive): its parameters are hard-wired and can only be loaded by completing the enthronement ritual at the End Throne.",
   "jei.focal_decay.info.bio": "OBSR-Health: no training needed. It runs on the life of nearby creatures, and stops once its energy is spent.",
   "jei.focal_decay.info.anchor": "Observer Base: insert an OBSR model to stabilize the surrounding area. With no model inserted it does nothing at all.",
@@ -127,6 +128,7 @@
 
   "tooltip.focal_decay.fragment_source": "Source: %s",
   "tooltip.focal_decay.model_copies": "Generation %s copy. Reduced coverage.",
+  "tooltip.focal_decay.candidate_generation": "Generation %s",
   "tooltip.focal_decay.model_next_step": "Training: insert into the Training Terminal and pick a direction, right-click blocks or creatures to record targets, then return to finish",
 
   "focal_decay.manual.name": "Focal Decay Field Manual",
