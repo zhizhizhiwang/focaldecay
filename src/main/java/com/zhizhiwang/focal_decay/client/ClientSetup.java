@@ -17,8 +17,13 @@ import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
 
-/** 客户端 Mod 总线事件（屏幕注册、可选依赖的客户端钩子等）。 */
-@EventBusSubscriber(modid = FocalDecay.MODID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.MOD)
+/**
+ * 客户端 Mod 总线事件（屏幕注册、可选依赖的客户端钩子等）。
+ * <p>
+ * 这里<b>不写 {@code bus = Bus.MOD}</b>：NeoForge 21.1 起该属性已废弃并标记待删除，
+ * 会自动按事件类型判定总线（本类全是 {@code IModBusEvent}，自动落到 mod 总线）。
+ */
+@EventBusSubscriber(modid = FocalDecay.MODID, value = Dist.CLIENT)
 public final class ClientSetup {
 
     private static boolean guideMacrosRegistered;

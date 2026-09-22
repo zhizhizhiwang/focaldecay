@@ -2,38 +2,29 @@ package com.zhizhiwang.focal_decay.client;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
-import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.mixin.client.LevelRendererAccessor;
 import com.zhizhiwang.focal_decay.mixin.client.RenderChunkRegionAccessor;
 import com.zhizhiwang.focal_decay.network.SyncClientViewPacket;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
-import com.zhizhiwang.focal_decay.mutation.GuidedBias;
-import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import com.zhizhiwang.focal_decay.mutation.MutationSettings;
-import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.PostChain;
 import net.minecraft.client.renderer.chunk.RenderChunkRegion;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
-import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
@@ -67,8 +58,12 @@ import java.util.concurrent.atomic.LongAdder;
  *   <li>维护 {@code targetCache}：方块位置 -> 突变目标 BlockState（仅存"有变化"的暴露方块）；</li>
  *   <li>维护 {@code evaluated}：本周期已经判定过的位置（负缓存，供面剔除路径做 O(1) 查询）；</li>
  *   <li>按 {@code surface_update_frequency} 帧用 Frustum 裁剪后扫描附近区块，更新缓存并触发区块重编译；</li>
- *   <li>突变周期切换时清空缓存并让受影响区块重编译；</li>
- *   <li>管理 observer_veil 后处理着色器（阶段强度淡化）。</li>
+ *   <li>突变周期切换时清空缓存并让受影响区块重编译。</li>
+ * </ul>
+ * 另外两件事<b>不在这里</b>，各有独立的类：
+ * <ul>
+ *   <li>observer_veil 后处理 → {@link ObserverVeil}（本类只决定"该不该画"）；</li>
+ *   <li>保护区域 / 引导模型的同步与查询 → {@link ClientRegionData}（本类只问结果）。</li>
  * </ul>
  * 服务端与客户端使用同一个解析函数（{@code MutationHelper#resolve}）；
  * "算得一样"由 {@link MutationSettings} 保证——客户端只用服务端同步下来的那一份输入快照，
@@ -112,43 +107,8 @@ public final class ClientRenderCache {
         }
     }
 
-    /** 某个维度收到的区域数据（原型机位置 + 切比雪夫半径 + 方块诞生周期）。 */
-    private static final class RegionData {
-        final List<ClientPrototype> prototypes;
-        final Map<BlockPos, Long> birthPeriods;
-
-        RegionData(List<ClientPrototype> prototypes, Map<BlockPos, Long> birthPeriods) {
-            this.prototypes = List.copyOf(prototypes);
-            this.birthPeriods = Map.copyOf(birthPeriods);
-        }
-    }
-
-    /** 客户端侧原型机效果镜像。 */
-    private record ClientPrototype(BlockPos center, int radius, String type,
-                                   Set<Block> trainedBlocks, Set<String> trainedEntities,
-                                   boolean bioActive, String concept, int progress, double q, int copies) {
-    }
-
-    /**
-     * 引导模型的渲染期形态：概念邻域池 + 半径 + 强度。
-     * 每次扫描一个区块节时从 {@link RegionData} 解析一次，循环体内只做半径比较和
-     * 一次 {@code boolean[]} 成员判定——旧实现是逐方块解析标签 ID 再线性扫标签成员。
-     */
-    private record GuidedModel(BlockPos center, int radius, ClassifiedPool pool, double strength) {
-    }
-
     /** pos.asLong() -> 突变目标（含所属周期，防止跨周期读到旧值）。 */
     private final ConcurrentHashMap<Long, Entry> targetCache = new ConcurrentHashMap<>();
-    /**
-     * 本周期已经"判定过"的位置（有幽灵的、以及判定为没有幽灵的都在里面）。
-     * <p>
-     * 这是给面剔除路径用的<b>负缓存</b>：{@code BlockShouldRenderFaceMixin} 每个可见方块要问 6 次
-     * "邻居显示成什么"，而绝大多数邻居是没有幽灵的。只靠 {@link #targetCache} 的话，
-     * 每次未命中都要重跑一遍完整判定（阶段 1 一个方块 ~200 ns），6 次 × 4096 个方块就是毫秒级；
-     * 有了这张表，重复查询退化成一次哈希查找。
-     * <p>
-     * 与 {@link #targetCache} 一起在周期边界 / 标签变化 / 观测者状态变化时整体清空。
-     */
     /**
      * 本周期已经"判定过"的位置 -> 判定时的真实方块（有幽灵的、以及判定为没有幽灵的都在里面）。
      * <p>
@@ -178,8 +138,8 @@ public final class ClientRenderCache {
     private final ConcurrentHashMap<Long, Integer> sectionCounts = new ConcurrentHashMap<>();
     /** 待扫描节队列（按到玩家距离升序）。 */
     private final Queue<Long> pendingSections = new ArrayDeque<>();
-    /** 各维度的保护区域数据（由 SyncRegionDataPacket 同步）。 */
-    private final Map<ResourceKey<Level>, RegionData> regionData = new ConcurrentHashMap<>();
+    /** 各维度的保护区域镜像（由 SyncRegionData/Prototype/BirthPeriod 三个包共同维护）。 */
+    private final ClientRegionData regions = new ClientRegionData();
 
     private volatile Frustum frustum;
     private volatile ClientLevel level;
@@ -213,37 +173,8 @@ public final class ClientRenderCache {
     private volatile MutationIndex lastIndex;
     private int scanCooldown;
 
-    private PostChain veil;
-    private Object veilResourceManager;
-    private float veilTime;
-    /**
-     * 一次呼吸循环的时长（秒）。20 秒：足够慢，让"浓度变化"像潮汐而不是脉动。
-     * <p>
-     * 调参记录：实际 1 秒（单位换算错误所致，像脉动）→ 20 秒。中间试过"12 秒""15 秒"，
-     * 但那时单位是错的，数值没有参考价值。
-     */
-    private static final float VEIL_CYCLE_SECONDS = 20.0F;
-    /**
-     * 呼吸幅度。0.85 ± 0.15 是"能察觉在变、但不会去数它"的档位；
-     * 更大的幅度（0.75 ± 0.25）配合波纹会显得一下一下地脉动。
-     */
-    private static final float VEIL_BREATHE_MID = 0.85F;
-    private static final float VEIL_BREATHE_AMPLITUDE = 0.15F;
-    private boolean veilLoadFailed;
-    /**
-     * 重聚焦（观测者上线）后遮罩的残留强度：1 = 全强度，0 = 已完全移除。
-     * <p>
-     * 每帧按 {@code postProcessRefocusFadeTicks} 递减，到 0 就卸载整个 PostChain。
-     * 世界重新回到失焦状态（或开关被打开）时复位为 1。
-     */
-    private float veilRefocusFade = 1.0F;
-
-    /** 呼吸曲线：cos 使往复两端平滑（速度为零），节拍均匀。 */
-    private static float breatheFor(float phase) {
-        return VEIL_BREATHE_MID + VEIL_BREATHE_AMPLITUDE * Mth.cos(phase * Mth.TWO_PI);
-    }
-    private int veilWidth;
-    private int veilHeight;
+    /** 失焦遮罩后处理。加载/动画/淡出都在它里面，本类只决定"该不该画"。 */
+    private final ObserverVeil veil = new ObserverVeil();
 
     private ClientRenderCache() {
     }
@@ -265,7 +196,7 @@ public final class ClientRenderCache {
             return original; // 服务端快照未到：不渲染任何幽灵（见 mutationSettings 的说明）
         }
         long key = pos.asLong();
-        if (isProtected(pos, original, currentStage())) {
+        if (isProtectedNow(pos, original)) {
             evaluate(key, original);
             return original;
         }
@@ -337,25 +268,40 @@ public final class ClientRenderCache {
     }
 
     /**
-     * 中键选取（pick block）时使用的"可见状态"：
-     * 优先返回缓存的幽灵目标；未命中则按当前周期现算。
+     * 中键选取（pick block）时使用的"可见状态"：优先返回缓存的幽灵目标；未命中则按当前周期现算，
+     * 但<b>不写回缓存</b>——它挑的是"看到的是哪个方块"，与"哪块地能挖"无关，不该替挖掘路径做决定。
      */
     public BlockState visibleState(ClientLevel level, BlockPos pos) {
+        return liveTarget(level, pos, false);
+    }
+
+    /**
+     * 挖掘进度用"可见目标"（2026-08-21）：与渲染预览同一公式；优先读缓存，未命中时计算并写回——
+     * 保证挖掘每 tick 只是 O(1) 缓存查询，累积回退扫描只发生在周期边界。
+     */
+    public BlockState miningState(ClientLevel level, BlockPos pos) {
+        return liveTarget(level, pos, true);
+    }
+
+    /**
+     * 两条即时查询路径共用的判定链（{@link #resolve} 是区块编译期的那一条，判据略有不同：
+     * 它走的是 {@code RenderChunkRegion} 的 3×3 副本）。
+     * <p>
+     * 差异只有一处，由 {@code writeBack} 控制，刻意保留而不是"顺手统一"：
+     * <ul>
+     *   <li>{@code writeBack=false}（pick block）：命中缓存就返回，未命中就地算一次即走，
+     *       不写缓存、也不看暴露面——中键拿的是"方块是什么"，与它是否可见无关。</li>
+     *   <li>{@code writeBack=true}（挖掘进度）：未命中时算完要过暴露面判据并写回缓存，
+     *       否则每 tick 都要重跑一次完整判定（累积回退扫描上限 128 个周期）。</li>
+     * </ul>
+     */
+    private BlockState liveTarget(ClientLevel level, BlockPos pos, boolean writeBack) {
         BlockState original = level.getBlockState(pos);
         MutationSettings settings = this.mutationSettings;
-        if (settings == null) {
+        if (settings == null || isProtectedNow(pos, original) || observerOnline || original.isAir()) {
+            // 快照未到 / 硬保护 / 失焦已终止 / 空气（空气既拾不到也挖不出目标）
             return original;
         }
-        if (isProtected(pos, original, currentStage())) {
-            return original;
-        }
-        if (observerOnline) {
-            return original;
-        }
-        if (original.isAir()) {
-            return original; // 空气无法拾取
-        }
-        int stage = currentStage();
         MutationIndex index = MutationIndexes.get(level.dimension());
         if (!isCandidate(original, index)) {
             return original;
@@ -366,46 +312,17 @@ public final class ClientRenderCache {
         if (entry != null && entry.validFor(original, period)) {
             return entry.state;
         }
-        BlockState target = computeTarget(level, pos, original, index, resolveGuidedModels(), settings);
-        if (target != original && isRenderableTarget(target)) {
-            return target;
-        }
-        return original;
-    }
-
-    /**
-     * 挖掘进度用"可见目标"（2026-08-21）：与渲染预览同一公式；
-     * 优先读缓存，未命中时计算并写回——保证挖掘每 tick 只是 O(1) 缓存查询，
-     * 累积回退扫描只发生在周期边界。
-     */
-    public BlockState miningState(ClientLevel level, BlockPos pos) {
-        BlockState original = level.getBlockState(pos);
-        MutationSettings settings = this.mutationSettings;
-        if (settings == null) {
-            return original;
-        }
-        if (isProtected(pos, original, currentStage()) || observerOnline) {
-            return original;
-        }
-        if (original.isAir()) {
-            return original;
-        }
-        int stage = currentStage();
-        MutationIndex index = MutationIndexes.get(level.dimension());
-        if (!isCandidate(original, index)) {
-            return original;
-        }
-        long key = pos.asLong();
-        long period = settings.displayPeriod(level.getGameTime(), clockSpeed, clockOffset);
-        Entry entry = targetCache.get(key);
-        if (entry != null) {
-            if (entry.validFor(original, period)) {
-                return entry.state;
-            }
+        if (writeBack && entry != null) {
             dropEntry(pos, key, entry, original);
         }
         BlockState target = computeTarget(level, pos, original, index, resolveGuidedModels(), settings);
-        if (target == original || !isRenderableTarget(target) || !isExposed(level, pos)) {
+        if (target == original || !isRenderableTarget(target)) {
+            return original;
+        }
+        if (!writeBack) {
+            return target;
+        }
+        if (!isExposed(level, pos)) {
             return original;
         }
         putEntry(pos, target, original, period);
@@ -423,7 +340,7 @@ public final class ClientRenderCache {
             if (level != null || !targetCache.isEmpty() || !activeSections.isEmpty()) {
                 clearCache();
             }
-            regionData.clear();
+            regions.clear();
             worldDays = 0;
             observerOnline = false;
             level = null;
@@ -437,6 +354,9 @@ public final class ClientRenderCache {
         if (current != level) {
             level = current;
             clearCache();
+            // 换世界也丢掉区域镜像：维度键（尤其 minecraft:overworld）在不同存档里是同一个，
+            // 留着上一个世界的数据会让新世界开局就带一批不存在的保护范围与诞生周期。
+            regions.clear();
             lastIndex = null;
             lastPeriodIndex = Long.MIN_VALUE;
         }
@@ -484,113 +404,22 @@ public final class ClientRenderCache {
     }
 
     /**
-     * 每帧渲染世界结束时调用：推进 observer_veil 后处理。
+     * 每帧渲染世界结束时调用（{@code GameRendererMixin}，在 {@code renderLevel} 的 TAIL）：
+     * 决定要不要推进 observer_veil 后处理；真正的加载/动画/淡出在 {@link ObserverVeil}。
      *
      * @param frameDeltaTicks <b>每帧真实时间</b>增量（{@code DeltaTracker#getRealtimeDeltaTicks}），
-     *                        不是 {@code getGameTimeDeltaTicks}。见下方动画计时的说明。
+     *                        不是 {@code getGameTimeDeltaTicks}，单位是刻。理由见 {@link ObserverVeil}。
      */
     public void updateVeil(float frameDeltaTicks) {
         Minecraft mc = Minecraft.getInstance();
         if (!FocalDecayConfig.POST_PROCESS_ENABLED.get()
                 || mc.level == null
                 || mc.gameRenderer.currentEffect() != null) {
-            closeVeil();
+            // 别的后处理效果占用时也让位：两条 PostChain 会互相踩渲染目标
+            veil.close();
             return;
         }
-
-        // 每帧真实时间（秒）。动画计时与遮罩淡出都要用，所以先算出来。
-        float frameSeconds = Mth.clamp(frameDeltaTicks, 0.0F, 2.0F) / 20.0F;
-
-        // ── 重聚焦之后移除遮罩 ───────────────────────────────────────────────
-        // 遮罩画的就是"失焦带来的不安定"，观测者核心上线之后这份不安定已经结束了，
-        // 继续留着抖动属于漏做状态处理。默认淡出（也遮住核心激活那一瞬的硬切），
-        // 淡到 0 就整个卸载 PostChain，连每帧一次的全屏 pass 都不再付。
-        if (!FocalDecayConfig.POST_PROCESS_AFTER_REFOCUS.get() && observerOnline) {
-            int fadeTicks = Math.max(0, FocalDecayConfig.POST_PROCESS_REFOCUS_FADE_TICKS.get());
-            if (veilRefocusFade > 0.0F) {
-                veilRefocusFade = fadeTicks <= 0
-                        ? 0.0F
-                        : Math.max(0.0F, veilRefocusFade - frameSeconds / (fadeTicks / 20.0F));
-            }
-            if (veilRefocusFade <= 0.0F) {
-                if (veil != null) {
-                    closeVeil();
-                    LOGGER.info("Focal Decay: observer veil removed after refocus");
-                }
-                return;
-            }
-        } else {
-            // 开关打开，或世界又回到失焦状态：恢复全强度（重新加载由下面的分支负责）。
-            veilRefocusFade = 1.0F;
-        }
-
-        Object resourceManager = mc.getResourceManager();
-        if (veil != null && resourceManager != veilResourceManager) {
-            closeVeil(); // 资源重载（F3+T）后重建
-        }
-        if (veil == null) {
-            try {
-                veil = new PostChain(
-                        mc.getTextureManager(),
-                        mc.getResourceManager(),
-                        mc.getMainRenderTarget(),
-                        ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "shaders/post/observer_veil.json")
-                );
-                veil.resize(mc.getWindow().getWidth(), mc.getWindow().getHeight());
-                veilResourceManager = resourceManager;
-                veilWidth = mc.getWindow().getWidth();
-                veilHeight = mc.getWindow().getHeight();
-                veilLoadFailed = false;
-                LOGGER.info("Focal Decay: observer veil shader loaded");
-            } catch (Exception e) {
-                if (!veilLoadFailed) {
-                    LOGGER.warn("Failed to load observer veil shader", e);
-                    veilLoadFailed = true;
-                }
-                closeVeil();
-                return;
-            }
-        }
-
-        // 窗口缩放时同步后处理目标尺寸，否则输出会被错误拉伸/缩放
-        int windowWidth = mc.getWindow().getWidth();
-        int windowHeight = mc.getWindow().getHeight();
-        if (windowWidth != veilWidth || windowHeight != veilHeight) {
-            veil.resize(windowWidth, windowHeight);
-            veilWidth = windowWidth;
-            veilHeight = windowHeight;
-        }
-
-        // ── 动画计时 ─────────────────────────────────────────────────────────
-        // 时间源与单位，两个都必须正确：
-        //
-        // 1) 用「每帧真实时间」而不是游戏 tick 时间。累加 DeltaTracker#getGameTimeDeltaTicks() 时，
-        //    它只在发生 tick 的那一帧返回 1、其余帧返回 0，相位呈锯齿状推进。
-        //
-        // 2) getRealtimeDeltaTicks() 的单位是 <b>tick</b>，不是秒：源码是
-        //    (time - lastUiMs) / msPerTick，而 msPerTick = 1000/20 = 50ms。
-        //    60fps 下一帧 16.7ms → 0.333，即每秒累加 20。换算成秒要 / 20。
-        //    （frameSeconds 在本方法开头就算好了，淡出也要用。）
-        veilTime += frameSeconds;
-        float phase = (veilTime / VEIL_CYCLE_SECONDS) % 1.0F;
-
-        float intensity = FocalDecayConfig.POST_INTENSITY.get().floatValue();
-        // Fade 在 shader 里同时乘在漂移、色散、着色三项上，所以淡到 0 就是"整个效果消失"，
-        // 而不是只去掉色调、留下抖动。
-        veil.setUniform("Fade", Mth.clamp(intensity * breatheFor(phase) * veilRefocusFade, 0.0F, 1.0F));
-
-        // ⚠️ 波纹必须用自建的连续时间 uniform，<b>不能用内置的 Time</b>。
-        // PostChain 每帧把 Time 归一化到 [0,1) 并在满 20 tick 时硬回绕：
-        //     this.time += partialTicks;
-        //     while (this.time > 20.0F) { this.time -= 20.0F; }
-        //     postpass.process(this.time / 20.0F);
-        // 于是 shader 里任何 `Time * f` 在回绕点的相位差都是 2π·f —— 只有 f 取整数才连续。
-        // 换句话说：<b>用 Time 就永远做不出周期长于 1 秒的平滑动画</b>。
-        // 我们自己累计一个只增不回绕的秒数，周期就能任意取。
-        veil.setUniform("TotalTime", veilTime);
-        veil.process(frameDeltaTicks);
-        // 与原版 postEffect.process 后一致：恢复主渲染目标绑定，供后续手部/UI 使用
-        mc.getMainRenderTarget().bindWrite(true);
+        veil.update(frameDeltaTicks, observerOnline);
     }
 
     public void captureFrustum(Frustum frustum) {
@@ -685,230 +514,89 @@ public final class ClientRenderCache {
     /** 收到服务端同步的区域数据（主线程）。 */
     public void applyRegionData(ResourceKey<Level> dimension, List<SyncRegionDataPacket.PrototypeData> prototypes,
                                 long[] birthPositions, long[] birthPeriods) {
-        List<ClientPrototype> prototypeList = new ArrayList<>(prototypes.size());
-        for (SyncRegionDataPacket.PrototypeData p : prototypes) {
-            prototypeList.add(toClientPrototype(p));
-        }
-
-        Map<BlockPos, Long> newBirths = new HashMap<>();
+        // 整表到达 = 登录/换维度/原型机整体变化：诞生周期表可能整片变了，先把差异算出来。
+        Map<BlockPos, Long> incoming = new HashMap<>(birthPositions.length);
         for (int i = 0; i < birthPositions.length; i++) {
-            newBirths.put(BlockPos.of(birthPositions[i]), birthPeriods[i]);
+            incoming.put(BlockPos.of(birthPositions[i]), birthPeriods[i]);
         }
-
-        RegionData old = regionData.get(dimension);
-        Set<BlockPos> changed = new HashSet<>();
-        if (old == null) {
-            changed.addAll(newBirths.keySet());
-        } else {
-            for (Map.Entry<BlockPos, Long> entry : newBirths.entrySet()) {
-                Long oldBirth = old.birthPeriods.get(entry.getKey());
-                if (oldBirth == null || !oldBirth.equals(entry.getValue())) {
-                    changed.add(entry.getKey());
-                }
-            }
-            for (BlockPos pos : old.birthPeriods.keySet()) {
-                if (!newBirths.containsKey(pos)) {
-                    changed.add(pos);
-                }
-            }
-        }
-
-        regionData.put(dimension, new RegionData(prototypeList, newBirths));
-        refreshRegionData(changed);
+        Set<BlockPos> changedBirths = regions.applySnapshot(dimension, prototypes, incoming);
+        // 保护范围与诞生周期都可能变了：把受影响的幽灵连同"此处无幽灵"的负缓存一起丢掉。
+        // 多删无害（下一轮扫描会补回来），少删就是"客户端留着服务端已经不认的幽灵"。
+        dropRegionEntries(changedBirths);
     }
 
     /**
      * 收到<b>单条</b>原型机效果的增删改（{@link com.zhizhiwang.focal_decay.network.SyncPrototypePacket}）。
      * <p>
-     * <b>为什么必须有这条通道</b>：有效原型机列表不落盘，靠方块实体的 {@code onLoad} 重建，
-     * 所以登录时发出的整表<b>只包含当时已加载区块里的原型机</b>。玩家走到远处某个原型机旁边时，
-     * 服务端开始保护那片区域，客户端却一直以为没人保护、继续画幽灵——挖下去得到的自然是原方块的掉落。
-     * <p>
-     * 与诞生周期增量同一个套路：只动受影响的那几个位置，不做整表扫描。
+     * 有效原型机列表不落盘、靠方块实体的 {@code onLoad} 重建，所以整表可能不含远处的原型机；
+     * 这条增量通道把它补上（细节见 {@link ClientRegionData#applyPrototype}）。
+     * 与诞生周期增量同一个套路：只动受影响的地方，不做整表扫描。
      */
     public void applyPrototype(ResourceKey<Level> dimension, long packedPos, boolean present,
                                SyncRegionDataPacket.PrototypeData data) {
-        // 整表还没到就先建一份空的：增量与整表的到达顺序不保证（区块加载发生在登录流程中），
-        // 丢掉一条增量就等于"客户端永远少知道一个保护范围"。整表到达时会整体替换，不会残留。
-        RegionData old = regionData.computeIfAbsent(dimension, key -> new RegionData(List.of(), Map.of()));
-        BlockPos pos = BlockPos.of(packedPos);
-        List<ClientPrototype> prototypes = new ArrayList<>(old.prototypes.size() + 1);
-        for (ClientPrototype prototype : old.prototypes) {
-            if (!prototype.center().equals(pos)) {
-                prototypes.add(prototype);
-            }
-        }
-        if (present && data != null) {
-            prototypes.add(toClientPrototype(data));
-        }
-        regionData.put(dimension, new RegionData(prototypes, old.birthPeriods));
-        // 保护范围可能变了：把缓存里"现在被保护"的位置全部撤销。多删无害（下一轮扫描会补回来），
-        // 少删就是"客户端留着服务端已经不认的幽灵"。
-        refreshRegionData(Set.of());
-    }
-
-    private static ClientPrototype toClientPrototype(SyncRegionDataPacket.PrototypeData p) {
-        return new ClientPrototype(BlockPos.of(p.pos()), p.radius(), p.type(),
-                parseBlocks(p.trainedTargets()), Set.copyOf(p.trainedEntities()), p.bioActive(),
-                p.concept(), p.progress(), p.q(), p.copies());
+        regions.applyPrototype(dimension, packedPos, present, data);
+        dropRegionEntries(Set.of());
     }
 
     /**
      * 收到<b>单条</b>诞生周期变化（{@link com.zhizhiwang.focal_decay.network.SyncBirthPeriodPacket}）。
      * {@code period < 0} 表示删除。放置/破坏/交互转换都只发这一条，
      * 取代了旧实现"每次变化都重发整张表"的做法。
+     * <p>
+     * 只清理这个位置，不做整表扫描：放置/破坏方块是高频操作，而整表扫描是 O(幽灵数) 的。
      */
     public void applyBirthPeriod(ResourceKey<Level> dimension, long packedPos, long period) {
-        // 与 applyPrototype 同理：增量可能比整表先到（另一位玩家在你登录的同一刻放了方块），
-        // 丢掉它会让客户端把一个"刚被放下的方块"当成世界原生方块，从而显示一个服务端不会执行的目标。
-        RegionData old = regionData.computeIfAbsent(dimension, key -> new RegionData(List.of(), Map.of()));
         BlockPos pos = BlockPos.of(packedPos);
-        Map<BlockPos, Long> births = new HashMap<>(old.birthPeriods);
-        if (period < 0) {
-            births.remove(pos);
-        } else {
-            births.put(pos, period);
-        }
-        regionData.put(dimension, new RegionData(old.prototypes, births));
-        refreshBirths(Set.of(pos));
+        regions.applyBirthPeriod(dimension, pos, period);
+        dropRegionEntries(Set.of(pos));
     }
 
     /**
-     * 只有诞生周期变化时用：只清理这几个位置，不做整表扫描。
+     * 丢掉"现在受硬保护"或"诞生周期刚变过"的位置上的幽灵，并清掉它们的负缓存。
+     * 三个同步入口共用这一段。
      * <p>
-     * 放置/破坏方块是高频操作，而"保护范围可能变了"的整表扫描是 O(幽灵数) 的，
-     * 不能挂在每一次放置上。真正的整表扫描留给 {@link #applyRegionData}（原型机变化/登录）。
+     * <b>负缓存也要清</b>：诞生周期通过 {@code MutationHelper} 的 {@code fromPeriod} 门控
+     * 直接参与解析，所以"这里没有幽灵"这条旧结论在诞生/保护变化之后同样失效。
+     *
+     * @param changedBirths 诞生状态已知变化的位置；只关心保护范围时传空集
      */
-    private void refreshBirths(Set<BlockPos> changed) {
-        if (targetCache.isEmpty() || changed.isEmpty()) {
+    private void dropRegionEntries(Set<BlockPos> changedBirths) {
+        if (targetCache.isEmpty() && evaluated.isEmpty()) {
             return;
         }
+        ClientLevel current = Minecraft.getInstance().level;
+        MutationSettings settings = this.mutationSettings;
+        int stage = currentStage();
         Set<Long> dirty = new HashSet<>();
-        for (BlockPos pos : changed) {
+        if (settings != null) {
+            targetCache.forEach((key, entry) -> {
+                BlockPos pos = BlockPos.of(key);
+                BlockState real = current != null ? current.getBlockState(pos) : Blocks.AIR.defaultBlockState();
+                if (regions.isProtected(pos, real, stage, settings)) {
+                    targetCache.remove(key, entry);
+                    decrSection(pos);
+                    evaluated.remove(key);
+                    dirty.add(SectionPos.asLong(pos));
+                }
+            });
+        }
+        for (BlockPos pos : changedBirths) {
             long key = pos.asLong();
             if (targetCache.remove(key) != null) {
                 decrSection(pos);
-                evaluated.remove(key);
                 dirty.add(SectionPos.asLong(pos));
             }
+            evaluated.remove(key);
         }
         for (long sectionKey : dirty) {
             markSectionDirty(SectionPos.of(sectionKey));
         }
     }
 
-    /** 把同步来的方块 ID 列表解析成方块集合（保护判定要在热路径上做 O(1) 命中）。 */
-    private static Set<Block> parseBlocks(List<String> ids) {
-        Set<Block> blocks = new HashSet<>(ids.size());
-        for (String id : ids) {
-            try {
-                blocks.add(BuiltInRegistries.BLOCK.get(ResourceLocation.parse(id)));
-            } catch (Exception ignored) {
-                // 非法 ID 忽略（与服务端解析一致）
-            }
-        }
-        return blocks;
-    }
-
-    /** 当前客户端所在维度的保护数据；未同步或无保护返回 null。 */
-    private RegionData currentRegionData() {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) {
-            return null;
-        }
-        return regionData.get(mc.level.dimension());
-    }
-
-    /**
-     * 阶段感知的保护形态（与服务端 {@code MutationPoolManager#protectionInfo} 同一逻辑）：
-     * 阶段3语义锁定转为软保护（每周期按强度掷"守住"骰子），生物稳定/完全稳定仍硬保护。
-     * <p>
-     * 用的两个配置量（阶段3锁定强度、候选体训练点数）取自服务端快照：它们直接决定"有没有保护"，
-     * 两端取值不同就会出现"客户端以为有保护、服务端照样转换"。
-     */
-    public MutationHelper.Protection protectionInfo(BlockPos pos, BlockState state, int stage) {
-        RegionData data = currentRegionData();
+    /** 当前客户端所在维度是否受保护（渲染/扫描的早退判据）。 */
+    private boolean isProtectedNow(BlockPos pos, BlockState state) {
         MutationSettings settings = this.mutationSettings;
-        if (data == null || settings == null) {
-            return MutationHelper.Protection.NONE;
-        }
-        MutationHelper.Protection result = MutationHelper.Protection.NONE;
-        for (ClientPrototype prototype : data.prototypes) {
-            if (!withinRadius(pos, prototype)) {
-                continue;
-            }
-            if (ObserverModelData.TYPE_TOTAL.equals(prototype.type())) {
-                return MutationHelper.Protection.HARD;
-            }
-            if (ObserverModelData.TYPE_BIO.equals(prototype.type()) && prototype.bioActive()) {
-                return MutationHelper.Protection.HARD;
-            }
-            if (ObserverModelData.TYPE_CANDIDATE.equals(prototype.type())
-                    && prototype.progress() >= settings.requiredCandidatePoints(prototype.copies())) {
-                return MutationHelper.Protection.HARD; // 已完成候选 = 完全稳定
-            }
-            if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(prototype.type())) {
-                if (!prototype.trainedBlocks().contains(state.getBlock())) {
-                    continue;
-                }
-                if (stage >= 3) {
-                    double strength = settings.semanticLockStage3() * prototype.q();
-                    strength = Math.max(0.0, Math.min(1.0, strength));
-                    if (strength > result.softChance()) {
-                        result = new MutationHelper.Protection(false, strength);
-                    }
-                } else {
-                    return MutationHelper.Protection.HARD;
-                }
-            }
-        }
-        return result;
-    }
-
-    /** 硬保护判定（渲染/扫描早期跳过用；阶段3语义锁定不再是硬保护）。 */
-    public boolean isProtected(BlockPos pos, BlockState state, int stage) {
-        return protectionInfo(pos, state, stage).hard();
-    }
-
-    private static boolean withinRadius(BlockPos pos, ClientPrototype prototype) {
-        return Math.max(Math.abs(pos.getX() - prototype.center().getX()),
-                Math.max(Math.abs(pos.getY() - prototype.center().getY()),
-                        Math.abs(pos.getZ() - prototype.center().getZ()))) <= prototype.radius();
-    }
-
-    private static boolean withinRadius(BlockPos pos, GuidedModel model) {
-        return Math.max(Math.abs(pos.getX() - model.center().getX()),
-                Math.max(Math.abs(pos.getY() - model.center().getY()),
-                        Math.abs(pos.getZ() - model.center().getZ()))) <= model.radius();
-    }
-
-    /** 该方块的诞生周期；未同步或世界原生返回 -1。 */
-    public long getBlockBirthPeriod(BlockPos pos) {
-        RegionData data = currentRegionData();
-        return data == null ? -1L : data.birthPeriods.getOrDefault(pos, -1L);
-    }
-
-    /** 区域数据更新后：清掉保护范围内或诞生状态变化的幽灵缓存并触发重编译。 */
-    private void refreshRegionData(Set<BlockPos> changedBirths) {
-        if (targetCache.isEmpty()) {
-            return;
-        }
-        Set<Long> dirty = new HashSet<>();
-        targetCache.forEach((key, entry) -> {
-            BlockPos pos = BlockPos.of(key);
-            BlockState real = Minecraft.getInstance().level != null
-                    ? Minecraft.getInstance().level.getBlockState(pos)
-                    : Blocks.AIR.defaultBlockState();
-            if (isProtected(pos, real, currentStage()) || changedBirths.contains(pos)) {
-                targetCache.remove(key, entry);
-                decrSection(pos);
-                evaluated.remove(key);
-                dirty.add(SectionPos.asLong(pos));
-            }
-        });
-        for (long sectionKey : dirty) {
-            markSectionDirty(SectionPos.of(sectionKey));
-        }
+        return settings != null && regions.isProtected(pos, state, currentStage(), settings);
     }
 
     // ------------------------------------------------------------------
@@ -992,7 +680,7 @@ public final class ClientRenderCache {
         int stage = currentStage();
         // 逐节取一次查表和引导模型：4096 个方块共用，循环体里不再有任何标签/字符串操作。
         MutationIndex index = MutationIndexes.get(level.dimension());
-        List<GuidedModel> guided = resolveGuidedModels();
+        List<ClientRegionData.GuidedModel> guided = resolveGuidedModels();
         boolean changed = false;
 
         for (int y = 0; y < 16; y++) {
@@ -1002,7 +690,7 @@ public final class ClientRenderCache {
                     long key = pos.asLong();
                     BlockState state = level.getBlockState(pos);
 
-                    if (!isCandidate(state, index) || isProtected(pos, state, stage) || !isExposed(level, pos)) {
+                    if (!isCandidate(state, index) || isProtectedNow(pos, state) || !isExposed(level, pos)) {
                         if (removeEntry(pos, key, state)) {
                             changed = true;
                         }
@@ -1045,68 +733,27 @@ public final class ClientRenderCache {
      * @param settings 服务端的解析输入快照
      */
     private BlockState computeTarget(ClientLevel level, BlockPos pos, BlockState original,
-                                     MutationIndex index, List<GuidedModel> guided, MutationSettings settings) {
+                                     MutationIndex index, List<ClientRegionData.GuidedModel> guided,
+                                     MutationSettings settings) {
         if (observerOnline) {
             return original;
         }
         int stage = settings.stage(worldDays);
         return MutationHelper.resolve(original, pos, settings, stage,
                 settings.displayPeriod(level.getGameTime(), clockSpeed, clockOffset), index,
-                guidedBias(guided, pos, original, stage, settings.guidedStage3Halve()),
-                protectionInfo(pos, original, stage), getBlockBirthPeriod(pos));
+                ClientRegionData.guidedBias(guided, pos, original, stage, settings.guidedStage3Halve()),
+                regions.protectionInfo(pos, original, stage, settings), regions.blockBirthPeriod(pos));
     }
 
     /**
      * 把已同步的引导模型解析成"半径 + 概念池 + 强度"的可直接查询形态。
      * 每次扫描一个区块节解析一次：{@code MutationIndexes#tagged} 有缓存，
      * 但也没必要在每个方块上重复走一遍。
-     */
-    private List<GuidedModel> resolveGuidedModels() {
-        RegionData data = currentRegionData();
-        Minecraft mc = Minecraft.getInstance();
-        if (data == null || mc.level == null || data.prototypes.isEmpty()) {
-            return List.of();
-        }
-        MutationIndex index = MutationIndexes.get(mc.level.dimension());
-        List<GuidedModel> models = new ArrayList<>();
-        for (ClientPrototype prototype : data.prototypes) {
-            if (!ObserverModelData.TYPE_GUIDED.equals(prototype.type()) || prototype.concept().isEmpty()) {
-                continue;
-            }
-            ClassifiedPool pool = index.tagged(prototype.concept());
-            if (pool.isEmpty()) {
-                continue;
-            }
-            models.add(new GuidedModel(prototype.center(), prototype.radius(), pool, prototype.q()));
-        }
-        return models;
-    }
-
-    /**
-     * 客户端引导偏向（与服务端 {@code MutationPoolManager#getGuidedBias} 同一公式）：
-     * 取"源方块是概念成员且 q 最大"的引导模型生效，否则不引导。
-     * 概念邻域与成员判定都来自预解析的池，循环体里只有半径比较和一次 {@code boolean[]} 读。
      * <p>
-     * q 相等时按<b>中心坐标</b>决胜而不是按列表顺序：增量同步之后两端的列表顺序不保证一致
-     * （服务端是登记顺序，客户端是"快照 + 增量到达顺序"），而 q 完全相等在同类模型上很常见
-     * （两个同概念的引导模型）。只比 q 的话，同一格在两台机器上会抽到不同的概念池。
+     * 解析与偏向公式都在 {@link ClientRegionData}——那里才是这份数据的来源。
      */
-    private static GuidedBias guidedBias(List<GuidedModel> models, BlockPos pos, BlockState original,
-                                         int stage, boolean halveStage3) {
-        GuidedModel best = null;
-        double bestQ = 0.0;
-        for (GuidedModel model : models) {
-            if (!withinRadius(pos, model) || !model.pool().contains(original.getBlock())) {
-                continue;
-            }
-            double q = GuidedConcept.effectiveQ(model.strength(), stage, halveStage3);
-            if (!GuidedConcept.betterGuided(q, model.center(), bestQ, best == null ? null : best.center())) {
-                continue;
-            }
-            bestQ = q;
-            best = model;
-        }
-        return best == null ? GuidedBias.NONE : new GuidedBias(best.pool(), bestQ);
+    private List<ClientRegionData.GuidedModel> resolveGuidedModels() {
+        return regions.guidedModels();
     }
 
     private int currentStage() {
@@ -1203,8 +850,7 @@ public final class ClientRenderCache {
     /**
      * 撤销一个幽灵条目。<b>不动 {@link #evaluated}</b>：这个位置在当前真实方块下确实已经判定过了，
      * 把负缓存一起删掉只会让面剔除路径反复重跑完整判定。真正需要"重新判定"的场合
-     * （保护范围变化、诞生周期变化）由 {@code refreshRegionData} / {@code refreshBirths}
-     * 显式地把位置从 {@code evaluated} 里摘掉。
+     * （保护范围变化、诞生周期变化）由 {@code dropRegionEntries} 显式地把位置从 {@code evaluated} 里摘掉。
      *
      * @param real 当前位置的真实方块；条目记的是别的东西时，这就是"真实方块变了"的那一次作废
      */
@@ -1278,13 +924,5 @@ public final class ClientRenderCache {
             return;
         }
         mc.levelRenderer.setSectionDirty(section.x(), section.y(), section.z());
-    }
-
-    private void closeVeil() {
-        if (veil != null) {
-            veil.close();
-            veil = null;
-        }
-        veilResourceManager = null;
     }
 }

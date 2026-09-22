@@ -17,7 +17,11 @@
     },
     {
       "type": "patchouli:text",
-      "text": "$(bold)Start:$() right-click the pedestal block at the centre of the Throne with the base, and the ritual begins.$(br2)$(bold)Course:$() the ritual runs for a period, generating hostile creatures in waves.$(br2)Do not leave.$(br2)Moving away from the Throne pauses the ritual; where field conditions do not permit a pause, it is judged a failure."
+      "text": "$(bold)Start:$() hold the inactive OBSR-EX and right-click that Observer Base.$(br2)The EX is placed into the base and the ritual begins.$(br2)$(bold)Course:$() the ritual runs for a period, generating hostile creatures in waves.$(br2)Do not leave.$(br2)Moving away from the Throne pauses the ritual; where field conditions do not permit a pause, it is judged a failure."
+    },
+    {
+      "type": "patchouli:text",
+      "text": "$(bold)Upkeep:$() during the ritual the base and the OBSR-EX inside it must stay where they are.$(br2)Take the EX out (drop it, stow it in a container) or tear the base down, and the ritual is interrupted at once with no output.$(br2)Breaking the base drops the EX as usual, so it can be recovered and retried."
     },
     {
       "type": "patchouli:text",

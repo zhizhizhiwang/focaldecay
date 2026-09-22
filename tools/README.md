@@ -181,6 +181,16 @@ Select-String -Path run\logs\latest.log -Pattern 'devtest\]|mutation\]|selftest\
 **这一项是这次修复的回归网**：只要有人把 `resolve` 的某个参数接错线、或者在快照里少同步一个量，
 它立刻变红。它**不能**替代真机验证——"包到底有没有发到客户端"只能在真客户端上看（见 §3）。
 
+H 段还会跑一次 `/focaldecay throne selftest`（王座仪式的**现场条件**判据）：
+
+```
+[ritual] site check (empty / inactive EX / other model / base removed): PASS
+```
+
+它在执行者头顶临时放一座观测者基座，依次验证"空基座 / 装了未激活 OBSR-EX / 装了别的模型 /
+基座被拆"四种判定，跑完把原地块还原（不留痕）。这四条覆盖的是"仪式期间取走模型或拆掉基座必须中断"
+这条规则的全部输入——触发路径（真人手持 OBSR-EX 右键基座）仍需实机确认，见 `PROGRESS.md` §13.15。
+
 `[sync]` 之外，客户端日志里还有一行值得看（它量的是"幽灵缓存的有效期判据有没有在干活"）：
 
 ```

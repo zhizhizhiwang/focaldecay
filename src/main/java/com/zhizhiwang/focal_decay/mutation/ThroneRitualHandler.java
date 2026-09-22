@@ -22,23 +22,28 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 末地王座仪式（设计大纲 §3.5.1）：
- *  - 右键王座基座触发：需携带稳定锚原型机（物品或已放置）+ 完全稳定模型（未激活）；
- *  - 期间按配置波次生成强敌，玩家离开半径按配置暂停或失败；
- *  - 完成：消耗未激活模型，范围内原型机插槽升级为已激活完全稳定模型（否则给予独立物品），
+ *  - <b>触发</b>（2026-09-17 修正）：手持<b>未激活的 OBSR-EX</b>，右键一座<b>已放置</b>在王座附近的
+ *    观测者基座——把 EX 放进基座的同时开始仪式。以前是"右键王座区域"触发，且允许基座只带在包里，
+ *    于是"拿着基座右键王座"也能开（那不是设计意图）；
+ *  - <b>维持</b>：期间按配置波次生成强敌，玩家离开半径按配置暂停或失败；
+ *    <b>那座基座与其中的 EX 必须一直在原位</b>——取走模型（丢出去/塞进箱子）或拆掉基座都算现场条件失效，
+ *    立即中断且不给奖励（模型随基座掉落，可以重来）；
+ *  - <b>完成</b>：基座里那枚未激活模型被替换为已激活版本（完全稳定锚就地升级），
  *    广播 ThroneRitualPacket、粒子与音效；
  *  - 常驻粒子：王座周围周期性漂浮末地棒/传送门粒子。
  */
@@ -52,6 +57,13 @@ public final class ThroneRitualHandler {
     // ------------------------------------------------------------------
     // 触发
     // ------------------------------------------------------------------
+
+    /**
+     * 仪式入口：<b>手持未激活的 OBSR-EX 右键已放置的观测者基座</b>。
+     * <p>
+     * 手里不是未激活 EX 时直接返回，让事件照常走原版流程（右键基座打开它的 GUI，
+     * 那是正常装/取模型的途径），所以这里不提示、也不取消。
+     */
     @SubscribeEvent
     public static void onRightClick(PlayerInteractEvent.RightClickBlock event) {
         if (event.getHand() != InteractionHand.MAIN_HAND) {
@@ -60,34 +72,55 @@ public final class ThroneRitualHandler {
         if (!(event.getLevel() instanceof ServerLevel level) || level.dimension() != Level.END) {
             return;
         }
-        BlockPos pos = event.getPos();
-        if (level.getBlockState(pos).is(ModBlocks.OBSERVER_CORE.get())) {
-            return; // 核心交互走核心 GUI（安装候选观测者），不触发仪式
-        }
-        BlockPos throne = ThroneStructure.thronePos(level.getSeed());
-        if (!isThroneBase(pos, throne)) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
-        ServerPlayer player = (ServerPlayer) event.getEntity();
+        BlockPos pos = event.getPos();
+        if (!level.getBlockState(pos).is(ModBlocks.ANCHOR_PROTOTYPE.get())) {
+            return; // 只认观测者基座本身：右键王座/别处都不该启动仪式
+        }
+        if (!(level.getBlockEntity(pos) instanceof AnchorPrototypeBlockEntity prototype)) {
+            return;
+        }
+        ItemStack held = player.getMainHandItem();
+        if (!held.is(ModItems.TOTAL_STABILITY_MODEL.get())) {
+            return; // 手里不是未激活的 OBSR-EX：交给原版（打开基座 GUI）
+        }
+
+        BlockPos throne = ThroneStructure.thronePos(level.getSeed());
+        int radius = FocalDecayConfig.THRONE_RITUAL_RADIUS.get();
+        if (pos.distSqr(throne) > (double) radius * radius) {
+            // 基座必须在王座附近：仪式要求"原型机与王座连接"（§3.5.1），而且波次与维持判定都在王座处
+            player.displayClientMessage(
+                    Component.translatable("message.focal_decay.ritual_need_prototype"), true);
+            return;
+        }
+
         ThroneRitualData data = ThroneRitualData.get(level);
         if (data.isActive()) {
             player.displayClientMessage(Component.translatable("message.focal_decay.ritual_active"), true);
+            event.setCanceled(true);
+            event.setCancellationResult(InteractionResult.SUCCESS);
             return;
         }
-        if (!hasUnactivatedModel(player)) {
-            player.displayClientMessage(Component.translatable("message.focal_decay.ritual_need_model"), true);
-            return;
-        }
-        int radius = FocalDecayConfig.THRONE_RITUAL_RADIUS.get();
-        if (!hasPrototype(player, level, throne, radius)) {
-            player.displayClientMessage(Component.translatable("message.focal_decay.ritual_need_prototype"), true);
+
+        // 基座插槽：空的就把手里的 EX 放进去（这是仪式的"献祭"），已经有未激活 EX 就直接用它
+        // （暂停后回来续仪走这条），占用成别的东西则要求先取出，免得覆盖玩家自己的模型。
+        ItemStack inSlot = prototype.getModelStack();
+        if (inSlot.isEmpty()) {
+            prototype.setItem(0, held.copyWithCount(1));
+            held.shrink(1);
+        } else if (!inSlot.is(ModItems.TOTAL_STABILITY_MODEL.get())) {
+            player.displayClientMessage(
+                    Component.translatable("message.focal_decay.ritual_slot_occupied"), true);
             return;
         }
 
         int totalTicks = FocalDecayConfig.THRONE_RITUAL_SECONDS.get() * TICKS_PER_SECOND;
         int waveInterval = FocalDecayConfig.THRONE_RITUAL_WAVE_INTERVAL_SECONDS.get() * TICKS_PER_SECOND;
-        data.start(throne.asLong(), player.getUUID(), totalTicks, waveInterval);
+        data.start(throne.asLong(), pos.asLong(), player.getUUID(), totalTicks, waveInterval);
         event.setCanceled(true);
+        event.setCancellationResult(InteractionResult.SUCCESS); // 别让基座 GUI 同时打开
 
         level.sendParticles(ParticleTypes.PORTAL,
                 throne.getX() + 0.5, throne.getY() + 2.0, throne.getZ() + 0.5,
@@ -130,7 +163,13 @@ public final class ThroneRitualHandler {
         ServerPlayer player = (ServerPlayer) level.getPlayerByUUID(data.playerId());
         BlockPos throne = BlockPos.of(data.thronePos());
         if (player == null || !player.isAlive()) {
-            fail(level, data);
+            fail(level, data, null);
+            return;
+        }
+        // 现场条件先判：基座还在、里面还是那枚未激活的 EX。放在倒计时之前，
+        // 这样"恰好在这一刻拆掉基座/取走模型"不会被算成完成。
+        if (!prototypeIntact(level, data)) {
+            fail(level, data, "message.focal_decay.ritual_lost_prototype");
             return;
         }
         int radius = FocalDecayConfig.THRONE_RITUAL_RADIUS.get();
@@ -140,7 +179,7 @@ public final class ThroneRitualHandler {
                 ModNetwork.sendToAllPlayers(new ThroneRitualPacket(
                         ThroneRitualPacket.STATE_PAUSED, data.remainingTicks(), data.totalTicks(), data.wave()));
             } else {
-                fail(level, data);
+                fail(level, data, null);
             }
             return;
         }
@@ -179,30 +218,20 @@ public final class ThroneRitualHandler {
         ServerPlayer player = (ServerPlayer) level.getPlayerByUUID(data.playerId());
         BlockPos throne = BlockPos.of(data.thronePos());
 
+        // 现场条件已由 tickRitual 保证：那座基座还在，里面还是那枚未激活的 EX。
+        // 结算就是把它<b>就地</b>换成已激活版本（手册 §登座仪式"基座内那枚被替换"），
+        // 不再往玩家背包塞一枚新的——那会让"模型其实没参与仪式"也拿到奖励。
+        AnchorPrototypeBlockEntity prototype = prototypeAt(level, data);
+        if (prototype == null) {
+            fail(level, data, "message.focal_decay.ritual_lost_prototype");
+            return;
+        }
         ItemStack activated = new ItemStack(ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get());
         // 仪式产出的是一枚全新的已激活模型，代数从 0 起算——即"原件"。
         // 这也意味着复制只能在激活之后进行（未激活的 EX 不在复制配方的可复制列表里）。
         ObserverModelItem.setData(activated, new ObserverModelData(
                 ObserverModelData.TYPE_TOTAL, List.of(), List.of(), 1.0, "", 0, 0, true, 0));
-
-        // 只升级"槽内本来就是未激活完全稳定模型"的原型机；其他情况不动插槽，
-        // 激活模型交还玩家背包（避免覆盖原型机里原有的模型）。
-        AnchorPrototypeBlockEntity prototype =
-                findPrototype(level, throne, FocalDecayConfig.THRONE_RITUAL_RADIUS.get());
-        boolean upgradedInPlace = false;
-        if (prototype != null && prototype.getModelStack().is(ModItems.TOTAL_STABILITY_MODEL.get())) {
-            prototype.setItem(0, activated);
-            upgradedInPlace = true;
-        }
-        if (player != null) {
-            removeOne(player, ModItems.TOTAL_STABILITY_MODEL.get());
-        }
-        if (!upgradedInPlace && player != null) {
-            if (!player.getInventory().add(activated)) {
-                level.addFreshEntity(new ItemEntity(level,
-                        throne.getX() + 0.5, throne.getY() + 2.0, throne.getZ() + 0.5, activated));
-            }
-        }
+        prototype.setItem(0, activated);
 
         level.sendParticles(ParticleTypes.END_ROD,
                 throne.getX() + 0.5, throne.getY() + 4.0, throne.getZ() + 0.5,
@@ -224,7 +253,11 @@ public final class ThroneRitualHandler {
         data.stop();
     }
 
-    private static void fail(ServerLevel level, ThroneRitualData data) {
+    private static void fail(ServerLevel level, ThroneRitualData data, String reasonKey) {
+        if (reasonKey != null && level.getPlayerByUUID(data.playerId()) instanceof ServerPlayer player) {
+            // 原因只发给执行者（"为什么失败"对他有用，对其他人是噪音）
+            player.displayClientMessage(Component.translatable(reasonKey), true);
+        }
         ModNetwork.sendToAllPlayers(new ThroneRitualPacket(
                 ThroneRitualPacket.STATE_FAILED, 0, 0, 0));
         data.stop();
@@ -287,47 +320,74 @@ public final class ThroneRitualHandler {
         }
     }
 
-    private static boolean isThroneBase(BlockPos pos, BlockPos throne) {
-        return Math.abs(pos.getX() - throne.getX()) <= 2
-                && Math.abs(pos.getZ() - throne.getZ()) <= 2
-                && pos.getY() >= throne.getY() - 1 && pos.getY() <= throne.getY() + 1;
+    /**
+     * 仪式的现场条件：<b>那座基座还在原位，而且里面还是那枚未激活的 OBSR-EX</b>。
+     * <p>
+     * 这一条同时覆盖了玩家能做的两件破坏：把模型取出来丢掉/塞进箱子（槽位空了或换成别的），
+     * 以及拆掉基座（方块没了，模型会照常掉落）。两种情况都必须<b>立刻中断且不给奖励</b>——
+     * 否则"仪式"就退化成了"点一下然后等 30 秒"。
+     */
+    private static boolean prototypeIntact(ServerLevel level, ThroneRitualData data) {
+        return prototypeIntact(level, data.prototypePos());
     }
 
-    private static boolean hasUnactivatedModel(ServerPlayer player) {
-        for (ItemStack stack : player.getInventory().items) {
-            if (stack.is(ModItems.TOTAL_STABILITY_MODEL.get())) {
-                return true;
-            }
-        }
-        return false;
+    /** 现场条件（按位置判定，便于自测直接喂坐标）。 */
+    private static boolean prototypeIntact(ServerLevel level, long packedPos) {
+        AnchorPrototypeBlockEntity prototype = prototypeAt(level, packedPos);
+        return prototype != null && prototype.getModelStack().is(ModItems.TOTAL_STABILITY_MODEL.get());
     }
 
-    private static boolean hasPrototype(ServerPlayer player, ServerLevel level, BlockPos throne, int radius) {
-        for (ItemStack stack : player.getInventory().items) {
-            if (stack.is(ModBlocks.ANCHOR_PROTOTYPE.get().asItem())) {
-                return true;
-            }
-        }
-        return findPrototype(level, throne, radius) != null;
+    /** 取出仪式绑定的那座基座；位置没记录、区块没加载或方块已被拆掉时返回 null。 */
+    private static AnchorPrototypeBlockEntity prototypeAt(ServerLevel level, ThroneRitualData data) {
+        return prototypeAt(level, data.prototypePos());
     }
 
-    private static AnchorPrototypeBlockEntity findPrototype(ServerLevel level, BlockPos throne, int radius) {
-        for (BlockPos pos : BlockPos.betweenClosed(
-                throne.offset(-radius, -8, -radius), throne.offset(radius, 8, radius))) {
-            if (level.getBlockState(pos).is(ModBlocks.ANCHOR_PROTOTYPE.get())
-                    && level.getBlockEntity(pos) instanceof AnchorPrototypeBlockEntity be) {
-                return be;
-            }
+    private static AnchorPrototypeBlockEntity prototypeAt(ServerLevel level, long packedPos) {
+        if (packedPos == Long.MIN_VALUE) {
+            return null; // 旧存档里没有这个字段：现场条件无从判定，按"不满足"处理
         }
-        return null;
+        BlockPos pos = BlockPos.of(packedPos);
+        if (!level.isLoaded(pos) || !level.getBlockState(pos).is(ModBlocks.ANCHOR_PROTOTYPE.get())) {
+            return null;
+        }
+        return level.getBlockEntity(pos) instanceof AnchorPrototypeBlockEntity be ? be : null;
     }
 
-    private static void removeOne(ServerPlayer player, Item item) {
-        for (ItemStack stack : player.getInventory().items) {
-            if (stack.is(item)) {
-                stack.shrink(1);
-                return;
+    /**
+     * 现场条件判定的自测（{@code /focaldecay throne selftest}）。
+     * <p>
+     * 在测试者头顶临时放一座基座，把四种情形走一遍：空基座 / 装了未激活 OBSR-EX / 装了别的模型 /
+     * 基座被拆。这四条正是"维持"规则的全部输入——取走模型或拆掉基座必须判为不满足，
+     * 否则仪式结束照样发奖励（2026-09-17 修的正是这个）。跑完把原地块还原，不留痕。
+     */
+    public static List<String> selfTest(ServerLevel level, BlockPos probePos) {
+        List<String> out = new ArrayList<>();
+        BlockPos probe = probePos.above();
+        BlockState original = level.getBlockState(probe);
+        level.setBlockAndUpdate(probe, ModBlocks.ANCHOR_PROTOTYPE.get().defaultBlockState());
+        try {
+            if (!(level.getBlockEntity(probe) instanceof AnchorPrototypeBlockEntity prototype)) {
+                out.add("[ritual] probe base did not create a block entity  FAIL");
+                return out;
             }
+            boolean empty = !prototypeIntact(level, probe.asLong());
+            prototype.setItem(0, new ItemStack(ModItems.TOTAL_STABILITY_MODEL.get()));
+            boolean withEx = prototypeIntact(level, probe.asLong());
+            prototype.setItem(0, new ItemStack(ModItems.TOTAL_STABILITY_MODEL_ACTIVATED.get()));
+            boolean wrongModel = !prototypeIntact(level, probe.asLong());
+            level.removeBlock(probe, false);
+            boolean removed = !prototypeIntact(level, probe.asLong());
+            boolean ok = empty && withEx && wrongModel && removed;
+            out.add("[ritual] site check (empty / inactive EX / other model / base removed): "
+                    + (ok ? "PASS" : "FAIL empty=" + empty + " withEx=" + withEx
+                    + " wrongModel=" + wrongModel + " removed=" + removed));
+        } finally {
+            // 还原：先拆掉临时基座（连带里面的模型），再放回原来的方块
+            if (level.getBlockState(probe).is(ModBlocks.ANCHOR_PROTOTYPE.get())) {
+                level.removeBlock(probe, false);
+            }
+            level.setBlockAndUpdate(probe, original);
         }
+        return out;
     }
 }

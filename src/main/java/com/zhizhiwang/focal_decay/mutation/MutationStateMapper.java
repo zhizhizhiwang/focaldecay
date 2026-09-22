@@ -123,12 +123,8 @@ public final class MutationStateMapper {
         return apply(result, targetProperty, sourceProperty.getName(source.getValue(sourceProperty)));
     }
 
-    private static BlockState apply(BlockState result, Property<?> targetProperty, String valueName) {
-        return applyTyped(result, targetProperty, valueName);
-    }
-
-    private static <T extends Comparable<T>> BlockState applyTyped(BlockState result, Property<T> targetProperty,
-                                                                   String valueName) {
+    private static <T extends Comparable<T>> BlockState apply(BlockState result, Property<T> targetProperty,
+                                                              String valueName) {
         // 名字对得上但取值域不同（例如模组方块自定义了同名 facing）时 getValue 返回空，自动跳过。
         return targetProperty.getValue(valueName).map(value -> result.setValue(targetProperty, value)).orElse(result);
     }

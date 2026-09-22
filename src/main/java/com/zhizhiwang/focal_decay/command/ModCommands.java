@@ -13,6 +13,7 @@ import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationPoolManager;
 import com.zhizhiwang.focal_decay.mutation.MutationTargets;
+import com.zhizhiwang.focal_decay.mutation.ThroneRitualHandler;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationAudit;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
@@ -54,7 +55,9 @@ public final class ModCommands {
                                 .requires(source -> source.hasPermission(2))
                                 .executes(ctx -> setDays(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "days")))))
                 .then(Commands.literal("throne")
-                        .executes(ctx -> queryThrone(ctx.getSource())))
+                        .executes(ctx -> queryThrone(ctx.getSource()))
+                        .then(Commands.literal("selftest")
+                                .executes(ctx -> selfTestThrone(ctx.getSource()))))
                 .then(Commands.literal("inspect")
                         .executes(ctx -> inspectHeld(ctx.getSource())))
                 .then(Commands.literal("trace")
@@ -239,6 +242,19 @@ public final class ModCommands {
         return 1;
     }
 
+    /**
+     * 王座仪式"现场条件"自测：临时放一座基座，验证空基座 / 装了未激活 OBSR-EX / 装了别的模型 /
+     * 基座被拆 四种判定。跑完还原原地块（见 {@code ThroneRitualHandler#selfTest}）。
+     */
+    private static int selfTestThrone(CommandSourceStack source) {
+        ServerLevel level = source.getLevel();
+        BlockPos pos = BlockPos.containing(source.getPosition());
+        for (String line : ThroneRitualHandler.selfTest(level, pos)) {
+            report(source, line);
+        }
+        return 1;
+    }
+
     private static int setRefocus(CommandSourceStack source, boolean online) {
         FocalDecayWorldData.get(source.getServer()).setObserverOnline(online);
         report(source, "Focal Decay observerOnline = " + online
@@ -247,14 +263,8 @@ public final class ModCommands {
         return 1;
     }
 
-    private static int setTrace(CommandSourceStack source, boolean enabled) {        InteractionHandler.traceEnabled = enabled;
-        // 客户端渲染侧诊断：只有客户端才有意义，用反射避免在专用服务器上触碰客户端类
-        try {
-            Class.forName("com.zhizhiwang.focal_decay.client.ClientRenderDebug")
-                    .getField("enabled").setBoolean(null, enabled);
-        } catch (Throwable ignored) {
-            // 专用服务器：没有客户端渲染，忽略
-        }
+    private static int setTrace(CommandSourceStack source, boolean enabled) {
+        InteractionHandler.traceEnabled = enabled;
         source.sendSuccess(() -> Component.translatable(
                 enabled ? "message.focal_decay.trace_on" : "message.focal_decay.trace_off"), true);
         return 1;

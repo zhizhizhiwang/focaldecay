@@ -11,6 +11,12 @@ say [devtest] refocus toggle
 focaldecay refocus true
 focaldecay refocus false
 say [devtest] refocus toggle done
+# Throne ritual site check (2026-09-17): places a temporary Observer Base above the executor and
+# verifies the four cases that gate the ritual (empty / inactive EX / other model / base removed).
+# It restores the original block afterwards.
+say [devtest] throne ritual site check
+focaldecay throne selftest
+say [devtest] throne ritual site check end
 # Period clock (2026-09-16): query, every knob, then the self-test which restores the clock itself.
 say [devtest] period clock
 focaldecay period

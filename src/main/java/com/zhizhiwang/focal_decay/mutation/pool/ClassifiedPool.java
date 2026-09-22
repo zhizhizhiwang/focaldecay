@@ -43,15 +43,15 @@ public final class ClassifiedPool {
     }
 
     private static Block[] flatten(Block[][] byClass) {
-        Block[] result = new Block[0];
+        int size = 0;
         for (Block[] bucket : byClass) {
-            if (bucket.length == 0) {
-                continue;
-            }
-            Block[] merged = new Block[result.length + bucket.length];
-            System.arraycopy(result, 0, merged, 0, result.length);
-            System.arraycopy(bucket, 0, merged, result.length, bucket.length);
-            result = merged;
+            size += bucket.length;
+        }
+        Block[] result = new Block[size];
+        int at = 0;
+        for (Block[] bucket : byClass) {
+            System.arraycopy(bucket, 0, result, at, bucket.length);
+            at += bucket.length;
         }
         return result;
     }

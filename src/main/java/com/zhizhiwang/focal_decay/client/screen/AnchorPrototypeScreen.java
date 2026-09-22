@@ -1,5 +1,7 @@
 package com.zhizhiwang.focal_decay.client.screen;
 
+import com.zhizhiwang.focal_decay.FocalDecay;
+import com.zhizhiwang.focal_decay.client.facade.VanillaText;
 import com.zhizhiwang.focal_decay.menu.AnchorPrototypeMenu;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
@@ -19,7 +21,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 @OnlyIn(Dist.CLIENT)
 public class AnchorPrototypeScreen extends AbstractContainerScreen<AnchorPrototypeMenu> {
     private static final ResourceLocation TEXTURE =
-            ResourceLocation.fromNamespaceAndPath("focal_decay", "textures/gui/anchor_prototype.png");
+            ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "textures/gui/anchor_prototype.png");
 
     public AnchorPrototypeScreen(AnchorPrototypeMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
@@ -36,27 +38,27 @@ public class AnchorPrototypeScreen extends AbstractContainerScreen<AnchorPrototy
         ItemStack model = this.menu.getSlot(0).getItem();
         ObserverModelData data = ObserverModelItem.getData(model);
         if (data != null && ObserverModelData.TYPE_BIO.equals(data.type())) {
-            graphics.drawString(this.font,
+            VanillaText.draw(graphics,
                     Component.translatable("gui.focal_decay.bio_energy",
                             this.menu.getBioEnergy(), this.menu.getBioCapacity()),
-                    this.leftPos + 8, this.topPos + 58, 0x404040, false);
+                    this.leftPos + 8, this.topPos + 58, 0x404040);
             if (this.menu.getBioEnergy() <= 0) {
-                graphics.drawString(this.font,
+                VanillaText.draw(graphics,
                         Component.translatable("gui.focal_decay.bio_energy_empty"),
-                        this.leftPos + 8, this.topPos + 68, 0xFF5555, false);
+                        this.leftPos + 8, this.topPos + 68, 0xFF5555);
             }
         }
         if (data != null && ObserverModelData.TYPE_GUIDED.equals(data.type())) {
             if (data.concept().isEmpty()) {
-                graphics.drawString(this.font,
+                VanillaText.draw(graphics,
                         Component.translatable("gui.focal_decay.guided_invalid"),
-                        this.leftPos + 8, this.topPos + 58, 0xFF5555, false);
+                        this.leftPos + 8, this.topPos + 58, 0xFF5555);
             } else {
-                graphics.drawString(this.font,
+                VanillaText.draw(graphics,
                         Component.translatable("gui.focal_decay.guided_concept",
                                 GuidedConcept.displayName(data.concept()),
                                 Math.round(data.stabilityStrength() * 100)),
-                        this.leftPos + 8, this.topPos + 58, 0x404040, false);
+                        this.leftPos + 8, this.topPos + 58, 0x404040);
             }
         }
         this.renderTooltip(graphics, mouseX, mouseY);

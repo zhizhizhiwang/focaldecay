@@ -1,6 +1,8 @@
 package com.zhizhiwang.focal_decay.compat.jei;
 
 import com.zhizhiwang.focal_decay.FocalDecay;
+import com.zhizhiwang.focal_decay.client.facade.VanillaGui;
+import com.zhizhiwang.focal_decay.client.facade.VanillaText;
 import mezz.jei.api.gui.builder.IRecipeLayoutBuilder;
 import mezz.jei.api.gui.drawable.IDrawable;
 import mezz.jei.api.gui.ingredient.IRecipeSlotsView;
@@ -8,8 +10,6 @@ import mezz.jei.api.helpers.IGuiHelper;
 import mezz.jei.api.recipe.IFocusGroup;
 import mezz.jei.api.recipe.RecipeType;
 import mezz.jei.api.recipe.category.IRecipeCategory;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
@@ -113,26 +113,15 @@ public final class ModelDerivationCategory implements IRecipeCategory<ModelDeriv
         guiGraphics.fill(1, 1, WIDTH - 1, HEIGHT - 1, COLOR_PANEL);
 
         // 两个输入槽 + 一个输出槽的槽位底
-        drawSlot(guiGraphics, INPUT_X, SLOT_Y);
-        drawSlot(guiGraphics, OUTPUT_X, SLOT_Y);
+        VanillaGui.drawPseudoSlot(guiGraphics, INPUT_X, SLOT_Y, COLOR_SLOT, COLOR_SLOT_INNER);
+        VanillaGui.drawPseudoSlot(guiGraphics, OUTPUT_X, SLOT_Y, COLOR_SLOT, COLOR_SLOT_INNER);
         if (!recipe.workbench().isEmpty()) {
-            drawSlot(guiGraphics, WORKBENCH_X, SLOT_Y);
+            VanillaGui.drawPseudoSlot(guiGraphics, WORKBENCH_X, SLOT_Y, COLOR_SLOT, COLOR_SLOT_INNER);
         }
         // 结果区底色略提亮，暗示"这是产物"
         guiGraphics.fill(TEXT_X, TEXT_Y - 6, TEXT_X + TEXT_WIDTH, HEIGHT - 6, COLOR_TEXT_AREA);
 
-        Font font = Minecraft.getInstance().font;
-        int y = TEXT_Y;
-        for (var visual : font.split(Component.translatable(recipe.noteKey()), TEXT_WIDTH)) {
-            guiGraphics.drawString(font, visual, TEXT_X, y, COLOR_TEXT, false);
-            y += font.lineHeight + 2;
-        }
-    }
-
-    private static void drawSlot(GuiGraphics guiGraphics, int centerX, int centerY) {
-        int left = centerX - 1;
-        int top = centerY - 1;
-        guiGraphics.fill(left, top, left + 18, top + 18, COLOR_SLOT);
-        guiGraphics.fill(left + 1, top + 1, left + 17, top + 17, COLOR_SLOT_INNER);
+        VanillaText.drawWrapped(guiGraphics, Component.translatable(recipe.noteKey()),
+                TEXT_X, TEXT_Y, TEXT_WIDTH, COLOR_TEXT);
     }
 }

@@ -1,11 +1,13 @@
 package com.zhizhiwang.focal_decay.client.screen;
 
+import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.menu.ObserverCoreMenu;
+import com.zhizhiwang.focal_decay.client.facade.VanillaGui;
+import com.zhizhiwang.focal_decay.client.facade.VanillaText;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.game.ServerboundContainerButtonClickPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.api.distmarker.Dist;
@@ -26,7 +28,7 @@ import net.neoforged.api.distmarker.OnlyIn;
 @OnlyIn(Dist.CLIENT)
 public class ObserverCoreScreen extends AbstractContainerScreen<ObserverCoreMenu> {
     private static final ResourceLocation TEXTURE =
-            ResourceLocation.fromNamespaceAndPath("focal_decay", "textures/gui/observer_core.png");
+            ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "textures/gui/observer_core.png");
 
     /** 贴图是 256x256 画布，实际面板占左上角 176x166（{@code blit} 的 7 参数重载按 256x256 取 UV）。 */
     private static final int PANEL_WIDTH = 176;
@@ -59,15 +61,9 @@ public class ObserverCoreScreen extends AbstractContainerScreen<ObserverCoreMenu
         super.init();
         this.addRenderableWidget(Button.builder(
                         Component.translatable("gui.focal_decay.core_install"),
-                        b -> sendButton(0))
+                        b -> VanillaGui.sendButtonClick(this.menu.containerId, 0))
                 .bounds(this.leftPos + 8, this.topPos + BUTTON_Y, TEXT_WIDTH, 20)
                 .build());
-    }
-
-    private void sendButton(int id) {
-        if (this.minecraft != null && this.minecraft.player != null) {
-            this.minecraft.player.connection.send(new ServerboundContainerButtonClickPacket(this.menu.containerId, id));
-        }
     }
 
     @Override
@@ -85,20 +81,19 @@ public class ObserverCoreScreen extends AbstractContainerScreen<ObserverCoreMenu
      */
     @Override
     protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
-        graphics.drawString(this.font, this.title, this.titleLabelX, this.titleLabelY, COLOR_TITLE, false);
+        VanillaText.drawShadowed(graphics, this.title, this.titleLabelX, this.titleLabelY, COLOR_TITLE);
     }
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         super.render(graphics, mouseX, mouseY, partialTick);
         boolean online = this.menu.isPowered();
-        graphics.drawString(this.font,
+        VanillaText.draw(graphics,
                 Component.translatable(online ? "gui.focal_decay.core_online" : "gui.focal_decay.core_offline"),
-                this.leftPos + 8, this.topPos + STATUS_Y, online ? COLOR_ONLINE : COLOR_OFFLINE, false);
+                this.leftPos + 8, this.topPos + STATUS_Y, online ? COLOR_ONLINE : COLOR_OFFLINE);
         if (!online) {
             // 折行而不是硬画一行：这句中英文都比面板宽。
-            graphics.drawWordWrap(this.font,
-                    Component.translatable("gui.focal_decay.core_hint"),
+            VanillaText.drawWrapped(graphics, Component.translatable("gui.focal_decay.core_hint"),
                     this.leftPos + 8, this.topPos + HINT_Y, TEXT_WIDTH, COLOR_HINT);
         }
         this.renderTooltip(graphics, mouseX, mouseY);

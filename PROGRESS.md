@@ -1317,6 +1317,124 @@ bug 是"闸门在倍率 ≠ 1 时失效/永久关闭"。默认档位（speed 1 /
 状态 y=30、按钮 56~76、提示自 y=92 起（最坏 4 行 = 36px，到 128），全部落在 166 高的面板内；
 折行由 `drawWordWrap` 保证，横向溢出结构上不可能发生。**未做客户端实机截图。**
 
+### 13.16 版本可移植性重构（2026-09-21，不升级 MC 版本）
+
+**动机**：为将来支持更多 Minecraft 版本（且最终目标是 26.x）铺路。26.1 起 Java 由 21 升到 25、
+官方直接发反混淆名（Parchment 停在 1.21.11）；26.2 重写了整个渲染后端（Vulkan、
+`GpuFormat`、动态 `VertexFormat`、`BindGroupLayout`），并且**删除了 `Font` 的全部绘制方法**
+（改成 `prepareText` + `GlyphVisitor`）。本次重构只做"把易碎面收拢"，**不动版本号**，
+所以每一步都可以用当前 1.21.1 环境直接验证。
+
+1. **落盘/过网的注册表数字 ID 全部改成 `ResourceLocation` 字符串**
+   - `attachment/BreakData`：NBT 本来就存字符串，但网络编解码走的是
+     `BuiltInRegistries.BLOCK.getId/ById` 的 VarInt。数字 ID 是"注册顺序"的函数，
+     会随 MC/加载器/模组集合漂移；这条数据跟着玩家存档跨会话存在，必须用稳定 ID。
+     顺带删掉了**从未被调用的** `encode`/`decode`（attachment 走 NBT，不走网络）。
+   - 判据：**只有跨越"进程/会话/存档"边界的数字 ID 才是问题**。
+     纯运行时的数组下标（`MutationIndex` / `ShapeClasses` / `ClassifiedPool`）不受影响，
+     它们本来就必须在单进程内自洽；`ClassifiedPool` 用注册表 ID 排序是为了"两端可复现"，
+     同一次运行内一致即可，故保持原样。
+
+2. **`observer_veil` 后处理抽成 `client/ObserverVeil`**（原在 `ClientRenderCache` 里，约 120 行）
+   - 这是全 mod **版本最易碎**的一段：直接操作 `PostChain` / `RenderTarget`。
+     现在移植时只改它的 `ensureLoaded` / `update` 两个方法。
+   - `ClientRenderCache` 只保留"该不该画"的判断（开关、世界、别的后处理是否占用），
+     呼吸曲线/淡出/资源重载重建全部搬走。
+
+3. **客户端保护区域镜像抽成 `client/ClientRegionData`**（原在 `ClientRenderCache` 里，约 220 行）
+   - 含三个同步包的写入（整表快照 / 单条原型机 / 单条诞生周期）与三个查询
+     （`protectionInfo` / `blockBirthPeriod` / `guidedModels` + `guidedBias`）。
+     它与幽灵缓存只有两个接触点，却是"客户端算得和目标一致"的另一半输入（前一半是
+     `MutationSettings`）。
+   - 它**刻意不持有** `stage` / `settings`：那两个量是"当前周期"的函数、由缓存的生命周期管理，
+     让镜像保持纯数据，就不必跟着实现一遍同样的清理逻辑。
+   - **顺手修掉一个真 bug**：`applyBirthPeriod` 原先只在"缓存里正好有这条幽灵时"才
+     `evaluated.remove(key)`，而诞生周期通过 `MutationHelper` 的 `fromPeriod` 门控**直接参与解析**
+     ——方块还没被判为候选时那条负缓存留在表里，新周期下会继续返回"此处无幽灵"。
+     现在统一成 `dropRegionEntries`：**三个同步入口都同时清幽灵与负缓存**。
+   - 另外补上"换世界时 `regions.clear()`"：维度键（尤其 `minecraft:overworld`）在不同存档里相同，
+     原先只在断线时清，从世界 A 直接进世界 B 会带着 A 的保护范围。
+
+4. **文本/界面门面 `client/facade/VanillaText` + `VanillaGui`**
+   - `Font` 绘制是 26.2 里被整体删除的 API，而"折行 + 逐行"的循环会让重写量按调用点翻倍。
+     现在所有绘制收进 `VanillaText`（`draw` / `drawShadowed` / `drawWrapped` / `split`），
+     两个 JEI 类别里复制了两份的"槽位底 + 注释折行"合并成 `VanillaGui.drawPseudoSlot`
+     与一次 `VanillaText.drawWrapped`。
+   - **没有**把 `blit` / `fill` 也包一层：它们的调用点大多是"一行一图"，
+     包起来只增加跳转、不减少移植量（避免过度抽象）。
+
+5. **`ClientRenderCache` 内两条即时查询合并为 `liveTarget(level, pos, writeBack)`**
+   - `visibleState`（中键选取）与 `miningState`（挖掘进度）的判定链曾有约 35 行重复。
+     合并后**保留唯一那处真实差异**并写进注释：中键不写回缓存、也不看暴露面
+     （它问的是"方块是什么"，与可见性无关）；挖掘必须过暴露面判据并写回，否则每 tick 都要
+     重跑一次完整判定（累积回退扫描上限 128 个周期）。
+
+6. **其它清理**
+   - 删除死代码 `client/ClientRenderDebug`：它只有一个 `volatile boolean enabled`，
+     **没有任何读取方**；`/focaldecay trace` 里用反射给它赋值的那个 try/catch 也一并删除
+     （反射本身不会失败，失败的是"写了没人读"）。
+   - `MutationStateMapper` 去掉 `apply` → `applyTyped` 的一层无意义转发（泛型推断本来就够）。
+   - `ClassifiedPool.flatten` 从 O(n²) 的反复 `new + arraycopy` 改成先算总长再一次性拷贝。
+   - 三个 GUI Screen 里硬编码的 `"focal_decay"` 换成 `FocalDecay.MODID`。
+   - `ClientSetup` 去掉已废弃并标记待删除的 `bus = EventBusSubscriber.Bus.MOD`
+     （NeoForge 21.1 起按事件类型自动判总线）。
+   - `ClientRenderCache#evaluated` 上方**原本就有两段重复的 Javadoc**，删掉被遮蔽的那一段。
+
+**验收**：`compileJava` / `build` 通过；`runServer` 启动 1.06s
+（`Done (1.060s)!`），devtest 数据包的 `period selftest` 8 项全 PASS，
+`/focaldecay mutation audit|selftest` 无 FAIL 行；`runClientNoEarlyWindow` 启动到
+资源加载完成（含 `observer_veil` 特效 shader 编译）无 Java 异常。
+
+**遗留**：`MutationAudit`（698 行）与 `PROGRESS` 里的历史条目引用了本次改名前的
+私有方法名（`refreshRegionData` / `refreshBirths`），历史记录不回改，读到时以本节的映射为准。
+
+### 13.15 王座激活 OBSR-EX：触发方式错了、仪式期间拆基座/取走模型照样发奖励（2026-09-17）
+
+**用户报告**：
+① 设计上应该"手持未激活 OBSR-EX 右键**放置好的**观测者基座"触发激活流程；
+实际却是——基座已放置时，拿 EX 右键**王座区域**就能触发；没放基座时，包里带着 EX、**手里拿基座**右键王座区域也能触发。
+② 仪式期间把 EX 丢出去，仪式结束后照样拿到已激活模型，且不打断流程；**拆掉观测者基座同理**。
+
+**根因**：触发与维持都绑在了错误的对象上。
+
+- **触发**（①）：`ThroneRitualHandler.onRightClick` 判的是"点击位置是否落在王座周围 5×3×5 的盒子里"
+  （`isThroneBase`），条件只查**背包**（`hasUnactivatedModel` 扫背包 + `hasPrototype` 接受"背包里有基座物品"）。
+  于是"拿基座右键王座"成立、而"基座放在哪儿"根本不参与判定——基座可以远在天边，甚至还在背包里。
+- **维持**（②）：`tickRitual` 只校验玩家本人（活着、在半径内），**从不检查那座基座与模型还在不在**；
+  模型是在 `complete()` 里才从背包扣掉的，期间它一直躺在玩家背包里，丢出去当然无所谓。
+  结算还是"半径里随便找一座槽内是未激活 EX 的基座就地升级，找不到就往玩家背包塞一枚新的"——
+  等于**没参与仪式的模型也能换来一枚已激活模型**。
+
+**修法**：把仪式绑到"那一座基座"这个具体对象上。
+
+- **触发**：只有"手持未激活 OBSR-EX 右键**已放置的锚原型机方块**，且它在王座半径内"才启动；
+  EX 在触发时就被放进基座插槽（这就是献祭），插槽已占用且不是未激活 EX 时提示先取出。
+  手里不是未激活 EX 时**不拦截**——右键基座照旧打开它的 GUI（那是正常装/取模型的途径）。
+- **绑定**：`ThroneRitualData` 新增 `prototypePos` 并落盘，仪式从此记着"是哪一座基座"。
+  这也顺带修掉了"多座基座时 `findPrototype` 按坐标遍历顺序挑一座"的不确定性。
+- **维持**：每 tick 先校验现场条件（`prototypeIntact`：那座基座还在原位 **且** 插槽里还是那枚未激活 EX），
+  再判玩家与倒计时——所以"恰好在这一刻拆掉基座"也算中断，不会被算成完成。
+  中断走 `fail(...)`，带一条只发给执行者的原因提示（`ritual_lost_prototype`）。
+- **结算**：只做就地替换（手册 §登座仪式写的"基座内那枚被替换为已激活版本"），
+  删掉"找不到基座就往背包塞一枚"的兜底——那条正是"模型没参与仪式也拿奖励"的来源。
+- **文案**：手册的"开始"页原本写的是错误行为（"以观测者基座右键王座中央的基座方块"），
+  已改成"手持未激活的 OBSR-EX 右键那座观测者基座"，并新增"维持"页说明中断条件（中英同步）；
+  lang 新增 `ritual_slot_occupied` / `ritual_lost_prototype`，改写 `ritual_need_prototype`，
+  删掉不再使用的 `ritual_need_model`。
+
+**验证**：新增 `/focaldecay throne selftest`（devtest H 段已接入）。它在测试者头顶临时放一座基座，
+把四种情形走一遍，跑完还原原地块：
+
+```
+[ritual] site check (empty / inactive EX / other model / base removed): PASS
+```
+
+**这个测试也做了 A/B**（确认断言不是空的）：把 `prototypeIntact` 改成恒真之后
+`FAIL empty=false withEx=true wrongModel=false removed=false`，改回来 `PASS`。
+
+**没有自动化验证的**：触发路径本身（需要真人右键）。
+`[ritual]` 覆盖的是"现场条件"这个判据；"右键基座启动 / 右键王座不启动"只能实机确认，已写进手册文案。
+
 ## 关键约定与注意事项
 
 1. **AI 守则**：默认 GBK，编辑文件用 UTF-8
