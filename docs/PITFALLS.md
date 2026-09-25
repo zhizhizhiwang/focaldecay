@@ -95,7 +95,11 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 | `canOcclude()` | 只是"有能力遮挡"的开关。**雪片、半砖都是 true 却只挡住面的一部分**，拿它当"被完全遮挡"会误判 |
 | `isSolidRender()` | 要求**碰撞形状填满整格**，雪片同样为 false → 一刀切太多 |
 | 判断"是否完全遮住某个面" | 正解是 `state.getFaceOcclusionShape(level,pos,face.getOpposite())` 的包围盒是否覆盖整面（原版 `Block.shouldRenderFace` 的口径） |
-| `NeoForge` 的 `setCanceled(true)` | **不会**重置 `cancellationResult`。只取消不设结果 = 告诉原版"我没处理，继续走" |
+| `BlockEvent.BreakEvent` 的公开 API | **只有** `getPlayer()` / `setCanceled(boolean)`。它**改不了"被破坏的是哪个方块"**，而原版 `destroyBlock` 在触发事件之前就已经把 `blockstate1` 读进局部变量了。想在破坏路径上换方块，唯一出路是**动世界**（`setBlock` 后再重派发），没有"只改一个变量"的第三条路 |
+| `Block.popResource` | **自己门控 `doTileDrops`**。所以"想加一个受规则管住的掉落"就用它，别自己 `new ItemEntity` + `addFreshEntity`（那样绕过规则）。反过来：`Block.getDrops` 内部也走它，所以"手工管线会无视 `doTileDrops`"这个推论是**错的**——除非你真的自建了实体 |
+| `BlockBehaviour#spawnAfterBreak` | 原版**只**在 `playerDestroy` 的**默认实现**里调它（`BlockBehaviour#playerDestroy` → `state.spawnAfterBreak(...)`）。方块一旦覆写 `playerDestroy` 且不调 `super`，`spawnAfterBreak` 就**永远不会被调用**——写测试断言它之前先确认这一点（本项目为此浪费了一轮 A/B） |
+| `AttachmentType.Builder#copyOnDeath` | 只对**有序列化器**的 attachment 生效（serializer 为 null 时它直接抛 `IllegalStateException`）。所以"锁定跨死亡存活"这个 bug 是**序列化器 + `copyOnDeath` 两条路径一起漏**；要根治就两条一起删，别只删一条 |
+| `AttachmentInternals#copyEntityAttachments` | 死亡时**只**复制显式勾了 `copyOnDeath` 的 attachment（`isDeath ? type -> type.copyOnDeath : type -> true`）。这就是上一条的判据来源 |
 | `RightClickBlock.cancellationResult` 默认值 | `InteractionResult.PASS`。而 `ServerPlayerGameMode#useItemOn` 是 `if (event.isCanceled()) return event.getCancellationResult();` |
 | `LootTable.getRandomItems` | **不校验参数集**，所以表里写 `generic` 而用 `COMMAND` 参数集建上下文是安全的 |
 | `StructureSettings.spawn_overrides` | **必填**（`fieldOf`）。漏了会拒绝加载**整个存档**，空对象 `{}` 即可 |
@@ -108,6 +112,36 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 | 函数里命令的输出 | 被抑制，`/data get` 不进日志。要结论只能用 `say` |
 | NBT 匹配里的列表 | 是"**包含**"语义：`["a","b"]` = a 和 b 都在；`[]` **只**匹配空列表；`{Items:[{...}]}` = 任意一格命中 |
 | 结构里的悬挂实体 | 放置时刷 `Block-attached entity at invalid position` ERROR 属原版噪声，**实体位置是对的** |
+
+### 2.1 交互路径上"换一个方块"的正确姿势（2026-09-25 定稿）
+
+挖掘与右键两条路径都已经收敛到同一个套路，**新加交互时照抄它**：
+
+```
+事件到达（面对的是真实方块）
+  ↓ 旁路标志已置位？ → 是：直接返回，让原版继续（这次面对的就是目标）
+  ↓ 事件已被更早的监听器取消？ → 是：尊重它，什么都不做
+  ↓ 决定"目标方块"是谁
+  ↓ setBlock(pos, target, 2)        ← 唯一改动世界的一步
+  ↓ 清掉记录用的一次性状态           ← 重派发会再次触发同一个事件
+  ↓ 旁路标志 = true
+  ↓     重新派发原版入口（破坏：gameMode.destroyBlock；右键：gameMode.useItemOn）
+  ↓ 旁路标志 = false
+  ↓ 取消本次事件（+ 右键要显式给 cancellationResult）
+```
+
+几条踩过的细节：
+
+- **旁路标志用 `ThreadLocal<Boolean>`**，不是玩家标记：重派发是同线程同步调用，
+  作用域天然只覆盖这一次；异常路径上也不会留下脏状态（用 `try/finally`）。
+- **破坏与右键用两个不同的 `ThreadLocal`**，不要共用一个。
+- **`setBlock` 的 flag 要按语义选**：右键那条用 3（要触发邻块更新，方块真的变了身份）；
+  破坏那条用 2（紧接着就要拆掉它，flag 3 会让邻块在几微秒内被通知两次，
+  对红石之类是可见抖动；方块形状没变，邻块本来也不需要重算）。
+- **一次性状态必须在重派发之前清掉**，否则第二次进入时重复消费同一份数据。
+- **别把"记录用的字段"顺手改成判定条件**。`BreakData.periodIndex` 曾被当成"锁定过期就拒绝转换"
+  的依据，语义上是反的：锁定的意义就是"玩家看到的是哪个方块"，它必须压过时钟漂移。
+  详见 `docs/progress/2026Q4.md` §K。
 
 ---
 
@@ -391,6 +425,9 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 7. 日志一律 ASCII；文档与注释可以中文。
 8. 可选依赖一律类加载隔离，并用 `javap` 复验字节码。
 9. **不要手工复刻原版生命周期**；只替换那个你要改变的变量，让原版管线跑完。
+   掉落、经验、耐久、统计、成就、其他模组的钩子全部自动正确，而且以后原版或别的模组新加的
+   任何一步也自动正确。手工补调用是一条永远追不上的路（挖掘路径曾漏掉**八项**原版行为，
+   2026-09-25 重构掉）。具体套路见 §2.1，经过见 `progress/2026Q4.md` §K。
 10. 断言必须做 A/B；"未做实机验证"必须明说。
 11. 跨进程/会话/存档的标识用 `ResourceLocation` 字符串，不用数字 ID。
 12. 完成一项工作就把 BACKLOG 里那条删掉，并在进度里记一节（见 `AGENTS.md` §5）。

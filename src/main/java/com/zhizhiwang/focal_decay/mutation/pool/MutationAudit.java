@@ -781,6 +781,12 @@ public final class MutationAudit {
         List<String> failures = new ArrayList<>();
         try {
             for (double speed : new double[]{1.0, 7.0, 0.5}) {
+                // ⚠️ offset 必须一起设成已知值（2026-09-25 修）。
+                // 只设 speed、把 offset 留给现场，这条断言就会<b>依赖开发世界当时的状态</b>：
+                // 它比的是 displayPeriod(now) 与 storagePeriod(now)，而只有 offset=0 时两者才必然不同。
+                // 时钟被前一段自测留在任意 offset 上时（实测 offset=5000），非默认倍率下两个周期
+                // 可能刚好对上，于是 differs 恒为 false、报出一句看不懂的
+                // "storage-clock birth gives the same verdict"。观测到过一次。
                 worldData.setClock(speed, 0L);
                 long now = MutationEventHandler.displayPeriodIndex(level);
                 long birth = MutationEventHandler.birthPeriodIndex(level, Long.MIN_VALUE);
@@ -808,7 +814,11 @@ public final class MutationAudit {
                 }
                 if (speed != 1.0 && !differs) {
                     discriminating = false;
-                    failures.add("speed=" + speed + ": storage-clock birth gives the same verdict");
+                    // 把两个周期一起打出来：这句失败在"实现坏了"和"现场时钟不干净"两种情况下
+                    // 长得一模一样，没有数字就只能靠猜。
+                    failures.add("speed=" + speed + ": storage-clock birth gives the same verdict"
+                            + " (display=" + now + " storage=" + wrongBirth + " - if these are equal,"
+                            + " the test site's clock was not neutral)");
                 }
             }
         } finally {

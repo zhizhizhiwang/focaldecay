@@ -8,14 +8,15 @@ import com.zhizhiwang.focal_decay.item.ModItems;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import com.zhizhiwang.focal_decay.network.ModNetwork;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.stats.Stats;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.EventPriority;
@@ -24,7 +25,6 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
 
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,6 +45,15 @@ public class InteractionHandler {
      * 也不会在异常路径上留下脏状态。
      */
     private static final ThreadLocal<Boolean> REDISPATCHING = ThreadLocal.withInitial(() -> false);
+
+    /**
+     * 重派发<b>破坏</b>的旁路标志（与右键那个分开）。
+     * <p>
+     * 为什么不能共用一个：右键路径在重派发期间要置位、破坏路径也要置位，但两条路径的
+     * "应该放行哪一个处理器"是<b>不同</b>的问题——共用标志会让右键重派发期间到达的破坏事件
+     * 也走旁路放行（虽然实际不会同时发生，但语义上就是错的）。两个标志各自表达自己那一件事。
+     */
+    private static final ThreadLocal<Boolean> BREAK_REDISPATCHING = ThreadLocal.withInitial(() -> false);
 
     /**
      * 诊断开关（{@code /focaldecay trace true}）。开启后右键判定会打日志，
@@ -222,7 +231,7 @@ public class InteractionHandler {
         // 掉帧时两者会差出一个周期——用服务端的周期解析就等于换掉玩家正在挖的那个方块。
         long periodIndex = interactionPeriod(serverLevel, player, pos);
         BlockState target = MutationTargets.resolveServer(serverLevel, pos, state, periodIndex);
-        breakData.start(target, periodIndex, pos);
+        breakData.start(target, periodIndex, pos, serverLevel.dimension());
         trace("left-click " + pos.toShortString() + " stage=" + stage + " real=" + id(state)
                 + " target=" + id(target));
         tracePeriodEcho(serverLevel, pos, state, target, periodIndex);
@@ -355,78 +364,237 @@ public class InteractionHandler {
                 + " -> kept the client's, otherwise " + id(serverTarget) + " instead of " + id(usedTarget));
     }
 
-    /** 方块破坏：执行真实转换。 */
+    /**
+     * 方块破坏：把这个位置<b>换成可见目标方块</b>，然后让原版破坏管线对着它跑完。
+     * <p>
+     * <b>为什么不是"手工补掉落"</b>（2026-09-25 重构，BACKLOG P0-4）：
+     * 旧实现在这里 {@code setCanceled(true)} 之后手工复刻原版 {@code destroyBlock} 的收尾
+     * （{@code setBlock(AIR)} → {@code Block.getDrops} → 自建 {@code ItemEntity} → {@code getExpDrop}
+     * → {@code mineBlock} → {@code awardStat} → {@code causeFoodExhaustion}），
+     * 漏掉了原版的八项行为：{@code playerWillDestroy} / {@code onDestroyedByPlayer} / {@code destroy} /
+     * {@code playerDestroy}（自定义方块覆写的掉落，例如<b>容器溢出内容物</b>）/ {@code spawnAfterBreak} /
+     * {@code BlockDropsEvent} / {@code RULE_DOBLOCKDROPS} / {@code onPlayerDestroyItem}。
+     * 这种"手工管线"每补一条边就要永久维护一次，而且没法验证"补全了没有"。
+     * <p>
+     * <b>现在只替换一个变量：被破坏的是哪个方块。</b>做法是把可见目标真的写进世界，
+     * 再重派发 {@code ServerPlayerGameMode#destroyBlock}——原版管线对着一份<b>普通的</b>目标方块状态
+     * 走完整流程，于是上面八项以及<b>以后原版或别的模组新加的任何一步</b>都自动正确。
+     * 重派发期间 {@link #BREAK_REDISPATCHING} 置位，本处理器直接放行，让原版继续。
+     * <p>
+     * <b>为什么必须重派发、不能"放进去然后不取消事件"</b>：原版在触发 {@code BreakEvent} 之前
+     * 就已经把 {@code blockstate1} 读进局部变量了，{@code playerWillDestroy} / {@code playerDestroy}
+     * 用的都是那一份。改了世界也改不了它手里那个引用，结果会是"世界里的方块变了、掉落却按旧方块算"。
+     */
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onBlockBreak(BlockEvent.BreakEvent event) {
+        if (BREAK_REDISPATCHING.get()) {
+            return; // 我们自己重派发出来的那一次：交给原版正常处理
+        }
+        if (event.isCanceled()) {
+            return; // 更早的监听器（例如保护类模组）已经否决了这次破坏，尊重它
+        }
         if (!(event.getLevel() instanceof ServerLevel serverLevel)) {
             return;
         }
-        Player player = event.getPlayer();
-        if (player == null || player.isCreative()) {
+        // gameMode 字段只在 ServerPlayer 上：重派发原版管线需要一个服务端玩家，
+        // 所以这里就把类型收紧（服务端侧的 BreakEvent 实体本来就是 ServerPlayer，
+        // 与 onLeftClickBlock 的写法一致）
+        if (!(event.getPlayer() instanceof ServerPlayer player)) {
             return;
         }
-        BlockPos pos = event.getPos();
+        if (player.isCreative()) {
+            return; // 创造模式破坏不产生掉落，无需转换（与旧实现一致）
+        }
+
         BlockState sourceState = event.getState();
-        BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
-        if (!breakData.isActive()) {
-            return;
+        if (performBreak(serverLevel, player, event.getPos(), sourceState, true)) {
+            // ⚠️ 必须取消：这次事件面对的是<b>真实</b>方块，而那个方块已经在重派发里被原版
+            // 正常破坏掉了。不取消的话原版 {@code destroyBlock} 会接着拿它自己那份旧引用
+            // 再走一遍 removeBlock/playerDestroy——方块已被移除，多半静默失败或重复掉落。
+            // 取消时原版会把 {@code state}（真实方块）回发给客户端，但世界此刻已经是空气，
+            // setBlock(flag 3) 的更新紧随其后，客户端不会闪。
+            event.setCanceled(true);
         }
-        if (!pos.equals(breakData.getPos())) {
-            breakData.clear(); // 位置不匹配：陈旧的锁定（上次挖掘的目标残留）
-            return;
+    }
+
+    /**
+     * 破坏拦截的<b>可测入口</b>（{@code [break]} 自测直接调它，见 {@code BreakAudit}）。
+     * <p>
+     * 与事件监听器分开是为了让自测能跑在<b>同一条生产代码路径</b>上：自测只需要一个
+     * {@code ServerPlayer}（用 {@code FakePlayer} 即可），不必伪造一个 {@code BlockEvent}，
+     * 也不必注册一个假的事件总线。逻辑只写在这里一份。
+     *
+     * @param swapInTarget 是否真的把目标方块写进世界并重派发原版管线。
+     *                     生产路径恒为 {@code true}；自测用 {@code false} 做<b>反证</b>
+     *                     （证明"没有这一步时断言确实会 FAIL"，见 §4 的 A/B 硬要求）。
+     * @return 是否拦截了这次破坏（调用方据此取消原事件）
+     */
+    public static boolean performBreak(ServerLevel level, ServerPlayer player, BlockPos pos,
+                                       BlockState sourceState, boolean swapInTarget) {
+        BreakData breakData = player.getData(ModAttachments.BREAK_DATA);
+        LockVerdict verdict = validateLock(breakData, pos, level.dimension());
+        if (verdict != LockVerdict.USABLE) {
+            if (verdict != LockVerdict.NO_LOCK) {
+                breakData.clear(); // 陈旧锁定（跨位置/跨维度）一律清掉，不留着下一次误用
+            }
+            return false;
+        }
+        // 周期翻页**不是**拒绝转换的理由，只记一行诊断（见 validateLock 的说明）。
+        long currentPeriod = MutationEventHandler.displayPeriodIndex(level);
+        if (breakData.getPeriodIndex() != currentPeriod) {
+            trace("break lock crosses a period boundary at " + pos.toShortString()
+                    + ": locked=" + breakData.getPeriodIndex() + " current=" + currentPeriod
+                    + " -> honoring the locked target (that is what the player saw)");
         }
 
         BlockState targetState = breakData.getTargetState();
-        breakData.clear();
-
-        if (targetState == null) {
-            return;
+        breakData.clear(); // 必须在重派发<b>之前</b>清掉：第二次 BreakEvent 会再次进入本方法
+        if (targetState == sourceState) {
+            return false; // 本周期没抽中（目标与真实方块相同）：走原版，不必折腾
+        }
+        if (!swapInTarget) {
+            return false; // 自测的反证路径：只走到这里，不写世界
         }
 
-        // 取消默认掉落与经验，自行处理转换
-        event.setCanceled(true);
+        // ---- 唯一改动世界的那一步：把可见目标放回世界 ----
+        // flag 2 = 通知客户端 + 不触发邻块更新。刻意<b>不</b>用右键路径那个 flag 3：
+        // 这里紧接着就要把这块拆掉，邻块在几微秒内会被通知两次（一次"变成石头"、
+        // 一次"变成空气"），对红石之类的方块是可见的抖动。方块形状没有变化，
+        // 邻块本来就不需要为"这里换了种石头"重新计算。
+        level.setBlock(pos, targetState, 2);
 
-        // 清除原方块
-        serverLevel.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
-
-        // 工具传入玩家主手物品：目标方块的"挖掘等级"（requiresCorrectToolForDrops）
-        // 由当前可见目标决定——拿对工具才有对应掉落，拿错则无掉落（与原版一致）
-        List<ItemStack> drops = net.minecraft.world.level.block.Block.getDrops(
-                targetState, serverLevel, pos, null, player, player.getMainHandItem());
-
-        // 生存模式：生成目标方块的掉落物实体与经验
-        for (ItemStack drop : drops) {
-            net.minecraft.world.entity.item.ItemEntity item = new net.minecraft.world.entity.item.ItemEntity(
-                    serverLevel, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, drop);
-            item.setDefaultPickUpDelay();
-            serverLevel.addFreshEntity(item);
-        }
-        int exp = targetState.getExpDrop(serverLevel, pos, null, player, player.getMainHandItem());
-        if (exp > 0) {
-            targetState.getBlock().popExperience(serverLevel, pos, exp);
+        // ---- A/B 开关（只给自测用，正常游戏永远不会打开）----
+        if (AB_OLD_MANUAL_PIPELINE) {
+            oldManualPipelineForAbTest(level, player, pos, targetState, sourceState);
+            return true;
         }
 
-        // 原版 destroyBlock 在 BreakEvent 取消后跳过了 mineBlock 的耐久消耗，这里手动补上：
-        // 按"当前可见目标"结算（目标可破坏速度非 0 时扣 2 耐久，与原版一致）
-        ItemStack held = player.getMainHandItem();
-        if (!held.isEmpty()) {
-            held.mineBlock(serverLevel, targetState, pos, player);
+        // ---- 让原版对着目标方块跑完整流程 ----
+        BREAK_REDISPATCHING.set(true);
+        try {
+            player.gameMode.destroyBlock(pos);
+        } finally {
+            BREAK_REDISPATCHING.set(false);
         }
-        // 还原原版 Block.playerDestroy 的玩家侧行为（被 BreakEvent 取消跳过）：
-        // 挖掘统计 + 0.005 饥饿消耗，按"当前可见目标"结算
-        player.awardStat(Stats.BLOCK_MINED.get(targetState.getBlock()));
-        player.causeFoodExhaustion(0.005F);
 
-        // 铜块失焦突变：概率掉落"硫铜结晶"语义碎片（设计大纲 §11 来源 5）
-        if (targetState.getBlock() != sourceState.getBlock()
-                && sourceState.is(Blocks.COPPER_BLOCK)
-                && serverLevel.random.nextDouble() < FocalDecayConfig.FRAGMENT_COPPER_MUTATION_CHANCE.get()) {
+        // 铜块失焦突变：概率掉落"硫铜结晶"语义碎片（设计大纲 §11 来源 5）。
+        // 这是本模组额外的语义掉落，不属于原版那条管线，所以留在这里。
+        // 放在重派发<b>之后</b>：即使原版因为 canHarvest 判定没有产出，碎片也该照掉。
+        if (sourceState.is(Blocks.COPPER_BLOCK)
+                && level.random.nextDouble() < FocalDecayConfig.FRAGMENT_COPPER_MUTATION_CHANCE.get()) {
             net.minecraft.world.entity.item.ItemEntity fragment = new net.minecraft.world.entity.item.ItemEntity(
-                    serverLevel, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,
+                    level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,
                     new ItemStack(ModItems.FRAGMENT_CRYSTAL.get()));
             fragment.setDefaultPickUpDelay();
-            serverLevel.addFreshEntity(fragment);
+            level.addFreshEntity(fragment);
         }
+        return true;
+    }
+
+    // ------------------------------------------------------------------
+    // A/B 回归开关（BACKLOG P0-4 的验证要求）
+    // ------------------------------------------------------------------
+
+    /**
+     * 打开后，{@link #performBreak} 走<b>重构前那套手工管线</b>，而不是重派发原版。
+     * <p>
+     * <b>为什么要有这段代码</b>：本项目的硬要求是"新增一条断言时，要故意把代码改回坏状态
+     * 确认它真的会 FAIL"（{@code AGENTS.md} §4）。P0-4 的断言全是"探针回调被调用了没有"，
+     * 而正确答案恰恰是"没有被调用"——这种断言最容易变成永远 PASS 的空断言。
+     * 靠手工把代码改回去、跑一遍、再改回来，既容易漏（忘了恢复就提交了），
+     * 也没法在以后重构时重跑。所以把它固化成一个只有测试才会打开的开关：
+     * <pre>
+     *   ./gradlew.bat runServer -Dfocaldecay.abOldBreakPipeline=true
+     * </pre>
+     * 打开后 {@code [break]} 的四条断言应当出现：核心断言 FAIL、控制组 PASS（它不走本路径）、
+     * {@code doTileDrops=false} 那条 FAIL。实测结果记在 {@code docs/progress/2026Q4.md}。
+     * <p>
+     * 这是<b>唯一</b>一处为了测试而留在生产类里的代码，所以刻意写得显眼、只有静态 final 判断、
+     * 且默认关闭——没有配置项、没有命令、运行时无法打开。
+     */
+    private static final boolean AB_OLD_MANUAL_PIPELINE =
+            Boolean.getBoolean("focaldecay.abOldBreakPipeline");
+
+    /**
+     * 重构前那套"手工复刻原版收尾"的管线，逐行保留其缺陷，只用于 A/B 回归。
+     * <p>
+     * 它刻意重犯旧实现的每一个错：手工 {@code setBlock(AIR)}（绕过 {@code onDestroyedByPlayer}）、
+     * 自己 {@code getDrops} 后 {@code addFreshEntity}（绕过 {@code playerDestroy} 覆写、
+     * {@code BlockDropsEvent} 与 <b>{@code doTileDrops}</b> 规则）、不调 {@code spawnAfterBreak}、
+     * 不调 {@code playerWillDestroy}。
+     *
+     * @see #AB_OLD_MANUAL_PIPELINE
+     */
+    private static void oldManualPipelineForAbTest(ServerLevel level, ServerPlayer player, BlockPos pos,
+                                                   BlockState targetState, BlockState sourceState) {
+        level.setBlock(pos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 3);
+        for (ItemStack drop : net.minecraft.world.level.block.Block.getDrops(
+                targetState, level, pos, null, player, player.getMainHandItem())) {
+            net.minecraft.world.entity.item.ItemEntity item = new net.minecraft.world.entity.item.ItemEntity(
+                    level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, drop);
+            item.setDefaultPickUpDelay();
+            level.addFreshEntity(item);
+        }
+        int exp = targetState.getExpDrop(level, pos, null, player, player.getMainHandItem());
+        if (exp > 0) {
+            targetState.getBlock().popExperience(level, pos, exp);
+        }
+        ItemStack held = player.getMainHandItem();
+        if (!held.isEmpty()) {
+            held.mineBlock(level, targetState, pos, player);
+        }
+        player.awardStat(net.minecraft.stats.Stats.BLOCK_MINED.get(targetState.getBlock()));
+        player.causeFoodExhaustion(0.005F);
+    }
+
+    /** {@link #validateLock} 的判定结果。 */
+    public enum LockVerdict {
+        /** 可用：位置与维度都对得上。 */
+        USABLE,
+        /** 根本没有锁定（本周期没抽中，或压根没开始挖）。 */
+        NO_LOCK,
+        /** 锁定的位置或维度对不上：上一次挖掘、或另一个世界的残留。 */
+        STALE
+    }
+
+    /**
+     * 这份挖掘锁定还能不能用（<b>纯函数</b>，供自测）。
+     * <p>
+     * 两条校验各挡一类真实故障，缺一不可：
+     * <ol>
+     *   <li><b>位置</b>——防止上一次挖掘的锁定泄漏到别的方块；</li>
+     *   <li><b>维度</b>——{@link BlockPos} 只是三个整数，同一组坐标在下界与主世界都会相等。
+     *       以前只校验位置：玩家在主世界开始挖、走进传送门、落地后恰好有方块位于同一组坐标，
+     *       就会拿主世界那份锁定去转换下界的方块（BACKLOG P0-4 附带缺陷①）。</li>
+     * </ol>
+     * <p>
+     * <b>周期（{@code getPeriodIndex()}）刻意<b>不</b>参与判定</b>——虽然附带缺陷③说它是死数据，
+     * 但"让它参与判定"是错的解法（第一版就是这么写的，A/B 阶段推翻了）：
+     * <ul>
+     *   <li>锁定的语义是"<b>玩家看到的是哪个方块</b>"。它在挖掘开始那一刻定下来，
+     *       而"看得见摸不着"正是这个模组要避免的事。时钟翻页只说明世界该漂移了，
+     *       不该让玩家正在挖的那一块变成"按原版掉落"；</li>
+     *   <li>拒绝转换的后果是<b>静默不回退</b>：玩家看着 A 挖下去，拿到的却是真实方块 B 的掉落，
+     *       比"按看到的给"更糟；</li>
+     *   <li>而且它触发得非常容易——调试时钟被拨到高速时（{@code /focaldecay period speed}），
+     *       一次普通挖掘就能跨过好几个周期。</li>
+     * </ul>
+     * 所以周期现在只用于诊断，两条出口：{@link #performBreak} 在锁定跨周期时打一行 trace；
+     * {@code /focaldecay mutation at} 把整份锁定（位置 / 维度 / 周期 / 目标）打出来。
+     * 于是它不再是死数据，而且这两条出口回答的正是"为什么这次拿到的掉落和我预期的不一样"。
+     * <p>
+     * 区分 {@code NO_LOCK} 与 {@code STALE} 是有用的：前者什么都不用做，
+     * 后者要把陈旧数据清掉（否则下一次挖掘会误用）。
+     */
+    public static LockVerdict validateLock(BreakData breakData, BlockPos pos,
+                                           ResourceKey<Level> dimension) {
+        if (!breakData.isActive() || breakData.getTargetState() == null) {
+            return LockVerdict.NO_LOCK;
+        }
+        if (!pos.equals(breakData.getPos()) || !dimension.equals(breakData.getDimension())) {
+            return LockVerdict.STALE;
+        }
+        return LockVerdict.USABLE;
     }
 
 }

@@ -7,7 +7,10 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.recipe.DeriveCandidateRecipe;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
+import com.zhizhiwang.focal_decay.attachment.BreakData;
+import com.zhizhiwang.focal_decay.attachment.ModAttachments;
 import com.zhizhiwang.focal_decay.mutation.AnchorNormalizeAudit;
+import com.zhizhiwang.focal_decay.mutation.BreakAudit;
 import com.zhizhiwang.focal_decay.mutation.AnchorNormalizeProfiler;
 import com.zhizhiwang.focal_decay.mutation.DoomsdayHandler;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
@@ -156,6 +159,12 @@ public final class ModCommands {
         for (String line : DoomsdayHandler.selfTest(level.getSeed())) {
             report(source, line);
         }
+        // 挖掘路径（BACKLOG P0-4）：要在世界坐标上摆两个探针方块并跑一遍原版破坏管线，
+        // 所以同样需要真的 ServerLevel。用一个 FakePlayer 走 ServerPlayerGameMode#destroyBlock，
+        // 验的是"原版管线对着目标方块跑完了"，不是"我以为原版会怎么做"。
+        for (String line : BreakAudit.selfTest(level, pos)) {
+            report(source, line);
+        }
         // 固化埋点的累计统计（BACKLOG P0-1）：量出来才知道该优化到什么程度。
         report(source, AnchorNormalizeProfiler.summary());
         return 1;
@@ -183,6 +192,24 @@ public final class ModCommands {
                 + MutationPoolManager.get(level).getBlockBirthPeriod(pos)
                 + " target=" + BuiltInRegistries.BLOCK.getKey(target.getBlock())
                 + " targetState=" + target);
+        // 挖掘锁定（2026-09-25 新增）：`BlockEvent.BreakEvent` 的处理完全由这份数据驱动，
+        // 而它以前在游戏里<b>完全观测不到</b>——"挖出来的掉落和我看到的不一样"这类问题
+        // 只能靠猜。顺带说明附带缺陷③那件事：`getPeriodIndex()` 以前记了从没读过（死数据），
+        // 现在它既进 trace 也进这一行，于是"这次挖掘锁的是哪一刻"是个可查的数字。
+        ServerPlayer actor = source.getPlayer();
+        if (actor == null) {
+            report(source, "  breakLock=(no player source - run this as a player)");
+        } else {
+            BreakData lock = actor.getData(ModAttachments.BREAK_DATA);
+            report(source, "  breakLock=" + (lock.isActive()
+                    ? "active pos=" + lock.getPos().toShortString()
+                            + " dim=" + lock.getDimension().location()
+                            + " period=" + lock.getPeriodIndex()
+                            + " target=" + BuiltInRegistries.BLOCK.getKey(lock.getTargetState().getBlock())
+                    : "inactive")
+                    + " currentDisplayPeriod=" + MutationEventHandler.displayPeriodIndex(level)
+                    + " currentDim=" + level.dimension().location());
+        }
         return 1;
     }
 

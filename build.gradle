@@ -68,6 +68,15 @@ neoForge {
             server()
             programArgument '--nogui'
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            // A/B 回归开关转发（BACKLOG P0-4）。Gradle 的 JavaExec **不会**把命令行上的
+            // -Dxxx 传给 fork 出来的游戏 JVM，所以必须在这里显式转发一次。
+            // 不转发的后果很隐蔽：`gradlew runServer -Dfocaldecay.abOldBreakPipeline=true`
+            // 会正常跑完、日志里什么异常都没有，但属性根本没到游戏里，
+            // 于是 A/B 表现为"把 bug 放回去断言依然 PASS"——正好是最容易被误读成
+            // "实现没问题"的那种失败。只在真的传了值时才转发，平时不产生这个属性。
+            if (System.getProperty('focaldecay.abOldBreakPipeline') != null) {
+                systemProperty 'focaldecay.abOldBreakPipeline', System.getProperty('focaldecay.abOldBreakPipeline')
+            }
         }
         // This run config launches GameTestServer and runs all registered gametests, then exits.
         // By default, the server will crash when no gametests are provided.
