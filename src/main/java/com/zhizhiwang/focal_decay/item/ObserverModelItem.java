@@ -1,6 +1,7 @@
 package com.zhizhiwang.focal_decay.item;
 
 import com.zhizhiwang.focal_decay.data.ModDataComponents;
+import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
@@ -153,8 +154,16 @@ public class ObserverModelItem extends Item {
             }
         } else {
             int count = data.trainedTargets().size() + data.trainedEntities().size();
-            tooltipComponents.add(Component.translatable("tooltip.focal_decay.model_targets", count)
-                    .withStyle(ChatFormatting.GRAY));
+            // 候选体额外显示上限（BACKLOG P1-6 第 13 条）：它豁免训练上限、有自己的界，
+            // 不显示出来玩家就没法判断"还差多少练满"还是"已经到顶了"。
+            if (ObserverModelData.TYPE_CANDIDATE.equals(data.type())) {
+                tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_targets",
+                                count, FocalDecayConfig.CANDIDATE_MAX_TARGETS.get())
+                        .withStyle(ChatFormatting.GRAY));
+            } else {
+                tooltipComponents.add(Component.translatable("tooltip.focal_decay.model_targets", count)
+                        .withStyle(ChatFormatting.GRAY));
+            }
             tooltipComponents.add(Component.translatable("tooltip.focal_decay.model_shift_hint")
                     .withStyle(ChatFormatting.DARK_GRAY));
         }

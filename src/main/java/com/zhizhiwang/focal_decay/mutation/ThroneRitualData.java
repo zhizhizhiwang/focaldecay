@@ -135,23 +135,38 @@ public class ThroneRitualData extends SavedData {
         return remainingTicks;
     }
 
+    /**
+     * 仪式推进：剩余时间。
+     * <p>
+     * <b>这里必须 {@code setDirty()}（BACKLOG P1-6 第 10 条）</b>：
+     * 这三个 setter 原先都不标脏，靠 {@code ThroneRitualHandler#tickRitual} 每 tick 走到
+     * 下一次 {@code setDirty} 兜底——于是"仪式刚开始的瞬间崩服"会丢掉这一 tick 的进度。
+     * 后果不严重（丢一拍），但它是<b>结构性</b>的隐患：任何在两次 tick 之间发生的保存
+     * 都会写下一份旧值，而"旧值"与"新值"的差别取决于崩溃时刻，是最难查的那类问题。
+     * 标脏本身很便宜（只置一个 bool，真正的写盘由 SavedData 的保存周期决定）。
+     */
     public void setRemainingTicks(int remainingTicks) {
         this.remainingTicks = remainingTicks;
+        setDirty();
     }
 
     public int wave() {
         return wave;
     }
 
+    /** 仪式推进：波次。标脏理由同 {@link #setRemainingTicks(int)}。 */
     public void setWave(int wave) {
         this.wave = wave;
+        setDirty();
     }
 
     public int nextWaveTicks() {
         return nextWaveTicks;
     }
 
+    /** 仪式推进：下一波的倒计时。标脏理由同 {@link #setRemainingTicks(int)}。 */
     public void setNextWaveTicks(int nextWaveTicks) {
         this.nextWaveTicks = nextWaveTicks;
+        setDirty();
     }
 }

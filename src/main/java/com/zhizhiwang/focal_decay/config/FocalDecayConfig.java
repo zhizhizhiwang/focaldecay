@@ -40,6 +40,7 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_CAPACITY;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_COST;
     public static final ModConfigSpec.IntValue TRAINING_MAX_TARGETS;
+    public static final ModConfigSpec.IntValue CANDIDATE_MAX_TARGETS;
     public static final ModConfigSpec.IntValue BIO_ENERGY_CAPACITY;
     public static final ModConfigSpec.IntValue BIO_CONVERSION_PER_HP;
     public static final ModConfigSpec.IntValue BIO_DRAIN_PER_SECOND;
@@ -153,6 +154,19 @@ public final class FocalDecayConfig {
         TRAINING_MAX_TARGETS = builder
                 .comment("Max trained records per blank model.")
                 .defineInRange("training_max_targets", 64, 1, 1024);
+        // 候选观测者绕过训练上限（BACKLOG P1-6 第 13 条）。
+        // 原判定写成 `!candidate && current.size() >= limit`，于是候选体完全不受
+        // training_max_targets 约束，只被 candidate_required_points 挡着——
+        // 而那两项都可以配到很大（副本还会把需求除以增益），结果是
+        // "一件物品的组件里能塞进上千个 id 字符串"，而 ObserverModelData 的
+        // STREAM_CODEC 每次记录都要重新序列化整份。
+        // 这里给候选体一个独立的、仍然宽松但有界的上限。默认 512 是"足够练满"与
+        // "组件不至于失控"之间的折中：练满一个候选体需要的记录数通常几十到一百多。
+        CANDIDATE_MAX_TARGETS = builder
+                .comment("Max trained records per candidate observer model."
+                        + " Candidates are exempt from training_max_targets but need their own bound:"
+                        + " one item's component otherwise grows without limit.")
+                .defineInRange("candidate_max_targets", 512, 1, 8192);
         BIO_ENERGY_CAPACITY = builder
                 .comment("Max bioEnergy stored in a Bio Stabilizer model.")
                 .defineInRange("bio_energy_capacity", 2000, 0, Integer.MAX_VALUE);

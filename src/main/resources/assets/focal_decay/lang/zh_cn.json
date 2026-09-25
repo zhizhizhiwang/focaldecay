@@ -26,6 +26,7 @@
   "tooltip.focal_decay.semantic_lock_model": "锁定已记录的目标。",
   "tooltip.focal_decay.guided_mutation_model": "把范围内的漂移引向已解析的概念。不锁定具体事物。",
   "tooltip.focal_decay.model_targets": "已记录 %s 个目标",
+  "tooltip.focal_decay.candidate_targets": "候选观测者：已记录 %s / %s 项",
   "tooltip.focal_decay.model_shift_hint": "按住 Shift 展开",
   "tooltip.focal_decay.bio_stabilizer": "以范围内生物的生命为能源。它们会死。",
   "tooltip.focal_decay.bio_energy": "生物能量：%s",

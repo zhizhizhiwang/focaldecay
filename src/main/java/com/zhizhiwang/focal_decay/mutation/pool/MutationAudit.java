@@ -5,6 +5,7 @@ import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
+import com.zhizhiwang.focal_decay.mutation.ModelTrainingHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationPoolManager;
@@ -24,6 +25,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.entity.EntityType;
@@ -743,6 +745,42 @@ public final class MutationAudit {
                 + (SyncClientViewPacket.STREAM_CODEC.decode(vbuf).equals(viewPacket) ? "PASS" : "FAIL"));
 
         out.add(birthGateSelfTest(level, pos, seed, index));
+
+        // ---- 模型数据的两条界限（BACKLOG P1-6 第 13、14 条） ----
+        out.addAll(modelBoundsSelfTest());
+        return out;
+    }
+
+    /**
+     * 模型数据的两条界限（BACKLOG P1-6 第 13、14 条）。
+     * <p>
+     * 两条都是"改动很小、改错了只有真人玩到才发现"的类型，所以值得在这里钉住。
+     */
+    private static List<String> modelBoundsSelfTest() {
+        List<String> out = new ArrayList<>();
+
+        // ---- P1-6 第 14 条：副手训练的重同步槽位 ----
+        // 旧实现写死 `inventory.selected`（主手槽），副手训练时客户端看到的是
+        // "主手槽被写入了副手那枚模型的组件"。副手分支<b>不解引用 player</b>，
+        // 所以这里能安全地传 null——而如果哪天有人把它改成也去读 player，
+        // 这条断言会立刻以 NPE 暴露，而不是静默变成一条测不到东西的假断言。
+        int offhandSlot = ModelTrainingHandler.syncSlotFor(null, InteractionHand.OFF_HAND);
+        boolean offhandOk = offhandSlot == net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND;
+        out.add("[model] offhand training resyncs the offhand slot, not the selected hotbar slot: "
+                + (offhandOk ? "PASS" : "FAIL -> got slot " + offhandSlot + ", expected "
+                + net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND));
+
+        // ---- P1-6 第 13 条：候选体有独立且合理的有界上限 ----
+        // 候选体豁免 training_max_targets 是有意的（练满需要超过 64 条记录），
+        // 但"豁免"不等于"无界"：判定以前写成 `!candidate && size >= limit`，
+        // 于是候选体只被 candidate_required_points 挡着，而那一项可以配得很大。
+        int candidateCap = FocalDecayConfig.CANDIDATE_MAX_TARGETS.get();
+        int trainingCap = FocalDecayConfig.TRAINING_MAX_TARGETS.get();
+        boolean capSane = candidateCap >= trainingCap && candidateCap <= 8192;
+        out.add("[model] candidate observers have their own bounded record cap"
+                + " (candidate=" + candidateCap + ", training=" + trainingCap + "): "
+                + (capSane ? "PASS" : "FAIL -> candidate cap must be >= training cap and <= 8192"));
+
         return out;
     }
 

@@ -14,6 +14,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
@@ -56,7 +57,7 @@ public final class ModelTrainingHandler {
             return;
         }
         String id = BuiltInRegistries.BLOCK.getKey(visible.getBlock()).toString();
-        if (addTarget(event.getEntity(), held, id,
+        if (addTarget(event.getEntity(), held, event.getHand(), id,
                 Component.translatable(visible.getBlock().getDescriptionId()), true)) {
             event.setCanceled(true);
         }
@@ -79,7 +80,7 @@ public final class ModelTrainingHandler {
             return;
         }
         String id = BuiltInRegistries.ENTITY_TYPE.getKey(target.getType()).toString();
-        if (addTarget(event.getEntity(), held, id, target.getType().getDescription(), false)) {
+        if (addTarget(event.getEntity(), held, event.getHand(), id, target.getType().getDescription(), false)) {
             event.setCanceled(true);
         }
     }
@@ -121,18 +122,24 @@ public final class ModelTrainingHandler {
                 "message.focal_decay.candidate_locate", (int) Math.round(distance)), true);
     }
 
-    private static boolean addTarget(Player player, ItemStack held, String id, Component displayName, boolean block) {
+    private static boolean addTarget(Player player, ItemStack held, InteractionHand hand,
+                                     String id, Component displayName, boolean block) {
         ObserverModelData data = ObserverModelItem.getData(held);
         boolean candidate = data != null && ObserverModelData.TYPE_CANDIDATE.equals(data.type());
         if (data == null || (!ObserverModelData.TYPE_TRAINING.equals(data.type()) && !candidate)) {
             return false;
         }
-        int limit = FocalDecayConfig.TRAINING_MAX_TARGETS.get();
+        // 候选体有独立上限（BACKLOG P1-6 第 13 条）：它本来豁免训练上限是有意的
+        // （要练满需要超过 64 条记录），但"豁免"不等于"无界"——一件物品的组件里
+        // 塞进上千个 id 字符串会拖慢每一次 STREAM_CODEC 序列化。
+        int limit = candidate
+                ? FocalDecayConfig.CANDIDATE_MAX_TARGETS.get()
+                : FocalDecayConfig.TRAINING_MAX_TARGETS.get();
         List<String> current = block ? data.trainedTargets() : data.trainedEntities();
         if (current.contains(id)) {
             return false; // 已记录，忽略
         }
-        if (!candidate && current.size() >= limit) {
+        if (current.size() >= limit) {
             player.displayClientMessage(Component.translatable("message.focal_decay.training_limit"), true);
             return false;
         }
@@ -150,12 +157,34 @@ public final class ModelTrainingHandler {
         // 立即同步手持物品到客户端（组件变化默认不会即时同步）
         if (player instanceof ServerPlayer serverPlayer) {
             serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(
-                    -2, 0, serverPlayer.getInventory().selected, held));
+                    -2, 0, syncSlotFor(serverPlayer, hand), held));
         }
         player.displayClientMessage(Component.translatable(
                 block ? "message.focal_decay.training_target_block" : "message.focal_decay.training_target_entity",
                 displayName), true);
         return true;
+    }
+
+    /**
+     * 手 → 同步槽位号（<b>纯函数</b>，供自测）。
+     * <p>
+     * 修的是 BACKLOG P1-6 第 14 条：重同步固定写 {@code inventory.selected}，
+     * 而 {@code held} 取自 {@code event.getHand()}。主手时两者恰好相同，所以一直没被发现；
+     * <b>副手训练</b>时客户端收到的是"主手槽被写入了副手那枚模型的组件"——
+     * 表现为进度显示错位，而真正的副手组件要等下一次整份同步才更新。
+     * <p>
+     * 两个槽位号的来历（写清楚，免得下一个人以为它是魔法数）：
+     * <ul>
+     *   <li>{@code Inventory.SLOT_OFFHAND = 40}——原版玩家物品栏里副手的固定序号；</li>
+     *   <li>{@code inventory.selected}——当前选中的快捷栏格（0~8），也就是主手那一格。</li>
+     * </ul>
+     * 注意这里用的是 {@code ClientboundContainerSetSlotPacket} 的 {@code -2}（玩家物品栏）窗口 id，
+     * 槽位号必须按该窗口的编号来，不是菜单槽位。
+     */
+    public static int syncSlotFor(ServerPlayer player, InteractionHand hand) {
+        return hand == InteractionHand.OFF_HAND
+                ? net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND
+                : player.getInventory().selected;
     }
 
     /** 服务端计算"可见目标"方块状态（与客户端预览同一确定性公式）。 */

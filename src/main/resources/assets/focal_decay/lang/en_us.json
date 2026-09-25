@@ -26,6 +26,7 @@
   "tooltip.focal_decay.semantic_lock_model": "Locks recorded targets.",
   "tooltip.focal_decay.guided_mutation_model": "Bends drifting within range toward the resolved concept. It does not lock a specific thing.",
   "tooltip.focal_decay.model_targets": "%s target(s) recorded",
+  "tooltip.focal_decay.candidate_targets": "Candidate observer: %s / %s record(s)",
   "tooltip.focal_decay.model_shift_hint": "Hold Shift to expand",
   "tooltip.focal_decay.bio_stabilizer": "It runs on the life of creatures in range. They die.",
   "tooltip.focal_decay.bio_energy": "Bio Energy: %s",

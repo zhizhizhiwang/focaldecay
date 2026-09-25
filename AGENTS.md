@@ -212,6 +212,11 @@ INNER_EOF
 > `RenderChunkRegionAccessor` 的目标类要进世界才加载。完整的已验证清单与判读见
 > [`docs/VERIFY-device-matrix.md`](docs/VERIFY-device-matrix.md) §9。
 
+跑 `selftest` 时**不要只看有没有 FAIL 行**：还要确认每一段的输出都在
+（`grep -cE '\[(selftest|sync|anchor|entity|break|model|recipe)\]' run/logs/latest.log`）。
+一段抛异常时命令层会打 `SECTION CRASHED … FAIL`，但**旧版本会把后面的段整段吞掉**，
+而"没有输出"和"通过"在肉眼扫日志时长得一样。
+
 **"未做客户端实机验证"必须明说**。写进度时把"已验证"和"未验证"分开列，不要含糊过去。
 
 ---
@@ -328,10 +333,13 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 
 ### 一句话现状（写于 2026-09-25）
 主线闭环、联机一致性已解决、自动化自检齐全；**当前处于"稳定与加固"阶段**。
-已完成 10 条 P0/P1 缺陷（见 `docs/progress/2026Q4.md` §C–§I 与 §K），另有两条部分完成。
+已完成 13 条 P0/P1 缺陷（见 `docs/progress/2026Q4.md` §C–§I、§K、§M），另有两条部分完成。
 **`P0-4` 挖掘路径已按推荐方案重构完成**：不再手工复刻原版收尾，
 改为"只换方块、让原版管线跑完"（`DESIGN.md` §5.2，经过见 `progress/2026Q4.md` §K），
 新增 `[break]` 自测段与两个测试探针方块；客户端侧与整合包兼容性并入 `P0-8` 实机矩阵。
-剩余：`P0-1` 锚固化（等 §14.1 拍板）、`P0-8` 实机矩阵、`P1-1b` 实体突变范围过滤、
-`P1-2`（拍板）、`P1-5`、`P1-7`，以及 `P1-3` / `P1-6` 的余项。
+**实机验证矩阵已交付**（`docs/VERIFY-device-matrix.md`，20 行待你执行），
+客户端观测性已补齐（`/focaldecay clientstats`）。
+剩余：`P0-1` 锚固化（等 §14.1 拍板）、`P1-1b` 实体突变范围过滤、`P1-2`（拍板）、
+`P1-5`（观测性已就绪，优化未做）、`P1-7`，以及 `P1-3` / `P1-6` 的余项
+（`P1-6` 还剩第 2、11、12 条）。
 玩法上最大的缺口是"观察没有产出"（详见 `DESIGN.md` §14.6）。

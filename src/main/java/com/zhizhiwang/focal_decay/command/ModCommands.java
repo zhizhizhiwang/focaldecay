@@ -38,6 +38,8 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.SubscribeEvent;
+
+import java.util.List;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 
 /**
@@ -139,35 +141,56 @@ public final class ModCommands {
         return 1;
     }
 
-    /** 运行期自测：确定性 / 不收敛 / 对称 / 状态迁移 / 形态类门控。 */
+    /**
+     * 运行期自测：确定性 / 不收敛 / 对称 / 状态迁移 / 形态类门控。
+     * <p>
+     * <b>每一段都单独包异常隔离</b>（2026-09-25 加）。原因是一次真实的观察：
+     * 给 {@code [model]} 段做 A/B 时故意引入了 bug，实现抛 {@code NullPointerException}，
+     * 结果<b>整条命令后面的段一行都没打出来</b>——{@code [selftest]} / {@code [sync]} 的行数从
+     * 几十变成 <b>0</b>，而日志里只有一条孤零零的异常栈。
+     * <p>
+     * 那比"某一条断言 FAIL"糟得多：自测的价值在于"跑一遍就知道有没有问题"，
+     * 一旦某段能炸掉整条命令，读日志的人会以为"后面那些段没问题"（其实根本没跑），
+     * 或者以为"命令本身坏了"（其实只是其中一段）。<b>把失败局部化，是自测能不能被信任的前提。</b>
+     * <p>
+     * 隔离的粒度取"每一段"而不是"每一条断言"：段与段之间本来就不互相依赖
+     * （各自准备自己的现场），而段内部的断言共享现场、单独隔离反而容易掩盖前一条的副作用。
+     */
     private static int selfTestMutation(CommandSourceStack source) {
         ServerLevel level = source.getLevel();
         BlockPos pos = BlockPos.containing(source.getPosition());
-        for (String line : MutationAudit.selfTest(level, pos)) {
-            report(source, line);
-        }
+
+        section(source, "selftest", () -> MutationAudit.selfTest(level, pos));
         // 派生配方的自测放在这里而不是 MutationAudit 里：它测的是 data 层的配方，
         // 由命令层把各项自检串起来，两边都不用互相依赖。
-        for (String line : DeriveCandidateRecipe.selfTest(level)) {
-            report(source, line);
-        }
+        section(source, "recipe", () -> DeriveCandidateRecipe.selfTest(level));
         // 锚固化的保护语义要在世界坐标上布置一座临时基座，所以也需要真的 ServerLevel。
-        for (String line : AnchorNormalizeAudit.selfTest(level, pos)) {
-            report(source, line);
-        }
+        section(source, "anchor", () -> AnchorNormalizeAudit.selfTest(level, pos));
         // 实体突变种子（BACKLOG P1-1）：纯函数，只要有世界种子就能验。
-        for (String line : DoomsdayHandler.selfTest(level.getSeed())) {
-            report(source, line);
-        }
+        section(source, "entity", () -> DoomsdayHandler.selfTest(level.getSeed()));
         // 挖掘路径（BACKLOG P0-4）：要在世界坐标上摆两个探针方块并跑一遍原版破坏管线，
         // 所以同样需要真的 ServerLevel。用一个 FakePlayer 走 ServerPlayerGameMode#destroyBlock，
         // 验的是"原版管线对着目标方块跑完了"，不是"我以为原版会怎么做"。
-        for (String line : BreakAudit.selfTest(level, pos)) {
-            report(source, line);
-        }
+        section(source, "break", () -> BreakAudit.selfTest(level, pos));
         // 固化埋点的累计统计（BACKLOG P0-1）：量出来才知道该优化到什么程度。
         report(source, AnchorNormalizeProfiler.summary());
         return 1;
+    }
+
+    /** 一段自测：它抛异常时只报这一段失败，不拖垮后面的段。 */
+    private static void section(CommandSourceStack source, String name, java.util.function.Supplier<List<String>> body) {
+        try {
+            for (String line : body.get()) {
+                report(source, line);
+            }
+        } catch (Throwable t) {
+            // 输出必须能被 grep 到 FAIL，否则脚本会把"整段没跑"当成"整段通过"。
+            // 异常栈照打：没有栈就没法定位。
+            report(source, "[" + name + "] SECTION CRASHED: " + t + "  FAIL"
+                    + " (later sections still run)");
+            com.zhizhiwang.focal_decay.FocalDecay.LOGGER.error(
+                    "[focal_decay] selftest section '{}' crashed; later sections continue", name, t);
+        }
     }
 
     /**
