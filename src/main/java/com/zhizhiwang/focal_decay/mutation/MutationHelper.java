@@ -66,9 +66,15 @@ public final class MutationHelper {
      * 统一的方块识别函数：生存破坏、创造中键选取、右键交互、渲染预览、锚固化共用。
      * 受硬保护的位置、非转换源、以及没抽中的情况都返回原方块。
      * <p>
-     * <b>本重载是服务端入口</b>：参数来自本端配置与真实世界种子。客户端预览<b>不要</b>用它——
-     * 客户端的配置与种子都可能与服务端不同，必须走
-     * {@link #resolve(BlockState, BlockPos, MutationSettings, int, long, MutationIndex, GuidedBias, Protection, long)}。
+     * <b>本重载现在只给自测用</b>（2026-09-30，BACKLOG `P0-7`）。它直接从<b>本端配置</b>取
+     * {@code wild_chance}，而生产代码里的服务端入口（{@link MutationTargets#resolveServer}）
+     * 已经统一改走 {@link MutationSettings#server(long) 服务端权威快照}——
+     * 因为客户端的输入<b>只可能</b>来自同步下来的快照，服务端留一条"直接读配置"的路径
+     * 就等于留下两条取值路径，而它们在局域网里会分叉。
+     * <p>
+     * 保留它是因为 {@code [sync]} 自测需要"服务端按本端配置算一遍"来与"客户端按快照算一遍"逐位比对
+     * （见 {@code MutationAudit#syncSelfTest}）——那正是这条不变量的回归网。
+     * <b>新代码不要调用它</b>；要服务端解析请用 {@link MutationTargets#resolveServer}。
      *
      * @param index       预计算的突变查表（本维度的语义池 / 大池 / 源门控 / 形态类）
      * @param chance      当前阶段的每周期命中概率

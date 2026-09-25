@@ -68,7 +68,8 @@ public final class MutationIndexBuilder {
         TagKey<Block> wildTag = ModTags.Blocks.poolForDimension(dimension);
         List<Block> wildMembers = new ArrayList<>(readMembers(wildTag));
         int autoIncluded = 0;
-        if (FocalDecayConfig.WILD_AUTO_INCLUDE.get()) {
+        // 取值来自 MutationIndexes 的"两端统一入口"，不再直接读本端配置（BACKLOG P0-7）。
+        if (MutationIndexes.wildAutoInclude()) {
             // 默认把"当前规则下所有可失焦的完整方块"都算进大池，保证总池足够大且零行为回归。
             Set<Block> present = new HashSet<>(wildMembers);
             for (Block block : registry) {

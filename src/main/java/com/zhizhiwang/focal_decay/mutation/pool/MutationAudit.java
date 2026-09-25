@@ -368,6 +368,19 @@ public final class MutationAudit {
     }
 
     /**
+     * 把一份快照编码再解码一遍。
+     * <p>
+     * 用于"某个字段到底有没有被搬"这类断言：手写编解码漏搬字段时，两端的值都会落到该字段的默认值上，
+     * 逐字段 {@code equals} 是看不出来的（两边一致地错）。把某个字段翻转后再走一遍，
+     * 如果解码结果没跟着变，就说明它根本没上线。
+     */
+    private static MutationSettings decode(MutationSettings settings) {
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        SyncMutationSettingsPacket.STREAM_CODEC.encode(buf, new SyncMutationSettingsPacket(settings));
+        return SyncMutationSettingsPacket.STREAM_CODEC.decode(buf).settings();
+    }
+
+    /**
      * 掉落物突变的端到端自测（2026-09-25）。
      * <p>
      * 走的是 {@link com.zhizhiwang.focal_decay.mutation.DoomsdayHandler} 实际使用的那条路径：
@@ -462,11 +475,28 @@ public final class MutationAudit {
         MutationSettings settings = MutationSettings.fromConfig(seed);
 
         // ---- 1. 快照的线格式必须逐字段往返 ----
-        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
-        SyncMutationSettingsPacket.STREAM_CODEC.encode(buf, new SyncMutationSettingsPacket(settings));
-        MutationSettings decoded = SyncMutationSettingsPacket.STREAM_CODEC.decode(buf).settings();
-        out.add("[sync] settings packet round-trip (11 fields): "
+        MutationSettings decoded = decode(settings);
+        out.add("[sync] settings packet round-trip (12 fields): "
                 + (decoded.equals(settings) ? "PASS" : "FAIL\n  sent=" + settings + "\n  read=" + decoded));
+
+        // 逐字段比对有个盲区：手写编解码<b>漏搬一个字段</b>时，两边都会落到该字段的默认值上，
+        // equals 依然成立 —— 静默分叉，正是手写编解码最危险的失败方式。
+        // 下面这条用"翻转该字段后解码结果是否跟着变"来证明它确实被搬了：漏搬则解码回到默认值，
+        // 与原值相同，于是这条 FAIL。
+        // ⚠️ 判据不能是"线上长度变没变"——writeBoolean 无论真假都只写 1 字节，长度恒等。
+        //    （第一版就是这么写的，它正确地 FAIL 了，等于这条断言先抓住了自己。）
+        MutationSettings flipped = new MutationSettings(
+                settings.worldSeed(), settings.baseInterval(), settings.stageSystem(),
+                settings.stage2Day(), settings.stage3Day(), settings.chanceStage1(),
+                settings.chanceStage2(), settings.chanceStage3(), settings.wildChance(),
+                settings.semanticLockStage3(), settings.guidedStage3Halve(),
+                !settings.wildAutoInclude());
+        boolean movesWithField = !decode(flipped).equals(settings);
+        out.add("[sync] settings packet actually carries wild_auto_include"
+                + " (flipping it changes the decoded value): "
+                + (movesWithField ? "PASS" : "FAIL (field is not encoded - both sides would silently default)"));
+        out.add("[sync]   (wild_auto_include is " + settings.wildAutoInclude()
+                + ", which decides wild pool membership and therefore every target)");
 
         // 原型机摘要也走手写编解码（bioActive / candidateComplete 由 int 改成 boolean 时最容易串位）
         SyncRegionDataPacket.PrototypeData prototype = new SyncRegionDataPacket.PrototypeData(

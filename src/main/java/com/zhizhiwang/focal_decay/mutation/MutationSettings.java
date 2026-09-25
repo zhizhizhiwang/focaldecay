@@ -1,6 +1,7 @@
 package com.zhizhiwang.focal_decay.mutation;
 
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 
 /**
  * 失焦解析的<b>输入快照</b>（2026-09-17，联机一致性修复）。
@@ -38,14 +39,20 @@ public record MutationSettings(
         double chanceStage3,
         double wildChance,
         double semanticLockStage3,
-        boolean guidedStage3Halve) {
+        boolean guidedStage3Halve,
+        /**
+         * {@code wild_auto_include}：构建突变查表时是否把"所有 cube 且无方块实体"的方块自动纳入大池。
+         * 它决定<b>池的成员</b>，因此也决定每一个目标——两端必须同值。
+         * 2026-09-30 之前它不在快照里，两端各读自己的配置（BACKLOG `P0-7`）。
+         */
+        boolean wildAutoInclude) {
 
     /**
      * 从<b>本端配置</b>构造快照。服务端调用它得到权威值；客户端只在单人/集成服务器场景下用它兜底
      * （正常情况下客户端用的是服务端发来的那一份，见 {@code SyncMutationSettingsPacket}）。
      */
     public static MutationSettings fromConfig(long worldSeed) {
-        return new MutationSettings(
+        MutationSettings settings = new MutationSettings(
                 worldSeed,
                 (int) MutationHelper.configBaseInterval(),
                 FocalDecayConfig.ENABLE_STAGE_SYSTEM.get(),
@@ -56,7 +63,42 @@ public record MutationSettings(
                 FocalDecayConfig.BLOCK_MUTATION_CHANCE_STAGE3.get(),
                 FocalDecayConfig.WILD_CHANCE.get(),
                 FocalDecayConfig.SEMANTIC_LOCK_STAGE3_STRENGTH.get(),
-                FocalDecayConfig.GUIDED_STAGE3_HALVE.get());
+                FocalDecayConfig.GUIDED_STAGE3_HALVE.get(),
+                FocalDecayConfig.WILD_AUTO_INCLUDE.get());
+        // 池成员也走同一份取值（它决定每一个目标，两端必须同值）。
+        MutationIndexes.setWildAutoInclude(settings.wildAutoInclude());
+        return settings;
+    }
+
+    /**
+     * 服务端权威快照的进程级缓存。
+     * <p>
+     * <b>为什么服务端也要用快照，而不是直接读配置</b>（2026-09-30，BACKLOG `P0-7`）：
+     * 两端一致的前提是"喂进 {@link MutationHelper#resolve} 的输入一样"，而客户端的输入
+     * <b>只可能</b>来自同步下来的快照。服务端如果各处直接读 {@code FocalDecayConfig}，
+     * 就存在两条取值的路径——本次改动之前 {@code wildChance} / {@code semanticLockStage3}
+     * 恰好就是"服务端读配置、客户端读快照"。单人环境下两者天然相同，所以从没暴露；
+     * 而局域网里客户端改过自己的 toml 就会分叉（这正是 §13.12 修过的那一类）。
+     * 把服务端也统一到同一个快照，这种分叉就<b>结构上不可能</b>。
+     * <p>
+     * 缓存而不是每次重新读：{@code resolve} 在热路径上，而且这样能保证"同一次解析过程里看到的配置是同一份"。
+     * 配置重载（{@code ModConfigEvent.Reloading}）时必须丢弃它，见 {@link #invalidateServerCache()}。
+     */
+    private static volatile MutationSettings serverCache;
+
+    /** 服务端的权威快照（首次访问时从配置构造）。 */
+    public static MutationSettings server(long worldSeed) {
+        MutationSettings cached = serverCache;
+        if (cached == null) {
+            cached = fromConfig(worldSeed);
+            serverCache = cached;
+        }
+        return cached;
+    }
+
+    /** 配置重载后丢弃缓存，下次访问重建。 */
+    public static void invalidateServerCache() {
+        serverCache = null;
     }
 
     /**
@@ -65,7 +107,8 @@ public record MutationSettings(
      */
     public MutationSettings withChance(double chance) {
         return new MutationSettings(worldSeed, baseInterval, stageSystem, stage2Day, stage3Day,
-                chance, chance, chance, wildChance, semanticLockStage3, guidedStage3Halve);
+                chance, chance, chance, wildChance, semanticLockStage3, guidedStage3Halve,
+                wildAutoInclude);
     }
 
     /** 当前阶段。 */

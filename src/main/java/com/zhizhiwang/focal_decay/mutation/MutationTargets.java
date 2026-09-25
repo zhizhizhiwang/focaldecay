@@ -40,12 +40,17 @@ public final class MutationTargets {
         if (FocalDecayWorldData.get(level.getServer()).isObserverOnline()) {
             return state; // 失焦终止：无可突变目标
         }
-        int stage = MutationHelper.currentStage(FocalDecayWorldData.get(level.getServer()).getDays());
+        FocalDecayWorldData worldData = FocalDecayWorldData.get(level.getServer());
+        int stage = MutationHelper.currentStage(worldData.getDays());
         MutationIndex index = MutationIndexes.get(level.dimension());
         MutationPoolManager manager = MutationPoolManager.get(level);
-        return MutationHelper.resolve(state, pos, level.getSeed(),
+        // 服务端也走<b>同一份快照</b>（BACKLOG P0-7）：客户端的输入只可能来自同步下来的快照，
+        // 服务端各处直接读配置就会留下"两条取值路径"，而两条路径在局域网里会分叉。
+        MutationSettings settings = MutationSettings.server(level.getSeed());
+        return MutationHelper.resolve(state, pos, settings, stage,
                 periodIndex, index,
-                MutationHelper.mutationChance(stage), manager.getGuidedBias(pos, state, stage),
-                manager.protectionInfo(pos, state, stage), manager.getBlockBirthPeriod(pos));
+                manager.getGuidedBias(pos, state, stage),
+                manager.protectionInfo(pos, state, stage, settings),
+                manager.getBlockBirthPeriod(pos));
     }
 }

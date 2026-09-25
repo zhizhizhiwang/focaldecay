@@ -1,5 +1,6 @@
 package com.zhizhiwang.focal_decay.mutation;
 
+import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.block.ModBlocks;
 import com.zhizhiwang.focal_decay.block.entity.AnchorPrototypeBlockEntity;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
@@ -8,15 +9,19 @@ import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import com.zhizhiwang.focal_decay.network.ModNetwork;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.event.TagsUpdatedEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 /**
  * 服务端事件挂载（设计大纲 §10.1）：
@@ -30,6 +35,12 @@ public class MutationEventHandler {
     /** 诞生周期剪枝的检查间隔（tick）。 */
     private static final long BIRTH_PRUNE_INTERVAL = 6000L;
     private static long lastBirthPruneTick = 0;
+
+    /**
+     * 重生后补发区域数据的延迟（tick）。等客户端完成 {@code ClientLevel} 替换再发，
+     * 否则会被客户端随后的"换世界清镜像"再清一次。详见 {@link #onPlayerRespawn}。
+     */
+    private static final int RESPAWN_RESYNC_DELAY_TICKS = 40;
 
     @SubscribeEvent
     public static void onBlockPlaced(BlockEvent.EntityPlaceEvent event) {
@@ -135,6 +146,39 @@ public class MutationEventHandler {
     }
 
     /**
+     * 玩家重生：延迟几 tick 后补发区域与世界数据（BACKLOG `P0-5`）。
+     * <p>
+     * <b>为什么重生也要发</b>：客户端丢弃区域镜像的条件是"{@code ClientLevel} 实例被替换"，
+     * 而同维度死亡重生<b>也会</b>换一个 level——镜像就此清空，可原来只有登录与换维度两条重发路径，
+     * 于是整局游戏客户端都不知道哪里受保护、哪些方块是玩家放的。
+     * <p>
+     * <b>为什么是"延迟"而不是立即发</b>：立即发会被客户端随后的换 level 再清一次，等于白发。
+     * 客户端那边还有一条"发现缺数据就主动请求"的自愈逻辑，两条互为兜底——
+     * 服务端这条不依赖客户端配合，客户端那条不依赖服务端记得这个事件。
+     * <p>
+     * 换维度重生由 {@link #onPlayerChangedDimension} 覆盖，这里只管同维度重生（重发一次也不亏）。
+     */
+    @SubscribeEvent
+    public static void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) {
+            return;
+        }
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        server.tell(new net.minecraft.server.TickTask(server.getTickCount() + RESPAWN_RESYNC_DELAY_TICKS,
+                () -> {
+                    // 这几 tick 里玩家可能又换了维度或断线，所以重新取一次并在发之前确认还在
+                    if (player.hasDisconnected()) {
+                        return;
+                    }
+                    ModNetwork.sendRegionData(player);
+                    ModNetwork.sendWorldData(player);
+                }));
+    }
+
+    /**
      * 固化一次的范围统计。返回值是<b>测试与诊断的接口</b>：让"保护有没有生效"变成可观测的数字，
      * 而不是靠"某个方块碰巧变没变"来推断（那取决于概率骰子，会写出不稳定的断言）。
      *
@@ -177,7 +221,8 @@ public class MutationEventHandler {
         long periodIndex = displayPeriodIndex(level);
         int stage = MutationHelper.currentStage(FocalDecayWorldData.get(level.getServer()).getDays());
         long worldSeed = level.getSeed();
-        double chance = MutationHelper.mutationChance(stage);
+        MutationSettings settings = MutationSettings.server(worldSeed);
+        double chance = settings.blockChance(stage);
         MutationIndex index = MutationIndexes.get(level.dimension());
 
         // 计数器用数组包一层：lambda 里要写，局部变量写不了。
@@ -195,14 +240,14 @@ public class MutationEventHandler {
                     }
                     // 既有原型机的保护形态（此刻表里还没有本次要登记的那个效果）。
                     // 硬保护命中的坐标绝不改写；软保护（阶段 3 语义锁定）按原语义参与解析。
-                    MutationHelper.Protection protection = manager.protectionInfo(p, state, stage);
+                    MutationHelper.Protection protection = manager.protectionInfo(p, state, stage, settings);
                     if (protection.hard()) {
                         counters[2]++;
                         return;
                     }
                     counters[0]++;
                     GuidedBias bias = manager.getGuidedBias(p, state, stage);
-                    BlockState target = MutationHelper.resolve(state, p, worldSeed, periodIndex, index, chance,
+                    BlockState target = MutationHelper.resolve(state, p, settings, stage, periodIndex, index,
                             bias, protection, manager.getBlockBirthPeriod(p));
                     if (target != state) {
                         level.setBlock(p, target, 3);

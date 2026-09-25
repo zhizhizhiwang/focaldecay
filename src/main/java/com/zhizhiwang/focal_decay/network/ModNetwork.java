@@ -19,7 +19,12 @@ import java.util.List;
  * 网络通道（设计大纲 §8）：NeoForge 21.1 使用 Payload API（SimpleChannel 已移除）。
  */
 public final class ModNetwork {
-    public static final String PROTOCOL_VERSION = "1";
+    /**
+     * 协议版本。**加了包就要改**：NeoForge 会按它做连接期校验，
+     * 而"客户端发一个服务端不认识的包"是很差的失败方式（连接挂了但原因埋在日志里）。
+     * 1 → 2：新增 C→S 的 {@link RequestRegionDataPacket}（BACKLOG P0-5）。
+     */
+    public static final String PROTOCOL_VERSION = "2";
 
     private ModNetwork() {
     }
@@ -29,6 +34,9 @@ public final class ModNetwork {
         // C→S：交互时回报"客户端看到的显示刻"（见 SyncClientViewPacket 与 InteractionHandler）
         registrar.playToServer(SyncClientViewPacket.TYPE, SyncClientViewPacket.STREAM_CODEC,
                 SyncClientViewPacket::handle);
+        // C→S：客户端发现区域镜像失效（换 ClientLevel，例如同维度重生）时请求重发
+        registrar.playToServer(RequestRegionDataPacket.TYPE, RequestRegionDataPacket.STREAM_CODEC,
+                RequestRegionDataPacket::handle);
         registrar.playToClient(SyncMutationSettingsPacket.TYPE, SyncMutationSettingsPacket.STREAM_CODEC,
                 SyncMutationSettingsPacket::handle);
         registrar.playToClient(SyncRegionDataPacket.TYPE, SyncRegionDataPacket.STREAM_CODEC, SyncRegionDataPacket::handle);

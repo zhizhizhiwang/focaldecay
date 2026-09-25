@@ -4,6 +4,7 @@ import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.mixin.client.LevelRendererAccessor;
 import com.zhizhiwang.focal_decay.mixin.client.RenderChunkRegionAccessor;
+import com.zhizhiwang.focal_decay.network.RequestRegionDataPacket;
 import com.zhizhiwang.focal_decay.network.SyncClientViewPacket;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
@@ -81,6 +82,17 @@ public final class ClientRenderCache {
     private static final int MAX_SCAN_CHUNK_RADIUS = 8;
     /** 玩家所在节上下各扫描的节数。 */
     private static final int SCAN_VERTICAL_SECTIONS = 6;
+
+    /**
+     * 换了 {@code ClientLevel} 之后等多少 tick 才去请求区域数据（BACKLOG P0-5）。
+     * <p>
+     * 为什么要等：登录/换维度时服务端本来就会推一次整表，而客户端换 level 与那次推送之间
+     * 有几十 tick 的往返。等一小会儿再问，可以避免每次进世界都白问一遍。
+     * 20 tick（1 秒）足够覆盖正常往返，又不至于让玩家盯着一片没有保护提示的世界太久。
+     */
+    private static final int REGION_REQUEST_DELAY_TICKS = 20;
+    /** 仍然没有数据时，每隔这么多 tick 再问一次（同时打一条警告）。 */
+    private static final int REGION_REQUEST_REPEAT_TICKS = 100;
 
     /**
      * 一条幽灵：某个位置显示成什么、属于哪个周期、以及<b>它是从哪个真实方块算出来的</b>。
@@ -172,6 +184,11 @@ public final class ClientRenderCache {
     /** 上次扫描所用的突变查表实例；标签更新会让它换新，此时必须丢弃整份幽灵缓存。 */
     private volatile MutationIndex lastIndex;
     private int scanCooldown;
+    /**
+     * 已连续多少个 tick 处于"当前维度没有区域数据"的状态（BACKLOG P0-5）。
+     * 换 {@code ClientLevel}（同维度重生也会）之后镜像被清空，靠它决定何时向服务端请求重发。
+     */
+    private int missingRegionRequests;
 
     /** 失焦遮罩后处理。加载/动画/淡出都在它里面，本类只决定"该不该画"。 */
     private final ObserverVeil veil = new ObserverVeil();
@@ -347,6 +364,7 @@ public final class ClientRenderCache {
             // 快照跟着连接走：断开后必须丢掉，否则上一个服务器的种子/配置会渗进下一个世界
             mutationSettings = null;
             missingSettingsTicks = 0;
+            missingRegionRequests = 0;
             lastPeriodIndex = Long.MIN_VALUE;
             return;
         }
@@ -354,11 +372,33 @@ public final class ClientRenderCache {
         if (current != level) {
             level = current;
             clearCache();
-            // 换世界也丢掉区域镜像：维度键（尤其 minecraft:overworld）在不同存档里是同一个，
+            // 换世界/重生也丢掉区域镜像：维度键（尤其 minecraft:overworld）在不同存档里是同一个，
             // 留着上一个世界的数据会让新世界开局就带一批不存在的保护范围与诞生周期。
+            //
+            // ⚠️ 丢掉之后必须能重新拿到（BACKLOG P0-5）：这条路径不只覆盖"换存档"，
+            // 也覆盖同维度死亡重生——那种情况下服务端不会重发，而镜像没了就再也回不来，
+            // 整局游戏客户端都不知道哪里受保护。下面的 missingRegionRequests 负责补这一刀。
             regions.clear();
             lastIndex = null;
             lastPeriodIndex = Long.MIN_VALUE;
+        }
+
+        // 自愈：换了 ClientLevel（重生/跨维度/换世界）之后，如果本维度还没有整表快照，
+        // 就主动向服务端要一次。放在这里而不是依赖某个重生事件，是因为"客户端发现自己的数据没了"
+        // 是事实，"服务端认为客户端该要数据了"是推断——以后任何新的丢镜像原因都被同一条逻辑覆盖。
+        // 加延迟是为了不与登录/换维度时本来就有的那一次推送打架（重复请求一份整表不划算）。
+        if (!regions.hasSnapshotForCurrentLevel()) {
+            if (++missingRegionRequests == REGION_REQUEST_DELAY_TICKS) {
+                PacketDistributor.sendToServer(new RequestRegionDataPacket());
+            }
+            if (missingRegionRequests % REGION_REQUEST_REPEAT_TICKS == 0) {
+                LOGGER.warn("Focal Decay: still no region data for this dimension after {}s -"
+                                + " protection and placed-block info are missing on the client"
+                                + " (is the server running an older version of the mod?)",
+                        missingRegionRequests / 20);
+            }
+        } else {
+            missingRegionRequests = 0;
         }
         // 标签/配置变化会换掉整个查表实例（MutationIndexes 在 TagsUpdatedEvent 时清空缓存），
         // 此时旧幽灵全部作废：候选集与源门控都可能已经变了。
@@ -385,15 +425,18 @@ public final class ClientRenderCache {
         if (period != lastPeriodIndex) {
             int sections = activeSections.size();
             int entries = targetCache.size();
+            int decisions = evaluated.size();
             long stale = staleInvalidations.sumThenReset();
             lastPeriodIndex = period;
             clearCache();
             if (sections > 0 || entries > 0) {
                 // stale = 本周期里"因为真实方块变了"而中途作废的幽灵数（玩家挖掉/放下了方块）。
                 // 它长期为 0 意味着有效期判据失效——那正是"挖出来的洞 1~3 秒后才出现"的成因。
+                // decisions 是负缓存在清空前的条目数，用来盯住 BACKLOG P0-6 那类无界增长。
                 LOGGER.info("Focal Decay: period {} - cleared {} ghost entries in {} sections"
-                                + " ({} dropped mid-period because the real block changed), scheduled recompile",
-                        period, entries, sections, stale);
+                                + " ({} dropped mid-period because the real block changed,"
+                                + " {} cached decisions), scheduled recompile",
+                        period, entries, sections, stale, decisions);
             }
         }
 
@@ -451,6 +494,9 @@ public final class ClientRenderCache {
         }
         MutationSettings previous = this.mutationSettings;
         this.mutationSettings = settings;
+        // 池成员也来自这份快照（BACKLOG P0-7）：构建索引是两端共用的同一段代码，
+        // 取值来源必须与其它输入一致，否则服务端与客户端会各自建出不同的池。
+        MutationIndexes.setWildAutoInclude(settings.wildAutoInclude());
         missingSettingsTicks = 0;
         clearCache();
         lastPeriodIndex = Long.MIN_VALUE;
@@ -900,13 +946,28 @@ public final class ClientRenderCache {
         }
     }
 
-    /** 清空缓存并让受影响区块节重编译。 */
+    /**
+     * 清空缓存并在必要时让受影响区块节重编译。
+     * <p>
+     * <b>"要不要重编译"与"要不要丢弃判定"是两件事</b>（2026-09-25 修，BACKLOG `P0-6`）：
+     * 早先在 {@code targetCache} 与 {@code activeSections} 都为空时直接 {@code return}，
+     * 于是 {@link #evaluated}（负缓存）<b>永远清不掉</b>——而"两个表都为空"恰恰是
+     * {@code observerOnline = true}（失焦终止、不再产出幽灵）时的常态，
+     * 断线也走同一条路径。结果是这张表在整个 JVM 会话里单调增长：
+     * 每个编译过的区块节约 4096 条，渲染距离 16 长时间游玩可达千万级，键还是装箱的 {@code Long}。
+     * <p>
+     * 现在的分工：<b>清表无条件做</b>（丢弃判定是正确性要求），
+     * 只有"标脏重编译"在确实没有幽灵时跳过（那本来就是纯开销）。
+     * <p>
+     * 为什么可以无条件清而不心疼：{@code clearCache} 的调用点全都是低频事件
+     * （tick 里的周期/世界/查表变化、区域数据与快照更新），不在逐方块路径上；
+     * 而重建判定的代价只在下一轮表面扫描里摊开——那本来就是要做的工作。
+     */
     private void clearCache() {
-        if (targetCache.isEmpty() && activeSections.isEmpty()) {
-            return;
-        }
-        for (long sectionKey : activeSections) {
-            markSectionDirty(SectionPos.of(sectionKey));
+        if (!activeSections.isEmpty()) {
+            for (long sectionKey : activeSections) {
+                markSectionDirty(SectionPos.of(sectionKey));
+            }
         }
         targetCache.clear();
         evaluated.clear();

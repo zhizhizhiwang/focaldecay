@@ -31,6 +31,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
+import com.zhizhiwang.focal_decay.mutation.ModConfigHandler;
 import org.slf4j.Logger;
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
@@ -69,6 +70,10 @@ public final class FocalDecay {
 
         // Register network payloads (NeoForge 21.1 Payload API)
         modEventBus.addListener(ModNetwork::registerPayloads);
+
+        // 配置重载必须挂在 **mod bus** 上：ModConfigEvent 是 IModBusEvent，
+        // 挂到公共总线会在模组构造阶段直接抛异常导致整个模组加载失败（见 ModConfigHandler 的注释）。
+        modEventBus.addListener(ModConfigHandler::onConfigReloading);
 
         // Register game event handlers
         NeoForge.EVENT_BUS.register(MutationEventHandler.class);

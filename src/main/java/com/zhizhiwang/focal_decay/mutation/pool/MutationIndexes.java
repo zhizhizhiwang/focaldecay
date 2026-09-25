@@ -21,7 +21,34 @@ public final class MutationIndexes {
 
     private static final Map<ResourceKey<Level>, MutationIndex> CACHE = new ConcurrentHashMap<>();
 
+    /**
+     * {@code wild_auto_include} 的当前取值，由两端各自的权威来源设置：
+     * 服务端从配置（{@code MutationSettings.server}），客户端从同步下来的快照。
+     * <p>
+     * <b>为什么要绕这一道</b>（2026-09-30，BACKLOG `P0-7`）：这个开关决定<b>大池的成员</b>，
+     * 因而决定每一个抽到的目标；而 {@link MutationIndexBuilder} 是两端的<b>同一段代码</b>。
+     * 以前它在构建期直接读本端 {@code FocalDecayConfig}，于是服务端与客户端各按自己那份 toml 建池——
+     * 单人环境天然相同所以从不暴露，局域网里改过配置的客户端就会算出另一个世界。
+     * 现在取值来源与其它输入统一：服务端的快照 == 客户端收到的快照。
+     */
+    private static volatile boolean wildAutoInclude = true;
+
     private MutationIndexes() {
+    }
+
+    /**
+     * 设置 {@code wild_auto_include}。取值变化时<b>必须丢弃索引缓存</b>——
+     * 它决定池成员，旧索引在新的取值下是错的。
+     */
+    public static void setWildAutoInclude(boolean value) {
+        if (wildAutoInclude != value) {
+            wildAutoInclude = value;
+            invalidate();
+        }
+    }
+
+    static boolean wildAutoInclude() {
+        return wildAutoInclude;
     }
 
     /** 取某维度的索引；不存在则构建。 */

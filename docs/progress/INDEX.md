@@ -54,9 +54,12 @@
 | 整张战利品表静默不加载 | ARCHIVE §13.6 踩坑 3 | `IntProvider` 与 `NumberProvider` 的 `uniform` 字段名不同 |
 | 箱子开了是空的 | ARCHIVE §13.6 踩坑 1 | 1.21.1 要给容器配 `LootTable` 字符串，不是 `container_loot` 组件 |
 | 函数跑一半停了 | ARCHIVE §13.4 踩坑 8 | 命令抛异常会中断整个函数 |
-| 改配置 / 重启后客户端预览不对 | ARCHIVE §13.12 + BACKLOG P0-7 | 快照只在登录/换维度发；且仍有三个量没进快照 |
-| 死亡重生后基地里还在画幽灵 | BACKLOG P0-5 | 同维度重生会换 `ClientLevel` 但没有任何重发钩子 |
-| 内存持续增长 | BACKLOG P0-6 | `evaluated` 负缓存因 `clearCache` 提前返回而永不清理 |
+| 改配置 / 重启后客户端预览不对 | 2026Q4 §F + ARCHIVE §13.12 | 快照原先只在登录/换维度发；现已加配置重载重发，且三个漏掉的量已进快照（已修） |
+| 死亡重生后基地里还在画幽灵 | 2026Q4 §F | 同维度重生会换 `ClientLevel` 但没有任何重发钩子；已加服务端重生补发 + 客户端缺数据自愈（已修，待实机） |
+| 内存持续增长 | 2026Q4 §F | `evaluated` 负缓存因 `clearCache` 提前返回而永不清理（已修） |
+| 玩家改了自己那份 toml，联机两端的池不一样 | 2026Q4 §F | `wild_auto_include` 两端各读配置、且不在快照里（已修） |
+| 模组构造阶段直接崩：`IModBusEvent events are not allowed on the common NeoForge bus` | 2026Q4 §F | `ModConfigEvent` 必须挂 **mod bus**；挂错是构造期失败，不是功能失效 |
+| 一条断言"翻转某个字段看长度变没变"永远 FAIL | 2026Q4 §F | `writeBoolean` 真假都写 1 字节，长度恒定；判据要用"解码结果是否跟着变" |
 | 放置完成态模型时服务器卡住 | BACKLOG P0-1 | 单 tick 同步写 65³ 个方块 |
 | 掉落物凭空消失 | BACKLOG P0-3 | `asItem()` 可能是 AIR；空栈物品实体下一 tick 被 discard |
 | 箱子被破坏后里面的东西没了 | BACKLOG P0-4 | 取消了 `BreakEvent`，`playerDestroy`（溢出内容物）从未被调用 |

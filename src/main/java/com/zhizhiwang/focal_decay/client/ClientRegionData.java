@@ -80,6 +80,15 @@ final class ClientRegionData {
     /** 各维度的数据（由整表快照与单条增量共同维护）。 */
     private final Map<ResourceKey<Level>, RegionData> byDimension = new ConcurrentHashMap<>();
 
+    /**
+     * 已收到过<b>整表快照</b>的维度。
+     * <p>
+     * 不能靠 {@code byDimension.containsKey(...)} 代替：{@link #applyPrototype} 在整表到达之前
+     * 就会为维度建一份空数据（增量与整表的到达顺序不保证，丢一条增量等于永久少知道一个保护范围）。
+     * 于是"键在"并不代表"整表到了"。缺数据时要据此请求重发，所以必须单独记。
+     */
+    private final Set<ResourceKey<Level>> snapshotReceived = ConcurrentHashMap.newKeySet();
+
     // ------------------------------------------------------------------
     // 写入（主线程：payload handler）
     // ------------------------------------------------------------------
@@ -119,6 +128,7 @@ final class ClientRegionData {
         }
 
         byDimension.put(dimension, new RegionData(prototypeList, incoming));
+        snapshotReceived.add(dimension);
         return changed;
     }
 
@@ -163,9 +173,16 @@ final class ClientRegionData {
         byDimension.put(dimension, new RegionData(old.prototypes, births));
     }
 
-    /** 换世界/断线时清空（不同存档的维度键可能相同）。 */
+    /**
+     * 换世界/断线时清空（不同存档的维度键可能相同）。
+     * <p>
+     * 快照标记必须跟着一起清（2026-09-25，BACKLOG `P0-5`）：维度键（尤其 {@code minecraft:overworld}）
+     * 在不同存档里是同一个，只清数据不清标记会让新世界以为自己已经收到过快照，
+     * 于是<b>永远不请求重发</b>——正好造成"客户端一直用错数据"的静默状态。
+     */
     void clear() {
         byDimension.clear();
+        snapshotReceived.clear();
     }
 
     private static ClientPrototype toClientPrototype(SyncRegionDataPacket.PrototypeData p) {
@@ -198,6 +215,21 @@ final class ClientRegionData {
             return null;
         }
         return byDimension.get(mc.level.dimension());
+    }
+
+    /**
+     * 客户端当前所在维度<b>是否已经收到过整表快照</b>。
+     * <p>
+     * 判据是"收到过快照"而不是"里面有没有内容"：空快照同样是有效信息
+     * （"这个维度现在没有任何保护范围"），而"没收到过"与"收到了但是空的"必须区分开——
+     * 前者要请求重发，后者不能反复请求。
+     */
+    boolean hasSnapshotForCurrentLevel() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) {
+            return true; // 还没进世界：谈不上"缺数据"，不要据此发请求
+        }
+        return snapshotReceived.contains(mc.level.dimension());
     }
 
     /**

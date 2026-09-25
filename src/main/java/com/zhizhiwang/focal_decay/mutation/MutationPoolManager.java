@@ -227,8 +227,13 @@ public class MutationPoolManager extends SavedData {
      *    {@code stabilityStrength × semantic_lock_stage3_strength} 概率"守住"，
      *    失守才参与突变骰（默认 0.5 = 效果减半）。
      * 硬保护优先于软保护返回。
+     *
+     * @param settings 服务端权威输入快照。语义锁定强度取自它而不是本端配置
+     *                 （2026-09-30，BACKLOG `P0-7`）：客户端读的只可能是同步下来的快照，
+     *                 服务端读配置就会留下两条取值路径，而它们在局域网里会分叉。
      */
-    public MutationHelper.Protection protectionInfo(BlockPos pos, BlockState state, int stage) {
+    public MutationHelper.Protection protectionInfo(BlockPos pos, BlockState state, int stage,
+                                                    MutationSettings settings) {
         MutationHelper.Protection result = MutationHelper.Protection.NONE;
         for (PrototypeEffect effect : prototypeEffects) {
             if (!withinRadius(pos, effect)) {
@@ -250,8 +255,7 @@ public class MutationPoolManager extends SavedData {
                     continue;
                 }
                 if (stage >= 3) {
-                    double strength = FocalDecayConfig.SEMANTIC_LOCK_STAGE3_STRENGTH.get()
-                            * effect.data().stabilityStrength();
+                    double strength = settings.semanticLockStage3() * effect.data().stabilityStrength();
                     strength = Math.max(0.0, Math.min(1.0, strength));
                     if (strength > result.softChance()) {
                         result = new MutationHelper.Protection(false, strength);
@@ -265,8 +269,8 @@ public class MutationPoolManager extends SavedData {
     }
 
     /** 硬保护判定（渲染/扫描早期跳过用；阶段3语义锁定不再是硬保护）。 */
-    public boolean isProtected(BlockPos pos, BlockState state, int stage) {
-        return protectionInfo(pos, state, stage).hard();
+    public boolean isProtected(BlockPos pos, BlockState state, int stage, MutationSettings settings) {
+        return protectionInfo(pos, state, stage, settings).hard();
     }
 
     /**
