@@ -1,9 +1,12 @@
 package com.zhizhiwang.focal_decay.mutation.pool;
 
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +49,11 @@ public final class MutationIndex {
     private final List<String> poolTagIds;
     /** 动态标签池（引导模型的概念标签等）的惰性缓存；只在模型装载/换模时访问，不在扫描热路径上。 */
     private final ConcurrentHashMap<String, ClassifiedPool> tagPools = new ConcurrentHashMap<>();
+    /**
+     * 掉落物突变的目标池（大池里"有对应物品"的方块），惰性构建后缓存。
+     * 见 {@link #itemPool()}。用 {@code volatile} 是因为它可能被区块/实体线程首次构建。
+     */
+    private volatile Item[] itemPool;
 
     MutationIndex(ShapeClasses shapeClasses, ClassifiedPool wild, Block[][] local, boolean[] source,
                   Set<Block> immune, List<String> poolTagIds) {
@@ -144,5 +152,43 @@ public final class MutationIndex {
     /** 池成员过滤：空气、带方块实体的、免疫方块都不是候选，两端必须完全一致。 */
     public boolean acceptable(Block block) {
         return block != Blocks.AIR && !block.defaultBlockState().hasBlockEntity() && !immune.contains(block);
+    }
+
+    /**
+     * 掉落物突变的目标池（2026-09-25）：大池里<b>确实有对应物品</b>的那些方块。
+     * <p>
+     * 为什么不能直接用 {@link ClassifiedPool#flat()}：不是每个方块都注册了 {@code BlockItem}
+     * （没有对应物品的技术方块、部分结构方块等），而 {@code Block#asItem()} 对它们返回
+     * {@link Items#AIR}。用它构造 {@code ItemStack} 会得到一个<b>空栈</b>，
+     * 而空栈物品实体在下一 tick 就会被 {@code ItemEntity#tick} 丢弃——
+     * 表现为玩家的掉落物<b>凭空消失</b>，且没有任何日志。
+     * <p>
+     * 在构建期过滤而不是在抽取时判断，有两个理由：把一个"偶发丢件"变成结构上不可能；
+     * 以及让 {@code mutation audit} 可以断言这件事（见 {@code MutationAudit} 的池审计）。
+     * <p>
+     * 惰性计算 + 不变式：索引对象自身不可变，且 {@code BuiltInRegistries.ITEM} 的注册在
+     * 索引构建前就已完成，所以这份缓存与索引同生命周期，标签更新时随索引一起丢弃。
+     */
+    public Item[] itemPool() {
+        Item[] cached = itemPool;
+        if (cached != null) {
+            return cached;
+        }
+        Block[] blocks = wild.flat();
+        List<Item> items = new ArrayList<>(blocks.length);
+        for (Block block : blocks) {
+            Item item = block.asItem();
+            if (item != Items.AIR) {
+                items.add(item);
+            }
+        }
+        Item[] built = items.toArray(new Item[0]);
+        itemPool = built;
+        return built;
+    }
+
+    /** 大池里没有对应物品的方块数（审计用：这些方块不能进掉落物池）。 */
+    public int blocksWithoutItem() {
+        return wild.flat().length - itemPool().length;
     }
 }

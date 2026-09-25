@@ -15,11 +15,16 @@ import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -182,10 +187,57 @@ public final class MutationAudit {
             }
         }
         lines.add("[mutation] sources with no inbound edge: " + noInbound + " " + lonely);
+        lines.addAll(itemPoolAudit(index));
         lines.add("[mutation] checks: frozen=" + frozen
                 + " asymmetric=" + asymmetric + " crossClass=" + crossClass
                 + (frozen == 0 && asymmetric == 0 && crossClass == 0 ? "  OK" : "  FAIL"));
         lines.addAll(problems);
+        return lines;
+    }
+
+    /**
+     * 掉落物池审计（2026-09-25）。
+     * <p>
+     * 钉的是"丢件"：掉落物突变只能从<b>确实注册了物品</b>的方块里抽。没有 {@code BlockItem} 的方块
+     * 其 {@code asItem()} 是 {@link net.minecraft.world.item.Items#AIR}，用它构造 {@code ItemStack}
+     * 会得到空栈，而空栈物品实体下一 tick 就被 {@code ItemEntity#tick} 丢弃——物品凭空消失且无日志。
+     * <p>
+     * 断言两条：物品池非空（否则掉落物突变整个失效，是另一种坏法）；
+     * 以及物品池里每一个物品都不是 AIR。后者在 {@code MutationIndex#itemPool()} 的构建期过滤下
+     * 恒成立，所以它的作用是<b>回归网</b>：有人把过滤去掉、或改用方块池时立刻 FAIL。
+     */
+    private static List<String> itemPoolAudit(MutationIndex index) {
+        List<String> lines = new ArrayList<>();
+        Item[] items = index.itemPool();
+        int air = 0;
+        for (Item item : items) {
+            if (item == Items.AIR) {
+                air++;
+            }
+        }
+        int blocksWithoutItem = index.blocksWithoutItem();
+        boolean ok = items.length > 0 && air == 0;
+        lines.add("[mutation] item pool (drop mutation targets): " + items.length + " items from "
+                + index.wild().flat().length + " wild blocks"
+                + " (+" + blocksWithoutItem + " blocks have no item and are excluded)"
+                + (ok ? "  OK" : "  FAIL"));
+        // 把"是哪些方块"点出来：这正是丢件的来源，值得在日志里留名（数据包加料时会变多）。
+        if (blocksWithoutItem > 0) {
+            List<String> noItem = new ArrayList<>();
+            for (Block block : index.wild().flat()) {
+                if (block.asItem() == Items.AIR && noItem.size() < 16) {
+                    noItem.add(id(block));
+                }
+            }
+            lines.add("[mutation]   blocks with no item (cannot be drop targets): " + noItem);
+        }
+        if (air > 0) {
+            lines.add("[mutation]   FAIL: " + air + " pool entries have no item (asItem()==AIR)"
+                    + " - those would silently delete items on mutation");
+        }
+        if (items.length == 0) {
+            lines.add("[mutation]   FAIL: item pool is empty - drop mutation would never fire");
+        }
         return lines;
     }
 
@@ -310,7 +362,64 @@ public final class MutationAudit {
         out.add("[selftest]   chance=0.01, stairs + state transfer: "
                 + bench(index, Blocks.OAK_STAIRS, pos, seed, 0.01) + " ns");
         out.addAll(mapperStressTest(index));
+        out.addAll(itemMutationSelfTest(index));
         out.addAll(syncSelfTest(level, pos));
+        return out;
+    }
+
+    /**
+     * 掉落物突变的端到端自测（2026-09-25）。
+     * <p>
+     * 走的是 {@link com.zhizhiwang.focal_decay.mutation.DoomsdayHandler} 实际使用的那条路径：
+     * 从 {@link MutationIndex#itemPool()} 里按索引取物品，再对原栈做
+     * {@code ItemStack#transmuteCopy}（换物品类型、保留组件与数量）。
+     * 断言两件事：
+     * <ol>
+     *   <li><b>结果永不空栈</b>——空栈物品实体会在下一 tick 被丢弃，也就是物品凭空消失。
+     *       这是本次修复的核心性质，且它与"池里有没有无物品方块"无关，因此不是空断言。</li>
+     *   <li><b>组件的去留</b>——顺带钉住"换物品不丢组件"（原来 {@code new ItemStack(item, count)}
+     *       会把附魔/命名/容器内容全部丢掉）。用自定义名称当探针，它对任何物品都合法。</li>
+     * </ol>
+     */
+    private static List<String> itemMutationSelfTest(MutationIndex index) {
+        List<String> out = new ArrayList<>();
+        Item[] targets = index.itemPool();
+        if (targets.length == 0) {
+            out.add("[selftest] item mutation targets: FAIL (empty pool - drop mutation would never fire)");
+            return out;
+        }
+
+        // 用固定种子遍历（而不是随机抽样）：失败时可复现，也让两端的自测输出一致。
+        RandomSource probe = RandomSource.create(0x5EED_1703L);
+        int empty = 0;
+        int componentLost = 0;
+        int samples = Math.min(256, targets.length);
+        for (int i = 0; i < samples; i++) {
+            Item target = targets[probe.nextInt(targets.length)];
+            ItemStack origin = new ItemStack(Items.STONE, 7);
+            origin.set(DataComponents.CUSTOM_NAME, Component.literal("probe"));
+            ItemStack mutated = origin.transmuteCopy(target, origin.getCount());
+            if (mutated.isEmpty()) {
+                empty++;
+            }
+            if (!mutated.has(DataComponents.CUSTOM_NAME)) {
+                componentLost++;
+            }
+        }
+        // 回归网必须是<b>确定性全量</b>的：抽查 256 个目标时，池里混进的那一个无物品方块
+        // 很可能抽不到，于是"改坏了也 PASS"（这条 A/B 时踩到过）。所以这里逐项扫一遍。
+        int airInPool = 0;
+        for (Item item : targets) {
+            if (item == Items.AIR) {
+                airInPool++;
+            }
+        }
+        out.add("[selftest] item pool has no itemless entry (full scan of " + targets.length + "): "
+                + (airInPool == 0 ? "PASS" : "FAIL (" + airInPool + " AIR entries - drops would vanish)"));
+        out.add("[selftest] item mutation keeps the stack non-empty over " + samples + " targets: "
+                + (empty == 0 ? "PASS" : "FAIL (" + empty + " empty results - items would vanish)"));
+        out.add("[selftest] item mutation keeps components (custom name probe): "
+                + (componentLost == 0 ? "PASS" : "FAIL (" + componentLost + " lost)"));
         return out;
     }
 

@@ -36,9 +36,14 @@
 
 ## P0 — 会卡死 / 丢东西 / 破坏存档内容
 
-> **已完成（2026-09-25）**：`P0-2` 锚固化无视既有保护 → 已修，见
-> [`progress/2026Q4.md`](progress/2026Q4.md#c-锚固化无视既有保护2026-09-25)。
-> 编号**不复用**：P0 号段里留一个空洞，免得其他地方已经写下的引用失效。
+> **已完成**：
+> - `P0-2` 锚固化无视既有保护 → 2026-09-25 修复，见
+>   [`progress/2026Q4.md`](progress/2026Q4.md#c-锚固化无视既有保护2026-09-25)。
+> - `P0-3` 掉落物突变丢件/丢组件 → 2026-09-25 修复，见
+>   [`progress/2026Q4.md`](progress/2026Q4.md#d-掉落物突变丢件与丢组件2026-09-25)。
+>   （同条目里的第三项"随机销毁"属玩法取向，保留在 `P2-6d`。）
+>
+> 编号**不复用**：P0 号段里留空洞，免得其他地方已经写下的引用失效。
 
 ### P0-1 锚固化：单 tick 同步写 65³ = 274,625 个方块
 
@@ -71,27 +76,6 @@
   1. **分片执行**：按 y 层或按区块节切片，跨 tick 推进；期间**先登记保护**（保护是纯判定，不依赖固化完成）。
   2. 或按 P2-1 降级为纯规则层，直接删掉这个函数——**这是更彻底的方向，但要先拍板**。
 - 验收：单 tick 增量 < 50 ms，或明确摊到 ≥20 tick；固化完成后范围内外观与服务端解析逐位一致。
-
-### P0-3 掉落物突变三重破坏（丢件 / 丢组件 / 随机销毁）
-
-- `DoomsdayHandler.java:155-160`：
-  ```java
-  Block block = blockPool[random.nextInt(blockPool.length)];
-  ItemStack stack = itemEntity.getItem();
-  itemEntity.setItem(new ItemStack(block.asItem(), stack.getCount()));
-  ```
-- **丢件**：`blockPool` 是 `wild().flat()`；默认 `wild_auto_include=true` 会把**所有 cube 且无方块实体**的方块纳入大池
-  （`MutationIndexBuilder.java:71-83`），其中存在 `asItem() == Items.AIR` 的方块（没注册 BlockItem 的技术/结构方块）。
-  `new ItemStack(AIR, n).isEmpty()` 为真，而原版 `ItemEntity.tick` 对空栈物品实体直接 `discard()`
-  → **整堆物品静默消失**。（注：`ItemEntity.setItem` 本身不 discard，删除发生在下一 tick。）
-- **丢组件**：`new ItemStack(item, count)` 丢弃全部组件（附魔、耐久、命名、潜影盒内容、模组组件）。
-- **随机销毁**：这不是"形态漂移"，而是概率性销毁。死亡掉落同样中招。
-- 修法：
-  1. 掉落物**单独建池**（物品标签，或构建期从大池过滤 `asItem() != Items.AIR`），并缓存成 `Item[]`，
-     不要每次 `asItem()`。
-  2. `mutation audit` 增加断言"目标池中不存在 `asItem()==AIR` 的方块"，让数据包写错立刻可见。
-  3. `[拍板]` 组件策略：保留全部组件只换物品 / 只保留数量（现状，但语义要写进手册）/ 只对无组件物品生效。
-- 验收：常见掉落物突变后件数守恒；全池 100% 抽样无空栈；审计断言为 0。
 
 ### P0-4 挖掘绕过原版破坏生命周期
 

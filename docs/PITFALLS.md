@@ -70,7 +70,7 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 |---|---|
 | `PostChain` 的 `Time` | **内置且每帧被覆写**，每秒（20 tick）硬回绕到 `[0,1)`。写 `setUniform("Time", …)` 是无效代码。要做长于 1 秒的平滑周期动画**必须自建**不回绕的 uniform（本项目用 `TotalTime`） |
 | `getRealtimeDeltaTicks()` | 单位是 **tick 不是秒**（内部 `/msPerTick`，60fps 下每秒累加 20）。当秒用会让所有周期快 20 倍 |
-| `Block.asItem()` | 无 `BlockItem` 时返回 `Items.AIR`。**用它构造 `ItemStack` 会得到空栈**，而空栈物品实体在下一 tick 被 `discard()` → 静默删物品 |
+| `Block.asItem()` | 无 `BlockItem` 时返回 `Items.AIR`。**用它构造 `ItemStack` 会得到空栈**，而空栈物品实体在下一 tick 被 `discard()` → 静默删物品。**原版里就有这种方块**：`minecraft:frosted_ice`（霜冰）。要用方块池当物品池时，必须在构建期过滤掉 `asItem()==AIR` 的成员 |
 | `ItemEntity.setItem` | 本身不 discard；删除发生在 `tick()` |
 | `canOcclude()` | 只是"有能力遮挡"的开关。**雪片、半砖都是 true 却只挡住面的一部分**，拿它当"被完全遮挡"会误判 |
 | `isSolidRender()` | 要求**碰撞形状填满整格**，雪片同样为 false → 一刀切太多 |
@@ -249,7 +249,11 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 ## 8. 测试与断言的可靠性（这一节本身是教训）
 
 - **A/B 是硬要求**：新增断言时要**故意把代码改回坏状态**确认它真的 FAIL。
-  不做 A/B 的断言等于没有断言。
+  不做 A/B 的断言等于没有断言。这个项目里已经**两次**由 A/B 抓出坏断言：
+  一次是"现场位置根本不是突变源"导致断言恒真，一次是"随机抽查 256 个目标、而坏条目只有 1 个"
+  导致改坏了也 PASS（详见 `docs/progress/2026Q4.md` §C/§D）。
+- **断言的覆盖范围必须覆盖风险的全部，不能靠抽样**。后一次就是抽样长度小于风险基数造成的，
+  修法是补一条**全量扫描**断言。写断言时先问："最坏情况下，被检查的那一项会不会被跳过？"
 - **压力测试的规模如果落在缓存容量以内，它就什么都没验**。
   真实案例：并发测试先用单线程预热了全部样本对 → 并发阶段全是命中（不插入、不扩容、不竞争），
   对着有 bug 的实现跑出 PASS。修法是把键空间放大到远超缓存上限（4624 → 27368 对，上限 4096）。

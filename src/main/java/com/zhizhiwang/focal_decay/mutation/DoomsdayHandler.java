@@ -15,8 +15,8 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
@@ -131,9 +131,11 @@ public final class DoomsdayHandler {
         }
 
         List<EntityType<?>> entityPool = resolveEntityPool(level, stage);
-        // 掉落物突变没有"形态类"可言（物品没有几何），所以直接取大池的跨形态扁平视图。
-        Block[] blockPool = MutationIndexes.get(level.dimension()).wild().flat();
-        if (entityPool.isEmpty() && blockPool.length == 0) {
+        // 掉落物突变没有"形态类"可言（物品没有几何），所以取大池的跨形态扁平视图；
+        // 但必须用<b>物品池</b>而不是方块池——不是每个方块都有对应物品，
+        // asItem() 返回 AIR 时会产出空栈，而空栈物品实体下一 tick 就被丢弃（丢件）。见 MutationIndex#itemPool。
+        Item[] itemTargets = MutationIndexes.get(level.dimension()).itemPool();
+        if (entityPool.isEmpty() && itemTargets.length == 0) {
             return;
         }
 
@@ -153,10 +155,13 @@ public final class DoomsdayHandler {
             }
 
             if (entity instanceof ItemEntity itemEntity) {
-                if (blockPool.length > 0) {
-                    Block block = blockPool[random.nextInt(blockPool.length)];
+                if (itemTargets.length > 0) {
+                    Item target = itemTargets[random.nextInt(itemTargets.length)];
                     ItemStack stack = itemEntity.getItem();
-                    itemEntity.setItem(new ItemStack(block.asItem(), stack.getCount()));
+                    // transmuteCopy 保留组件（附魔/命名/耐久/容器内容），只换物品类型；
+                    // 原来用 new ItemStack(item, count) 会把组件全部丢掉。
+                    // 计数原样保留（这是既定取向，不是本次修的缺陷）。
+                    itemEntity.setItem(stack.transmuteCopy(target, stack.getCount()));
                 }
             } else if (entity instanceof Mob mob && !(entity instanceof Player) && !entityPool.isEmpty()) {
                 if (isEntityProtected(level, mob)) {
