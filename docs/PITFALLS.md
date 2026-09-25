@@ -45,6 +45,12 @@ jstack <pid>                # 直接看 "Render thread" 的栈
   而乱码会掩盖关键线索（真实案例：乱码掩盖了 `creative=true` 这个决定性信息）。
 - 历史文件（如 `.gitignore`）是 GBK，改它们要显式用 cp936 读写，
   否则一次"顺手格式化"就会把整个文件变成乱码（已经发生过）。
+- **不要用 `Set-Content -Encoding UTF8` / `Out-File -Encoding UTF8` 写源码**：
+  Windows PowerShell 的 `UTF8` 会**写入 BOM**（`EF BB BF`），javac 直接报
+  `错误: 非法字符: '\ufeff'`。用
+  `[IO.File]::WriteAllText($p, $text, (New-Object Text.UTF8Encoding($false)))`。
+  排查：读文件前三个字节，是 `239,187,191` 就是 BOM。
+  （`.gitattributes` 与 `.editorconfig` 都管不了这个——BOM 是文件内容的一部分。）
 
 ---
 
