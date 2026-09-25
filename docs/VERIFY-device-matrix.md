@@ -229,6 +229,26 @@ ALSOFT_DRIVERS=null ./gradlew.bat runClientSecond
 
 ---
 
+## 3c. 方块选择框跟随幽灵（`P1-7` 第一半，2026-09-25 新增，**默认关闭，需要主观评估**）
+
+> `P1-7` 是"看得见但摸不到"的残余。已按可见目标处理的：方块模型、面剔除、挖掘速度/工具、中键选取。
+> 这一节只验**选择框（黑框）**那一半——它是玩家最容易察觉的一处不一致，因为准星一直对着它。
+> **碰撞与射线命中不在本次范围内**（按真实方块是必须的，否则玩家会点到服务端不认的位置）。
+
+| | |
+|---|---|
+| **前置** | `run/config/focal_decay-client.toml` 里 `outline_follows_ghost`（默认 `false`）。改完**重启客户端**。 |
+| **步骤** | ① 找一个**会失焦成不同形状**的方块——最好是"完整方块失焦成半砖/楼梯"，或反过来 ② 把准星对着它 ③ 对比 `outline_follows_ghost = false` 与 `true` 两种设置下黑框的形状 ④ 再试几个形状差异大的组合（完整方块 ↔ 栅栏 / 台阶 / 墙） |
+| **期望** | `true` 时黑框贴合**显示出来的那个方块**的形状；`false` 时（默认）与原版逐位相同，即贴合真实方块 |
+| **观测点** | 黑框本身的轮廓；配合 `/focaldecay mutation at` 看当前可见目标是什么 |
+| **判定** | **这是主观项，只记录哪种更舒服**，没有对错。要记录的是：① 开了之后有没有出现"框画不出来 / 框错位 / 闪烁" ② 你更倾向哪个默认值 |
+| **⚠️ 已知边界（必须一起确认）** | 开了之后**仍然走不进半砖幽灵**——碰撞按真实方块。也就是"看得见摸不到"的不一致**没有消除**，只是"看"这一侧统一了。如果这一点让你觉得比不开更别扭（框说它是半砖、人却撞上去像整块），那结论就是**保持默认关闭**，并把这条边界写进手册 |
+| **❌ 出现下列情况** | 黑框画不出、位置偏移、每帧闪烁、或与"关了开关"时的表现有任何非形状差异 → 记进 `progress/` + 开 BACKLOG 条目（那是注入点选错了，不是主观问题） |
+
+**这条同时是 `P1-7` 的决策输入**：`P1-7` 的下一步（要不要做碰撞、要不要写进手册）取决于你在这里的观感。
+
+---
+
 ## 4. 客户端侧（`P0-5` / `P0-6` / `P1-4`）
 
 > 自动化完全覆盖不到这一段——它们要真人产生"换世界/重生/换维度"这些事件。
@@ -363,6 +383,7 @@ ALSOFT_DRIVERS=null ./gradlew.bat runClientSecond
 | 3.7 | 重派发后原版收尾幂等 | ⬜ | | |
 | 3.8 | 可疑方块清单 | ⬜ | | |
 | 3.9 | 铜块碎片 | ⬜ | | |
+| 3c | 选择框跟随幽灵（P1-7，主观评估） | ⬜ | | 开关：`outline_follows_ghost`，默认 false |
 | 3b.1 | 副手训练的进度显示（P1-6.14） | ⬜ | | |
 | 3b.2 | 候选观测者记录上限（P1-6.13） | ⬜ | | |
 | 3b.3 | 仪式进度崩溃后不回退（P1-6.10） | ⬜ | | |
@@ -410,7 +431,12 @@ ALSOFT_DRIVERS=null ./gradlew.bat runClientSecond
 ALSOFT_DRIVERS=null ./gradlew.bat runClient     -Dfocaldecay.clientStatsSmoke=true -Dmixin.debug.verbose=true
 
 # 起来之后确认四件事
-grep -c "ERROR\|FATAL" run/logs/latest.log                               # 期望 0
+# 只看与本模组相关的错误：直接数 ERROR 会被两类噪声污染——
+# ① Yggdrasil 公共密钥请求失败（本机常连不上 api.minecraftservices.com，
+#    实测稳定出现一条 "Failed to request yggdrasil public key"）；
+# ② 原版资源噪声（缺失音效、shader sampler）。它们与模组无关，但会让"期望 0"永远不成立。
+grep -E "ERROR|FATAL" run/logs/latest.log | grep -viE "yggdrasil|authlib|api.minecraftservices"
+grep -icE "focal_decay.*(exception|error)|mixin.*(fail|error)" run/logs/latest.log   # 期望 0
 grep "clientstats" run/logs/latest.log                                    # 期望两行（不含 smoke 前缀重复）
 grep -c "Preparing focal_decay.mixins.json" run/logs/debug.log            # 期望 1（=9 个全部 prepared）
 grep -oE "Mixing [A-Za-z.]+ from focal_decay.mixins.json into [A-Za-z.$]+"      run/logs/debug.log | sort -u                                        # 期望逐行出现
@@ -423,9 +449,9 @@ grep -i "missing model for variant: 'focal_decay" run/logs/latest.log     # 期�
 
 | 结论 | 证据 |
 |---|---|
-| 客户端能起到主菜单、无崩溃 | `latest.log` 里 `ERROR`/`FATAL` 计数 = **0** |
-| 9 个 mixin 全部 prepared、0 错误 | `Preparing focal_decay.mixins.json (9)`，且没有任何 mixin 报错行 |
-| 6 个 mixin 已确实织入 | 日志里逐个出现 `Mixing client.MinecraftPickBlockMixin … into net.minecraft.client.Minecraft` 等（完整清单见 §9.2） |
+| 客户端能起到主菜单、无崩溃 | `latest.log` 里**与本模组相关**的 `ERROR`/`FATAL` = **0**。注意：裸数 `ERROR` 会因为 Yggdrasil 公钥请求失败（本机常见）而永远非 0，所以判据要过滤掉认证与资源噪声 |
+| mixin 全部 prepared、0 错误 | `Preparing focal_decay.mixins.json (N)`，且没有任何 mixin 报错行 |
+| 已加载目标类的 mixin **确实织入** | 逐行出现 `Mixing client.… from focal_decay.mixins.json into …`。**只看 `Preparing` 的数量是不够的**——它只说明配置被读了，不说明注入成功。完整清单见 §9.2 |
 | 客户端诊断代码路径通（`clientstats`） | `[clientstats] … (smoke, no world loaded yet - zeros are expected)` 两行 |
 | 探针方块的资源齐了 | 补上 `blockstates/` 与 `models/` 之后，`missing model for variant` 警告消失 |
 

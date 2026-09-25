@@ -101,6 +101,9 @@
 | 数据包重载后两端引导邻域不一致 | 2026Q4 §N | 客户端存概念字符串（惰性）、服务端存已解析的池（登记那刻的快照）；两者有效期不同（已修） |
 | 反复 `/reload` 之后内存偏高 | 2026Q4 §N | `MutationIndex.tagPools` 一张表装着几百份 `boolean[registry.size()]`，索引丢弃时不释放（已修） |
 | 代码改了但新断言在日志里一行都不出现 | 2026Q4 §N | 先怀疑是不是根本没编译：`gradle ... \| tail && echo OK` 里的 `&&` 判的是 `tail` 的退出码。查 `.class` 与 `.java` 的 mtime + `javap -p` |
+| 看着是半砖、黑色选择框却框住一整格 | 2026Q4 §O | 框的形状在 `renderLevel` 里就查好了，注入点必须在那之前；已做成开关 `outline_follows_ghost`（默认关，待主观评估） |
+| 客户端启动后错误计数永远是 1 | 2026Q4 §O | `Failed to request yggdrasil public key`（本机连不上 Mojang 认证），与模组无关；判据要过滤认证噪声 |
+| `Preparing focal_decay.mixins.json (N)` 正常，功能却没生效 | 2026Q4 §O/§L | `Preparing` 只说明配置被读了；必须逐行确认 `Mixing … into …` |
 
 ## 按主题查
 

@@ -301,6 +301,7 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.IntValue POST_PROCESS_REFOCUS_FADE_TICKS;
     public static final ModConfigSpec.IntValue SURFACE_UPDATE_FREQUENCY;
     public static final ModConfigSpec.IntValue MAX_RENDER_DISTANCE;
+    public static final ModConfigSpec.BooleanValue OUTLINE_FOLLOWS_GHOST;
     public static final ModConfigSpec.DoubleValue OBSERVER_CORE_SPIN_SPEED;
     public static final ModConfigSpec.DoubleValue OBSERVER_CORE_SPIN_PEAK_SPEED;
     public static final ModConfigSpec.IntValue OBSERVER_CORE_SPIN_EASE_TICKS;
@@ -339,6 +340,14 @@ public final class FocalDecayConfig {
         MAX_RENDER_DISTANCE = builder
                 .comment("Maximum chunk radius for surface scanning.")
                 .defineInRange("max_render_distance", 16, 2, 32);
+        // P1-7 的开关：方块选择框（黑框）跟随失焦幽灵的形状。
+        // 默认关闭是有意的——两种画法哪个更舒服是主观项，先在实机里比一比再定默认值
+        // （见 docs/VERIFY-device-matrix.md §3c）。关闭时行为与原版逐位相同。
+        OUTLINE_FOLLOWS_GHOST = builder
+                .comment("Draw the block selection outline using the defocused (ghost) block's shape"
+                        + " instead of the real block's. Purely visual: collision and raycast still use"
+                        + " the real block, so a ghost slab will still be walked through as a full block.")
+                .define("outline_follows_ghost", false);
         OBSERVER_CORE_SPIN_SPEED = builder
                 .comment("Steady rotation speed of the Observer Core rotor, in degrees per tick."
                         + " 3.0 = one full turn every 6 seconds.")

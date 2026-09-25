@@ -10,6 +10,7 @@
     "client.BlockShouldRenderFaceMixin",
     "client.LevelRendererAccessor",
     "client.GameRendererMixin",
+    "client.LevelRendererOutlineMixin",
     "client.MinecraftPickBlockMixin",
     "client.MultiPlayerGameModeMixin",
     "client.RenderChunkRegionAccessor",
