@@ -1,0 +1,414 @@
+# 实机验证矩阵（P0-8）
+
+> **这是什么**：把散落在 `docs/progress/` 各处、写着"未做实机验证"的条目**一次性收拢成可执行步骤**。
+> 每项写清 **前置 / 步骤 / 期望 / 观测点 / 判定**，判定一律是"能截图或能 grep 到某一行的"，
+> 不写"看看正不正常"。
+>
+> **不是什么**：这不是设计文档（那是 [`DESIGN.md`](DESIGN.md)），也不是待办清单（那是 [`BACKLOG.md`](BACKLOG.md)）。
+> 它是一张**要动手做的清单**，做完把结果填进 [`progress/`](progress/)。
+>
+> 背景条目：`BACKLOG.md` §P0-8。写于 2026-09-25。
+
+---
+
+## 0. 怎么用这张表
+
+1. 按 §1 起环境。**同一次游戏会话尽量跑完同一节**，减少重复准备。
+2. 每项做完在 §7 的登记表里标结果。**"没做"也要写"没做"**，不要留空——
+   留空和"做了且通过"在下次读的时候看不出区别。
+3. 发现不符预期的，先查 §2 的"共用观测点"确认不是自己看错位置，再记进
+   `progress/2026Q4.md`，并在 `BACKLOG.md` 开条目（不要只写在本文里）。
+
+### 判定记号
+
+| 记号 | 含义 |
+|---|---|
+| ✅ | 与期望一致 |
+| ❌ | 与期望不一致 → **必须**记进进度并开 BACKLOG 条目，附截图或日志行 |
+| ⚠️ | 主观项，只记录观察，不判定对错（本表里这类项已标明） |
+| ⬜ | 未做 |
+
+---
+
+## 1. 环境准备
+
+### 1.1 单人（大多数项够用）
+
+```bash
+cd /c/Users/zzzhi/IdeaProjects/focaldecay
+ALSOFT_DRIVERS=null ./gradlew.bat runClient
+```
+
+- 必须带 `ALSOFT_DRIVERS=null`，否则卡死在 OpenAL 的 HRTF 初始化。
+- 进世界后用 `/focaldecay trace true` 打开交互诊断。
+
+### 1.2 多人（只有 §4.5 与 §5.3 需要）
+
+```bash
+# 终端 1
+./gradlew.bat runServer
+# 终端 2（另开的客户端，连 127.0.0.1:25565）
+ALSOFT_DRIVERS=null ./gradlew.bat runClientSecond
+# 再加一个普通客户端手动连进来，凑成"专用服务器 + 两个客户端"
+```
+
+⚠️ `runClient` 与 `runClientSecond` **不能共用 `run/`**（会抢 `latest.log` 与 `options.txt`），
+所以第二个客户端用 `run-client/`。看它的日志要读 `run-client/logs/latest.log`。
+
+### 1.3 造一个"必定失焦"的测试场
+
+失焦是概率的（阶段 1 默认只有 1%），为了不用等，先拨时钟把概率拉满：
+
+```
+/focaldecay period speed 1          # 正常流速
+/focaldecay mutation at             # 确认当前位置的源/目标/候选数，看得到就会失焦
+```
+
+想强制看到幽灵而不改配置，就用**高阶段**：把 `stage2_day` / `stage3_day` 调小再重启，
+或直接改 `run/config/focal_decay-server.toml` 里的 `block_mutation_chance_stage1`。
+**跑完记得改回来**（配置改了要重启才生效，所以不会污染别的项）。
+
+---
+
+## 2. 共用观测点（先记住这几个，后面每一项都在用）
+
+| 想看什么 | 怎么看 | 说明 |
+|---|---|---|
+| 一次挖掘锁定了什么 | `/focaldecay mutation at` → `breakLock=` 行 | 显示 `pos` / `dim` / `period` / `target`，以及当前显示刻与维度 |
+| 一次挖掘/右键按什么目标响应 | `/focaldecay trace true` 之后的 `[trace] left-click …` / `right-click …` 行 | 每 200 行左右会刷；查完记得 `trace false` |
+| 两端输入是否一致 | 启动日志里的 `server mutation settings received (seed=…)` | 种子与服务端一致才说明对齐 |
+| 池与形态类的健康度 | `/focaldecay mutation audit` | `frozen=0 asymmetric=0 crossClass=0` |
+| 全套自动化自检 | `/focaldecay mutation selftest` | `[break]` / `[sync]` / `[anchor]` / `[stress]` 段必须 0 FAIL |
+| 客户端扫描成本 | `/focaldecay clientstats` | `positions` / `cpuMs` / `nsPerPosition` / `cachedDecisions` / `queuedSections` |
+| 客户端缓存是否被清 | 日志 `Focal Decay: period N - cleared X ghost entries in Y sections (Z dropped mid-period, K cached decisions)` | 每个周期边界一行；**`K` 必须回落，不单调增长** |
+| 锚固化的耗时 | 日志 `[focal_decay] anchor normalize: dim=… radius=… positions=…` | 每次固化一行 |
+
+---
+
+## 3. P0-4 挖掘路径重构的兼容性回归（本轮新增，**优先级最高**）
+
+> 依据：`progress/2026Q4.md` §K。自动化只验到了"原版管线对着目标跑完"，
+> 下面这些要真人拿真实方块试——它们的共同点是**依赖具体方块的行为**，
+> 自测的探针方块覆盖不到。
+>
+> **准备**：`/focaldecay trace true`；建议先 `/focaldecay period speed 0` 冻结时钟，
+> 这样目标不会中途变化、好判断。
+
+### 3.1 自定义 `playerDestroy` 覆写的方块（**最关键的一条**）
+
+旧实现在这里 100% 出错（它自己 `getDrops` + `addFreshEntity`，完全绕过该方法）。
+
+| | |
+|---|---|
+| **前置** | 装一个"破坏时有自定义覆写"的模组方块。**没有装模组也可以用原版容器代替**：潜影盒 |
+| **步骤** | ① 放一个潜影盒，往里面塞几样东西 ② 用 `/focaldecay mutation at` 确认这一格是突变源 ③ 等到它失焦成别的方块（看它显示的样子）④ 挖掉它 |
+| **期望** | 潜影盒**作为物品掉落**（带内容物），而不是掉出"它显示成的那个方块" |
+| **观测点** | 掉落物实体本身 |
+| **判定** | 掉出来的是潜影盒且 `NBT` 里东西还在 → ✅；掉出来的东西没了 / 掉的是别的方块 → ❌ |
+
+> 为什么期望是"潜影盒"：`playerDestroy` 的默认实现按<b>方块自己</b>的战利品表掉，
+> 而潜影盒覆写了它、直接掉自己带内容的物品。重派发让原版管线对着<b>目标</b>跑，
+> 所以走的是目标方块的 `playerDestroy`——如果玩家看到它是石头，就应该掉石头。
+> **这一条真正要确认的是"掉的东西和看到的一致"**，而不是"潜影盒永远掉潜影盒"。
+> 判据：**掉落物 = 你看到的那个方块应有的掉落**。
+
+### 3.2 容器内容物溢出
+
+| | |
+|---|---|
+| **前置** | 同上；另备一个箱子 |
+| **步骤** | 箱子塞满东西 → 等它失焦 → 挖掉 |
+| **期望** | 箱子里的东西**散落到地上**（原版 `playerDestroy` → `Containers.dropContents`），不是凭空消失 |
+| **观测点** | 地面上的物品实体 |
+| **判定** | 物品全在地上 → ✅；物品凭空消失 → ❌ |
+| **备注** | 若失焦目标是<u>普通方块</u>（箱子变成石头），那**不该**溢出内容物 —— 那时掉石头是对的。记录你看到的是哪种情况 |
+
+### 3.3 红石矿的额外掉落（`spawnAfterBreak`）
+
+| | |
+|---|---|
+| **步骤** | 找一片红石矿 → 等失焦 → 用铁镐以上挖掉，多挖十几块 |
+| **期望** | 每次都有红石粉掉落（`spawnAfterBreak` 里额外掉 4~5 个） |
+| **判定** | 有红石粉 → ✅；一个都没有 → ❌ |
+
+### 3.4 `doTileDrops=false` 时确实不掉落
+
+| | |
+|---|---|
+| **步骤** | `/gamerule doTileDrops false` → 挖掉一个已失焦的方块（挖十几块更稳）→ `/gamerule doTileDrops true` |
+| **期望** | **一个物品都不掉**（经验仍会掉，那是另一条门控） |
+| **判定** | 地上没有任何掉落物 → ✅ |
+| **备注** | 自动化断言已经覆盖这一条（`[break] doTileDrops=false…`）。实机复验是因为**旧实现**在这一点上其实与新版相同（`Block.getDrops` 内部也门控该规则，见 §K），所以这里主要防回归 |
+
+### 3.5 创造模式破坏行为不变
+
+| | |
+|---|---|
+| **步骤** | 切创造模式 → 挖掉一个已失焦的方块 |
+| **期望** | 方块直接消失，**无掉落、不入背包、不产生转换**；客户端也不应闪出一个不同方块 |
+| **判定** | 与挖普通方块体验一致 → ✅ |
+
+### 3.6 中途放弃挖掘
+
+| | |
+|---|---|
+| **前置** | `/focaldecay period speed 0`（冻结时钟，避免目标中途变化干扰判断） |
+| **步骤** | 对着一个已失焦的方块**点一下左键就开始挖，然后立刻松手走开**（不要挖穿）→ 回头看那一格 |
+| **期望** | 那一格**仍然是它显示的样子**（幽灵还在），挖掘进度条消失 |
+| **观测点** | 那一格的外观 + `/focaldecay mutation at` 的 `breakLock=` 行 |
+| **判定** | 外观与离开时一致 → ✅ |
+| **⚠️ 注意** | 重派发**只在方块真正被破坏时**发生，所以中途放弃**不该**把目标写进世界。如果你看到"放弃挖掘后方块变成了目标方块"，那是**真 bug**（说明 `BreakEvent` 被提前触发了），必须记下来 |
+
+### 3.7 重派发后原版收尾是否幂等（**本项目最不确定的一条**）
+
+> 这是评审 `REVIEW-break-path.md` §7 明确列出的"我会改变推荐的信号"。
+
+| | |
+|---|---|
+| **步骤** | 连续挖 50~100 个已失焦的方块；期间**交替**做：换手拿不同工具、边挖边走动、挖不同硬度（泥土/石头/黑曜石）、`/focaldecay trace true` 观察 |
+| **期望** | ① 无重复音效/粒子（一次挖掘一次声音）② 挖掘进度条正常清除、不残留 ③ 方块不"闪回来"再消失 ④ 掉落的物品数量与工具匹配（精准采集/时运生效） |
+| **观测点** | 听声音、看粒子、看掉落堆叠数；日志里不应出现 `Mismatch in destroy block pos` 之类的原版警告 |
+| **判定** | 四项全对 → ✅ |
+| **❌ 出现任何一项** | 按评审 §7 退化到"补齐差集"方案，并把现象记进 `PITFALLS.md` |
+
+### 3.8 可疑方块清单（考古、特殊交互）
+
+| | |
+|---|---|
+| **步骤** | 逐个试：可疑的沙子/砂砾（考古）、蜂巢（激怒蜜蜂）、蛋糕、告示牌、营火、耕地、命令方块（生存不可用）、`/setblock` 造的含水方块 |
+| **期望** | 每个方块按其**显示出来的目标**响应；蜂巢被挖时蜜蜂被激怒（`playerWillDestroy`）；含水方块被挖后水仍在 |
+| **判定** | 与"直接挖那个方块"的原版行为一致 → ✅ |
+| **备注** | 含水方块这一条**理论上走不到**（突变源必须是完整立方体，而完整立方体不会 `waterlogged`），所以它主要验的是 `onDestroyedByPlayer` 没被绕过 |
+
+### 3.9 铜块碎片（本模组自己的语义掉落）
+
+| | |
+|---|---|
+| **步骤** | 找铜块 → 等它失焦成**别的方块** → 挖十几块 |
+| **期望** | 按配置概率额外掉出"硫铜结晶"碎片（默认 0.05，挖十几块可能一次都不出，属正常） |
+| **判定** | 出现碎片 → ✅；一次都没出**不能判失败**（概率问题），要判失败得先把 `fragment_copper_mutation_chance` 调到 1.0 再试 |
+| **备注** | 碎片是在重派发**之后**单独结算的，所以要确认它**和目标方块的掉落同时存在**（不是二选一） |
+
+---
+
+## 4. 客户端侧（`P0-5` / `P0-6` / `P1-4`）
+
+> 自动化完全覆盖不到这一段——它们要真人产生"换世界/重生/换维度"这些事件。
+
+### 4.1 死亡重生后客户端镜像自愈（P0-5）
+
+| | |
+|---|---|
+| **前置** | 建一个小基地（放几块已经失焦的方块，让幽灵可见）；`/focaldecay trace true` |
+| **步骤** | ① 记住基地里幽灵的样子 ② `/kill` 自己（或真死一次）③ **同维度**重生 ④ 走回基地 |
+| **期望** | 走回去时**幽灵还在**（不需要退出重进） |
+| **观测点** | 基地方块的显示样子；客户端日志里不应出现 `still waiting for the server's mutation settings` |
+| **判定** | 幽灵正常 → ✅；一片"原版样子"且等 5 秒仍不恢复 → ❌ |
+| **❌ 时的诊断** | 看客户端日志有没有 `mutation settings received`；没有就是重生补发没生效 |
+
+### 4.2 换维度往返
+
+| | |
+|---|---|
+| **步骤** | 进下界 → 回来 → 进末地 → 回来，各走一遍；每次都看基地里的幽灵 |
+| **期望** | 每次回来幽灵都正常 |
+| **判定** | 全程正常 → ✅ |
+| **备注** | 这一条与 4.1 同源（都是 `ClientLevel` 换了但镜像没跟上） |
+
+### 4.3 `evaluated` 负缓存有界（P0-6）
+
+| | |
+|---|---|
+| **前置** | 正常游戏视距（别调到最小）；`/focaldecay period speed 1` |
+| **步骤** | ① 玩/挂机 ≥30 分钟，期间多走动、多挖 ② 每 10 分钟跑一次 `/focaldecay clientstats`，记下 `cachedDecisions` ③ 观察日志里的 `period N - cleared X ghost entries in Y sections (Z dropped mid-period, K cached decisions)` 行 |
+| **期望** | `cachedDecisions` **在每个周期边界回落**，不单调增长；`ghostEntries` 也在边界回落 |
+| **判定** | 看到回落 → ✅；10 分钟/30 分钟节点上 `cachedDecisions` 持续变大且从不清 → ❌ |
+| **判读要点** | 周期默认 10 分钟，所以 30 分钟内应当看到 ≥2 次边界。想快点验：`/focaldecay period offset <n>` 直接往前拨一个周期，日志立刻出现那一行 |
+| **⚠️ 注意** | `cachedDecisions` 在**两个边界之间**变大是正常的（那就是负缓存在工作）。判据是"边界时归零"，不是"一直很小" |
+
+### 4.4 长时间挂机的内存与存档体积（P0-6 的另一半）
+
+| | |
+|---|---|
+| **步骤** | 挂机 ≥2 小时（可以 AFK 在基地里），记录：① 客户端进程内存（任务管理器）② `run/saves/<world>/data/` 下 `focal_decay` 相关文件体积 ③ 服务端日志有无异常 |
+| **期望** | 内存不单调增长到 OOM；SavedData 体积不持续膨胀 |
+| **判定** | 内存稳定（有波动但不上台阶）→ ✅ |
+| **⚠️ 这需要 2 小时真实时间**，可以只在"准备长期玩"时顺便做 |
+
+### 4.5 反复换维度/重生不再崩在 worker 线程（P1-4）
+
+| | |
+|---|---|
+| **步骤** | ① 进下界 → 回主世界 → 反复 20 次 ② 中途 `/kill` 几次 ③ 全程盯着客户端日志 |
+| **期望** | 无崩溃、无 worker 线程异常；幽灵偶尔晚一帧出现可以接受 |
+| **观测点** | 客户端日志里不应有 `ClientRegionData` / `MutationStateMapper` / `SectionCompilerMixin` 相关的异常栈 |
+| **判定** | 20 次往返无异常 → ✅ |
+| **❌ 时的诊断** | 崩在编译线程上说明"维度/世界当参数传下去"这条修得不彻底，把栈记下来 |
+
+### 4.6 客户端扫描成本（P1-5，**顺带量数字**）
+
+| | |
+|---|---|
+| **步骤** | ① 视距设 8，进世界，走动 1 分钟 ② `/focaldecay clientstats`，记下数字 ③ `/focaldecay clientstats reset` ④ 视距改 16（或 32），回世界走动 1 分钟 ⑤ 再读一次 |
+| **期望** | `nsPerPosition` 两个视距下**同一量级**（成本与视距无关，只与总量有关）；`positions` 随视距显著增大 |
+| **观测点** | `scannedSections` / `positions` / `resolves` / `cpuMs` / `nsPerPosition` / `queuedSections` |
+| **判定** | 记下数字即为完成（**这是数据采集，不是通过/不通过**） |
+| **⚠️ 关键判读** | 如果 `nsPerPosition` 在 32 视距下**明显变大**，说明有随体积增长的成本（例如视锥剔除只在节粒度），那就是 `P1-5` 要优化的地方 |
+
+---
+
+## 5. 两端一致性与多人（`P0-7` / `[sync]` 的实机部分）
+
+### 5.1 配置重载后两端仍一致（P0-7）
+
+| | |
+|---|---|
+| **前置** | 集成服务器（单人开"对局域网开放"）或专用服务器 + 一个客户端 |
+| **步骤** | ① 启动，确认两端日志都有 `server mutation settings received (seed=…)` ② 改 `run/config/focal_decay-server.toml` 里任一影响解析的值（例如 `wild_auto_include`）③ 在服务端执行 `/reload`（或按配置热重载）④ 看两端 |
+| **期望** | 服务端日志出现 `server config reloaded - mutation settings re-sent to N player(s)`；客户端随即刷新，两端看到的方块一致 |
+| **判定** | 有那一行且两端一致 → ✅ |
+| **备注** | 这条的代码路径（`ModConfigHandler`）**没有任何自动化触发点**，只能这样验 |
+
+### 5.2 `/reload` 后两端 `mutation index` 数字一致
+
+| | |
+|---|---|
+| **步骤** | `/reload` → 两端各看一遍池与形态类的统计（服务端看日志的 `mutation index[...]` 行，客户端看 `clientstats` / 幽灵是否正常） |
+| **期望** | 两端 `pools` / `wild` / `shapeClasses` 数字相同 |
+| **判定** | 相同 → ✅；不同 → ❌（而且这会导致两端画的不一样） |
+
+### 5.3 两人同时操作同一格
+
+| | |
+|---|---|
+| **前置** | 专用服务器 + 两个客户端（§1.2） |
+| **步骤** | ① 两人站到同一格旁边 ② 同时挖同一格 ③ 再试同时右键同一格 |
+| **期望** | 不掉两份、不重复转换、不出现"一个人看到变了另一个没变" |
+| **判定** | 掉落一份、转换一次 → ✅ |
+| **❌ 时的诊断** | 打开 `/focaldecay trace true` 看两边的 `left-click` 行，比较 `period=` 是否一致 |
+
+---
+
+## 6. 可选依赖隔离（约定 §3.5 的回归）
+
+### 6.1 未装 Patchouli
+
+| | |
+|---|---|
+| **步骤** | 临时把 Patchouli 从 `run/mods/` 移走（或用另一个实例目录）→ 启动客户端 |
+| **期望** | **正常进游戏**，只是手册物品拿不到/打不开 |
+| **判定** | 进得去 → ✅；**崩在类加载阶段** → ❌（那是 `NoClassDefFoundError`，`isLoaded()` 拦不住） |
+| **观测点** | 启动日志里不该有 `NoClassDefFoundError` / `patchouli` 相关的堆栈 |
+
+### 6.2 未装 JEI
+
+| | |
+|---|---|
+| **步骤** | 同上，移走 JEI → 启动 |
+| **期望** | 正常进游戏，配方界面缺失但游戏能玩 |
+| **判定** | 同 6.1 |
+
+---
+
+## 7. 结果登记表
+
+> 做完就填。**未做写 ⬜，不要留空。**
+
+| 项 | 内容 | 结果 | 日期 | 备注 / 日志行 |
+|---|---|---|---|---|
+| 3.1 | 自定义 `playerDestroy` 覆写 | ⬜ | | |
+| 3.2 | 容器内容物溢出 | ⬜ | | |
+| 3.3 | 红石矿额外掉落（`spawnAfterBreak`） | ⬜ | | |
+| 3.4 | `doTileDrops=false` 不掉落 | ⬜ | | |
+| 3.5 | 创造模式行为不变 | ⬜ | | |
+| 3.6 | 中途放弃挖掘 | ⬜ | | |
+| 3.7 | 重派发后原版收尾幂等 | ⬜ | | |
+| 3.8 | 可疑方块清单 | ⬜ | | |
+| 3.9 | 铜块碎片 | ⬜ | | |
+| 4.1 | 死亡重生后镜像自愈（P0-5） | ⬜ | | |
+| 4.2 | 换维度往返 | ⬜ | | |
+| 4.3 | `evaluated` 负缓存有界（P0-6） | ⬜ | | |
+| 4.4 | 2 小时挂机内存（P0-6） | ⬜ | | |
+| 4.5 | 反复换维度不崩（P1-4） | ⬜ | | |
+| 4.6 | 客户端扫描成本数字（P1-5） | ⬜ | | 命令与判读见 §4.6；`clientstats` 本身已在 §9 冒烟通过 |
+| 5.1 | 配置重载后两端一致（P0-7） | ⬜ | | |
+| 5.2 | `/reload` 后 index 数字一致 | ⬜ | | |
+| 5.3 | 两人同时操作同一格 | ⬜ | | |
+| 6.1 | 未装 Patchouli | ⬜ | | |
+| 6.2 | 未装 JEI | ⬜ | | |
+| §9 | 客户端启动 + mixin 审计（无人值守） | ✅ | 2026-09-25 | 9 个 prepared / 6 个已织入 / 0 错误；见 §9.1 |
+
+---
+
+## 8. 可以自动化的部分（已经自动化的，别重复手测）
+
+下面这些**已经在无头服务端上跑过**，不需要在实机里重复：
+
+| 已经自动验过的 | 在哪 |
+|---|---|
+| 原版管线对着**可见目标**跑完（四个回调 + 掉落进世界） | `[break]` 断言（`BreakAudit`） |
+| 挖掘锁定的位置 / 维度校验 | `[break]` 第一条断言 |
+| `doTileDrops=false` 抑制产出 | `[break]` 最后一条断言 |
+| 确定性 / 不收敛 / 对称 / 状态迁移 / 形态类门控 | `[selftest]` 段 |
+| 两端输入快照往返、字段真的被搬 | `[sync]` 段 |
+| 并发压力（编译线程） | `[stress]` 段 |
+| 锚固化尊重既有保护 | `[anchor]` 断言 |
+| 实体突变种子的身份性 | `[entity]` 断言 |
+| 池 / 形态类 / 跨类一致性 | `mutation audit` |
+
+跑法：`./gradlew.bat runServer`，然后
+`grep -E '\]: .*FAIL' run/logs/latest.log`（应为空）。
+
+---
+
+## 9. 客户端启动侧的自动验证（无人值守，**2026-09-25 已跑过一次**）
+
+```bash
+# 一遍跑完：客户端启动 + 诊断代码路径 + mixin 应用审计
+ALSOFT_DRIVERS=null ./gradlew.bat runClient     -Dfocaldecay.clientStatsSmoke=true -Dmixin.debug.verbose=true
+
+# 起来之后确认四件事
+grep -c "ERROR\|FATAL" run/logs/latest.log                               # 期望 0
+grep "clientstats" run/logs/latest.log                                    # 期望两行（不含 smoke 前缀重复）
+grep -c "Preparing focal_decay.mixins.json" run/logs/debug.log            # 期望 1（=9 个全部 prepared）
+grep -oE "Mixing [A-Za-z.]+ from focal_decay.mixins.json into [A-Za-z.$]+"      run/logs/debug.log | sort -u                                        # 期望逐行出现
+grep -i "missing model for variant: 'focal_decay" run/logs/latest.log     # 期望为空
+```
+
+### 9.1 这一趟到底验掉了什么（以及**没**验掉什么）
+
+**已验证（2026-09-25 实测）**：
+
+| 结论 | 证据 |
+|---|---|
+| 客户端能起到主菜单、无崩溃 | `latest.log` 里 `ERROR`/`FATAL` 计数 = **0** |
+| 9 个 mixin 全部 prepared、0 错误 | `Preparing focal_decay.mixins.json (9)`，且没有任何 mixin 报错行 |
+| 6 个 mixin 已确实织入 | 日志里逐个出现 `Mixing client.MinecraftPickBlockMixin … into net.minecraft.client.Minecraft` 等（完整清单见 §9.2） |
+| 客户端诊断代码路径通（`clientstats`） | `[clientstats] … (smoke, no world loaded yet - zeros are expected)` 两行 |
+| 探针方块的资源齐了 | 补上 `blockstates/` 与 `models/` 之后，`missing model for variant` 警告消失 |
+
+**没验掉（需要真人在世界里动手）**：
+
+- 上表 6 个之外的 **3 个 mixin 还没织入**，因为它们的**目标类要进世界才加载**：
+  `MultiPlayerGameModeMixin`（← 挖掘/右键按可见目标 + 回报显示刻）、
+  `SectionCompilerMixin`、`RenderChunkRegionAccessor`。
+  它们负责的正是"看得见的方块"那一整套，**所以 §3 与 §4 必须在进世界之后再确认一次**。
+  想顺手把这条也验掉：进世界后退出，再 `grep "Mixing client.MultiPlayerGameModeMixin" run/logs/debug.log`。
+- `clientstats` 的数字全是 0（标题界面没有世界，扫描压根不跑）。
+  **读数本身的正确性要到 §4.6 才有意义。**
+
+### 9.2 已确认织入的 mixin（2026-09-25）
+
+```
+client.BlockShouldRenderFaceMixin  -> net.minecraft.world.level.block.Block
+client.GameRendererMixin           -> net.minecraft.client.renderer.GameRenderer
+client.LevelRendererAccessor       -> net.minecraft.client.renderer.LevelRenderer
+client.MinecraftPickBlockMixin     -> net.minecraft.client.Minecraft
+DisplayAccessor                    -> net.minecraft.world.entity.Display
+TextDisplayAccessor                -> net.minecraft.world.entity.Display$TextDisplay
+```
+
+> ⚠️ 一个容易误读的点：**mixin 被"跳过"时游戏照样能起来**，只是所有"按可见目标"的行为
+> 静默退回原版——表现是"模组好像没生效"，而不是崩溃。
+> 所以"客户端起得来"**不构成**"mixin 生效"的证据，必须像上面这样逐行看 `Mixing …`。
+> 这条已经写进 `AGENTS.md` §4 的客户端那一行。

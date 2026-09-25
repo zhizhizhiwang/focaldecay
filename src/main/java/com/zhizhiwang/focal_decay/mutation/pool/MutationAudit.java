@@ -776,56 +776,108 @@ public final class MutationAudit {
         BlockState source = Blocks.STONE_BRICKS.defaultBlockState();
         boolean frozenOk = true;
         boolean mutatesOk = true;
-        boolean discriminating = true;
         // 逐条记下失败原因：只留最后一条会把"倍率 7 时闸门根本没关"这种真正的病因盖掉
         List<String> failures = new ArrayList<>();
+        // 纯诊断：这条断言跑在什么时钟状态下（display != storage 是非 1.0 倍率的正常状态）。
+        List<String> clockNotes = new ArrayList<>();
         try {
             for (double speed : new double[]{1.0, 7.0, 0.5}) {
                 // ⚠️ offset 必须一起设成已知值（2026-09-25 修）。
-                // 只设 speed、把 offset 留给现场，这条断言就会<b>依赖开发世界当时的状态</b>：
-                // 它比的是 displayPeriod(now) 与 storagePeriod(now)，而只有 offset=0 时两者才必然不同。
-                // 时钟被前一段自测留在任意 offset 上时（实测 offset=5000），非默认倍率下两个周期
-                // 可能刚好对上，于是 differs 恒为 false、报出一句看不懂的
-                // "storage-clock birth gives the same verdict"。观测到过一次。
+                // 只设 speed、把 offset 留给现场，这条断言就会<b>依赖开发世界当时的状态</b>。
                 worldData.setClock(speed, 0L);
                 long now = MutationEventHandler.displayPeriodIndex(level);
                 long birth = MutationEventHandler.birthPeriodIndex(level, Long.MIN_VALUE);
-                long wrongBirth = MutationEventHandler.storagePeriodIndex(level);
 
+                // 这一行的两个数字现在是纯诊断（下面三条断言都不再依赖它们）：
+                // 它们回答的是"这条断言跑在什么时钟状态下"。display != storage 是<b>非 1.0 倍率</b>
+                // 的正常状态，不是问题；speed=1 时两者必须逐位相同（那由 {@code [period]} 段守）。
+                long storageNow = MutationEventHandler.storagePeriodIndex(level);
+                clockNotes.add("speed=" + speed + " display=" + now + " storage=" + storageNow
+                        + " birth=" + birth);
+
+                // ---- 断言 A：新生的方块这一刻不该变 ----
                 if (MutationHelper.resolve(source, pos, seed, now, index, 1.0, GuidedBias.NONE,
                         MutationHelper.Protection.NONE, birth) != source) {
                     frozenOk = false;
                     failures.add("speed=" + speed + ": newborn block mutated right away");
                 }
-                // 抽到自己也是合法结果（自环），所以往后多看两个周期再判"能不能变"
+
+                // ---- 断言 B：往后看几个周期必须能变（抽到自己也是合法结果，所以看 3 个） ----
                 boolean mutates = false;
-                boolean differs = false;
                 for (long p = now; p <= now + 3; p++) {
-                    BlockState good = MutationHelper.resolve(source, pos, seed, p, index, 1.0, GuidedBias.NONE,
-                            MutationHelper.Protection.NONE, birth);
-                    BlockState wrong = MutationHelper.resolve(source, pos, seed, p, index, 1.0, GuidedBias.NONE,
-                            MutationHelper.Protection.NONE, wrongBirth);
-                    mutates |= p > now && good != source;
-                    differs |= good != wrong;
+                    mutates |= p > now && MutationHelper.resolve(source, pos, seed, p, index, 1.0,
+                            GuidedBias.NONE, MutationHelper.Protection.NONE, birth) != source;
                 }
                 if (!mutates) {
                     mutatesOk = false;
                     failures.add("speed=" + speed + ": still frozen after three periods");
                 }
-                if (speed != 1.0 && !differs) {
-                    discriminating = false;
-                    // 把两个周期一起打出来：这句失败在"实现坏了"和"现场时钟不干净"两种情况下
-                    // 长得一模一样，没有数字就只能靠猜。
-                    failures.add("speed=" + speed + ": storage-clock birth gives the same verdict"
-                            + " (display=" + now + " storage=" + wrongBirth + " - if these are equal,"
-                            + " the test site's clock was not neutral)");
+            }
+
+            // ⚠️ 下面这一段是**换掉一个错误的对照物**之后重写的（2026-09-25 第二次修）。
+            //
+            // 原版拿 {@code storagePeriodIndex} 当"错误的诞生周期"，断言它与真实诞生周期
+            // 会给出不同判定。这个对照物是错的，理由在代码里才看得见：
+            // 回扫从 {@code birth + 1} 开始、深度上限 {@code CUMULATIVE_SCAN_CAP = 128}，
+            // 而存储刻算出来的周期（实测 952）比显示刻（实测 6664）小得多——
+            // 于是<b>两个诞生周期都让回扫一路跑到 128 上限</b>，判定自然相同。
+            // 换句话说：那条断言测的是"回扫上限有没有生效"，不是"诞生周期有没有用"。
+            // 它在 speed=0.5 时碰巧通过（那时两个周期接近），在 speed=7 时必然失败。
+            //
+            // 现在改成三条独立断言，最后一条才是"哪个时钟在起作用"的正面检验。
+            for (double speed : new double[]{1.0, 7.0, 0.5}) {
+                worldData.setClock(speed, 0L);
+                long now = MutationEventHandler.displayPeriodIndex(level);
+                long birth = MutationEventHandler.birthPeriodIndex(level, Long.MIN_VALUE);
+
+                // ---- 断言 C：诞生周期确实被封住（未来诞生 ⇒ 恒定返回原方块） ----
+                boolean sealed = true;
+                for (long p = now; p <= now + 3; p++) {
+                    sealed &= MutationHelper.resolve(source, pos, seed, p, index, 1.0, GuidedBias.NONE,
+                            MutationHelper.Protection.NONE, now + 500L) == source;
+                }
+                if (!sealed) {
+                    failures.add("speed=" + speed + ": a block born far in the future still mutated"
+                            + " - the birth gate is not sealing");
+                }
+
+                // ---- 断言 D：诞生周期确实被用作回扫起点（极远的过去 ⇒ 这一刻就会变） ----
+                // 若实现把 birthPeriod 忽略掉（例如恒当 0），这条与 C 会同时失败。
+                BlockState oldBirth = MutationHelper.resolve(source, pos, seed, now, index, 1.0,
+                        GuidedBias.NONE, MutationHelper.Protection.NONE, Math.max(0L, now - 500L));
+                if (oldBirth == source) {
+                    failures.add("speed=" + speed + ": a block born long ago was still frozen"
+                            + " - the birth period is not used as the backscan start");
+                }
+
+                // ---- 断言 E：诞生周期取的是**显示刻**，不是存储刻（这条才是原来想测的东西） ----
+                // 只有非 1.0 倍率下两个时钟才会分开；speed=1 时它们相等，这条天然无意义。
+                if (speed != 1.0) {
+                    long storageBirth = MutationEventHandler.storagePeriodIndex(level);
+                    boolean discriminating = false;
+                    for (long p = now; p <= now + 3; p++) {
+                        discriminating |= MutationHelper.resolve(source, pos, seed, p, index, 1.0,
+                                GuidedBias.NONE, MutationHelper.Protection.NONE, birth)
+                                != MutationHelper.resolve(source, pos, seed, p, index, 1.0,
+                                GuidedBias.NONE, MutationHelper.Protection.NONE, storageBirth);
+                    }
+                    if (!discriminating) {
+                        failures.add("speed=" + speed + ": display-clock birth and storage-clock birth"
+                                + " give identical verdicts (display=" + now + " storage=" + storageBirth
+                                + " birth=" + birth + ")");
+                    }
                 }
             }
         } finally {
             worldData.setClock(savedSpeed, savedOffset);
         }
-        return "[sync] birth gate (newborn frozen / next period mutates / storage clock would differ): "
-                + ((frozenOk && mutatesOk && discriminating) ? "PASS" : "FAIL " + String.join("; ", failures));
+        // 标题与失败原因一起写清楚"到底测了哪几条"：这条断言 2026-09-25 被重写过一次，
+        // 原措辞里的 "storage clock would differ" 描述的是一个**错误**的判据（见方法内的长注释），
+        // 留着旧措辞会让下一个人以为它还在测那件事。
+        return "[sync] birth gate (newborn frozen / mutates after 3 periods / future birth seals"
+                + " / old birth mutates / display clock drives it): "
+                + ((frozenOk && mutatesOk && failures.isEmpty()) ? "PASS" : "FAIL " + String.join("; ", failures))
+                + " [" + String.join(" | ", clockNotes) + "]";
     }
 
     // ------------------------------------------------------------------

@@ -17,7 +17,15 @@ public final class ModBlocks {
     // 只有 /focaldecay mutation selftest 的 [break] 段会摆两块。
     // 没有 BlockItem 还有一个副作用是我们要的：MutationIndex 的池按 asItem() != AIR 过滤，
     // 所以这两块不会被"方块池 ↔ 物品池"的自动登记收进失焦候选（否则测试方块会污染玩法）。
-    /** 扮演"玩家看到的真实方块"（旧世界里的源方块，它会被换成目标）。 */
+    /**
+     * 扮演"玩家看到的真实方块"（旧世界里的源方块，它会被换成目标）。
+     * <p>
+     * 材质刻意用<b>白色混凝土</b>（目标用<b>黄绿色混凝土</b>）而不是任何真实的失焦目标材质：
+     * 实机做"模组方块兼容性"回归时要能一眼认出屏幕上哪一格是探针，
+     * 用石头材质会与真实方块混在一起、看不出测的是谁。
+     * 方块状态与模型是手写资源（本项目不生成 {@code blockstates/}），
+     * 漏了只会在客户端日志里留一行 {@code missing model for variant} 警告——那正是踩过的坑。
+     */
     public static final DeferredBlock<BreakProbeBlock> BREAK_PROBE_SOURCE =
             BLOCKS.register("break_probe_source", () -> new BreakProbeBlock(false));
     /** 扮演"失焦解析出来的可见目标"，即重派发之后被真正破坏的那一块。 */

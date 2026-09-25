@@ -7,6 +7,7 @@ import com.zhizhiwang.focal_decay.mixin.client.RenderChunkRegionAccessor;
 import com.zhizhiwang.focal_decay.network.RequestRegionDataPacket;
 import com.zhizhiwang.focal_decay.network.SyncClientViewPacket;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
+import com.zhizhiwang.focal_decay.mutation.AnchorNormalizeProfiler;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationSettings;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
@@ -95,6 +96,15 @@ public final class ClientRenderCache {
     private static final int REGION_REQUEST_REPEAT_TICKS = 100;
 
     /**
+     * 取"当前线程 CPU 时间"用于扫描计时。直接复用 {@link AnchorNormalizeProfiler#cpuClockNanos()}，
+     * 不另写一份：两处的数字要能直接对比（客户端每位置成本 vs 锚固化每位置成本），
+     * 各写一份迟早会在口径上分叉。不支持时返回 −1，调用方按"量不到"处理。
+     */
+    private static long cpuClockNanos() {
+        return AnchorNormalizeProfiler.cpuClockNanos();
+    }
+
+    /**
      * 一条幽灵：某个位置显示成什么、属于哪个周期、以及<b>它是从哪个真实方块算出来的</b>。
      * <p>
      * {@code real} 是缓存的<b>有效期判据</b>（2026-09-17 加）：幽灵是 {@code (真实方块, 位置, 种子, 周期)}
@@ -144,6 +154,29 @@ public final class ClientRenderCache {
      * 写在编译线程上，所以用 {@link java.util.concurrent.atomic.LongAdder}。
      */
     private final LongAdder staleInvalidations = new LongAdder();
+
+    // ------------------------------------------------------------------
+    // 扫描成本埋点（BACKLOG P1-5）
+    // ------------------------------------------------------------------
+    /**
+     * 扫描成本的累计计数（自上次 {@code /focaldecay clientstats reset} 起）。
+     * <p>
+     * <b>为什么需要它</b>：{@code P1-5} 的验收标准是"给出某视距下每秒扫描位置数 / 单次扫描耗时"，
+     * 而在此之前客户端这条路径<b>完全不可观测</b>——只能靠感觉说"大视距下有点卡"。
+     * 埋点本身刻意做得极便宜（几个 {@link LongAdder#increment()} 与一次 {@code System.nanoTime()}），
+     * 因为被测的就是这段代码的开销，量具不能比被测物还贵。
+     * <p>
+     * 全部写在<b>主线程</b>上（{@code scanSurfaces} 由 {@code GameRendererMixin} 的渲染路径调用），
+     * 用 {@code LongAdder} 只是为了不被编译器优化掉、并且让读取端的竞态无所谓。
+     */
+    private final LongAdder scanSections = new LongAdder();
+    /** 遍历过的方块位置数（每节 4096）。 */
+    private final LongAdder scanPositions = new LongAdder();
+    /** 其中真正进入 {@code computeTarget}（含 ≤128 周期回扫）的位置数——这才是贵的那部分。 */
+    private final LongAdder scanResolves = new LongAdder();
+    /** {@code scanSection} 的累计墙钟时间（纳秒）。 */
+    private final LongAdder scanNanos = new LongAdder();
+
     /** SectionPos.asLong()：当前存在幽灵方块的节。 */
     private final Set<Long> activeSections = ConcurrentHashMap.newKeySet();
     /** 每节幽灵方块数量，保证 activeSections 精确回收。 */
@@ -477,6 +510,42 @@ public final class ClientRenderCache {
     }
 
     /**
+     * 扫描成本的当前读数（{@code /focaldecay clientstats}）。
+     * <p>
+     * {@code cpuNanos} 与 {@code AnchorNormalizeProfiler} 同一个口径（线程 CPU 时间），
+     * 所以客户端扫描与锚固化两边的每位置成本可以直接比。
+     * {@code cpuNanos < 0} 表示本 JVM 不支持取线程 CPU 时间（那时只有墙钟可用）。
+     */
+    public record ScanStats(long sections, long positions, long resolves, long cpuNanos,
+                            int ghostEntries, int ghostSections, int cachedDecisions,
+                            int queuedSections, long staleInvalidations) {
+
+        /** 平均每个位置的 CPU 纳秒。−1 表示量不到。 */
+        public double nanosPerPosition() {
+            return cpuNanos < 0 || positions == 0 ? -1.0 : (double) cpuNanos / positions;
+        }
+
+        /** 每个节 4096 个位置里真正进入回扫的比例。 */
+        public double resolveShare() {
+            return positions == 0 ? 0.0 : (double) resolves / positions;
+        }
+    }
+
+    public ScanStats scanStats() {
+        return new ScanStats(scanSections.sum(), scanPositions.sum(), scanResolves.sum(),
+                scanNanos.sum(), targetCache.size(), activeSections.size(), evaluated.size(),
+                pendingSections.size(), staleInvalidations.sum());
+    }
+
+    /** 清掉扫描埋点（不动缓存本身）：让"调完设置后重新量一段"有意义。 */
+    public void resetScanStats() {
+        scanSections.reset();
+        scanPositions.reset();
+        scanResolves.reset();
+        scanNanos.reset();
+    }
+
+    /**
      * 每帧渲染世界结束时调用（{@code GameRendererMixin}，在 {@code renderLevel} 的 TAIL）：
      * 决定要不要推进 observer_veil 后处理；真正的加载/动画/淡出在 {@link ObserverVeil}。
      *
@@ -755,6 +824,19 @@ public final class ClientRenderCache {
 
     /** 扫描一个区块节：只保留暴露面候选方块的目标缓存，返回是否有变化（需要重编译）。 */
     private boolean scanSection(ClientLevel level, long sectionKey, MutationSettings settings) {
+        // 计时包住整个方法：它才是"单次扫描耗时"的定义（含 isExposed 的邻居查询与全部 resolve）。
+        // cpuClockNanos 而不是 System.nanoTime：量的是这段代码自己的开销，
+        // 与 AnchorNormalizeProfiler 用同一个口径，两个数字可以直接比。
+        long startedAt = cpuClockNanos();
+        try {
+            return scanSectionBody(level, sectionKey, settings);
+        } finally {
+            scanSections.increment();
+            scanNanos.add(cpuClockNanos() - startedAt);
+        }
+    }
+
+    private boolean scanSectionBody(ClientLevel level, long sectionKey, MutationSettings settings) {
         SectionPos section = SectionPos.of(sectionKey);
         BlockPos min = section.origin();
         long period = settings.displayPeriod(level.getGameTime(), clockSpeed, clockOffset);
@@ -767,6 +849,7 @@ public final class ClientRenderCache {
         for (int y = 0; y < 16; y++) {
             for (int z = 0; z < 16; z++) {
                 for (int x = 0; x < 16; x++) {
+                    scanPositions.increment();
                     BlockPos pos = min.offset(x, y, z);
                     long key = pos.asLong();
                     BlockState state = level.getBlockState(pos);
@@ -779,6 +862,7 @@ public final class ClientRenderCache {
                     }
                     evaluate(key, state);
 
+                    scanResolves.increment();
                     BlockState target = computeTarget(level, pos, state, index, guided, settings);
                     if (target == state || !isRenderableTarget(target)) {
                         if (removeEntry(pos, key, state)) {

@@ -62,6 +62,17 @@ neoForge {
             client()
             // Comma-separated list of namespaces to load gametests from. Empty = all namespaces.
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            // 客户端冒烟开关转发（BACKLOG P1-5）：JavaExec 不继承命令行的 -D，见下面 server 块的说明。
+            if (System.getProperty('focaldecay.clientStatsSmoke') != null) {
+                systemProperty 'focaldecay.clientStatsSmoke', System.getProperty('focaldecay.clientStatsSmoke')
+            }
+            // Mixin 应用审计转发：跑 `gradlew runClient -Dmixin.debug.verbose=true` 之后，
+            // debug.log 里会出现每个 mixin 的 "Mixing ... into ..." 行，可以用来确认
+            // 客户端 mixin 真的被应用了（而不是被静默跳过——静默跳过时游戏照样能起来，
+            // 只是所有"按可见目标"的行为都退回原版，表现是"模组好像没生效"）。
+            if (System.getProperty('mixin.debug.verbose') != null) {
+                systemProperty 'mixin.debug.verbose', System.getProperty('mixin.debug.verbose')
+            }
         }
 
         server {
@@ -76,6 +87,9 @@ neoForge {
             // "实现没问题"的那种失败。只在真的传了值时才转发，平时不产生这个属性。
             if (System.getProperty('focaldecay.abOldBreakPipeline') != null) {
                 systemProperty 'focaldecay.abOldBreakPipeline', System.getProperty('focaldecay.abOldBreakPipeline')
+            }
+            if (System.getProperty('focaldecay.clientStatsSmoke') != null) {
+                systemProperty 'focaldecay.clientStatsSmoke', System.getProperty('focaldecay.clientStatsSmoke')
             }
         }
         // This run config launches GameTestServer and runs all registered gametests, then exits.

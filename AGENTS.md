@@ -181,7 +181,7 @@ INNER_EOF
 | 改了并发相关 | `[stress]` 段必须 PASS（注意它的规模是关键，见 PITFALLS） |
 | 改了数据包格式 | `runServer` 让它加载一遍，日志会直接给 codec 错误 |
 | 准备提交 | `.\gradlew.bat build -x test` |
-| 客户端相关 | `$env:ALSOFT_DRIVERS='null'` 后 `runClient`（**本机必需**，否则卡死在 OpenAL 的 HRTF 初始化） |
+| 客户端相关 | `$env:ALSOFT_DRIVERS='null'` 后 `runClient`（**本机必需**，否则卡死在 OpenAL 的 HRTF 初始化）。**并且确认 mixin 真的织入了**——见下面那条 ⚠️ |
 
 **A/B 是硬要求**：新增一条断言时，要**故意把代码改回坏状态**确认它真的会 FAIL。
 `PROGRESS` 里有多条"测试返工"记录，其中一半是**假通过**（测试规模落在缓存容量以内、
@@ -200,6 +200,18 @@ INNER_EOF
 ./gradlew.bat runServer -Dfocaldecay.abOldBreakPipeline=true
 ```
 
+> ⚠️ **客户端"起得来"不等于"mixin 生效"**。mixin 被跳过时游戏照样进得去，
+> 只是所有"按可见目标"的行为静默退回原版（表现是"模组好像没生效"），不会崩、不会报错。
+> 必须逐行确认：
+> ```bash
+> ALSOFT_DRIVERS=null ./gradlew.bat runClient -Dmixin.debug.verbose=true
+> grep -c "Preparing focal_decay.mixins.json" run/logs/debug.log        # 期望 1（=9 个，0 错误）
+> grep -oE "Mixing [A-Za-z.]+ from focal_decay.mixins.json into [A-Za-z.$]+" run/logs/debug.log
+> ```
+> 注意**进世界之前只看得到 6 个**：`MultiPlayerGameModeMixin` / `SectionCompilerMixin` /
+> `RenderChunkRegionAccessor` 的目标类要进世界才加载。完整的已验证清单与判读见
+> [`docs/VERIFY-device-matrix.md`](docs/VERIFY-device-matrix.md) §9。
+
 **"未做客户端实机验证"必须明说**。写进度时把"已验证"和"未验证"分开列，不要含糊过去。
 
 ---
@@ -217,7 +229,8 @@ INNER_EOF
 | `docs/PITFALLS.md` | 技术细节：环境、API 语义陷阱、多线程、联机一致性、渲染与 Mixin、可选依赖、测试可靠性、版本易碎点、热路径基准、**标识符总表** | 玩法设计、待办 |
 | `docs/progress/INDEX.md` | 进度分卷登记 + **按现象查**速查表 + 按主题查 | 具体根因分析 |
 | `docs/progress/<卷>.md` | **已发生的事**：按主题分节，每节四段（现象/根因/修法/验证） | 待办（只留指针） |
-| `docs/REVIEW-*.md` | **待拍板方案的评审材料**：问题、候选方案、取舍对比、验收标准、需要作者决定的点 | 已决定的结论（拍板后结论进 `DESIGN.md`，条目从 `BACKLOG.md` 删除） |
+| `docs/REVIEW-*.md` | **方案评审材料**：问题、候选方案、取舍对比、验收标准、需要作者决定的点。拍板后**不删**，改成"已拍板"记录留着（决策理由值钱） | 拍板后的**结论本身**（那要进 `DESIGN.md`） |
+| `docs/VERIFY-*.md` | **要动手做的验证清单**：前置 / 步骤 / 期望 / 观测点 / 判定，以及结果登记表 | 设计、待办、已发生的事 |
 | `docs/release/*` | 分发用文案（Modrinth 元数据、宣传片脚本） | 工程内容 |
 
 ### 写进度的规矩（这一条是为了治好"文档越来越乱"）
@@ -308,8 +321,10 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 | 为什么当初这么设计 | `DESIGN.md` 各章的"为什么"段落 + 进度里对应的根因分析 |
 | 某个注册名 / 标识符 | [`docs/PITFALLS.md`](docs/PITFALLS.md) §11 |
 | 还没定案的设计问题 | [`docs/DESIGN.md`](docs/DESIGN.md) §14 |
-| 待拍板的方案评审 | 暂无（`REVIEW-break-path.md` 已拍板并实施，评审文档保留为决策记录） |
+| 待拍板的方案评审 | 暂无（`REVIEW-break-path.md` 已拍板并实施，保留为决策记录） |
+| **实机要验什么、怎么验** | [`docs/VERIFY-device-matrix.md`](docs/VERIFY-device-matrix.md)（每项含步骤 / 期望 / 观测点 / 判定，文末有结果登记表） |
 | A/B 回归开关 | [`AGENTS.md`](#4-验证清单改完必须过) §4 末尾（`-Dfocaldecay.abOldBreakPipeline=true`） |
+| 客户端诊断读数 | `/focaldecay clientstats`（扫描成本、幽灵条目、负缓存、队列深度） |
 
 ### 一句话现状（写于 2026-09-25）
 主线闭环、联机一致性已解决、自动化自检齐全；**当前处于"稳定与加固"阶段**。

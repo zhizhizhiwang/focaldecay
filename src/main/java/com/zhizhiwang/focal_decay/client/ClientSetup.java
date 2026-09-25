@@ -14,6 +14,8 @@ import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.ModelEvent;
+import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
+import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
 
@@ -56,6 +58,45 @@ public final class ClientSetup {
         event.register(ModMenus.ANCHOR_PROTOTYPE.get(), AnchorPrototypeScreen::new);
         event.register(ModMenus.TRAINING_TERMINAL.get(), TrainingTerminalScreen::new);
         event.register(ModMenus.OBSERVER_CORE.get(), ObserverCoreScreen::new);
+    }
+
+    /**
+     * 客户端诊断命令（{@code /focaldecay clientstats}）。
+     * <p>
+     * <b>注意总线</b>：{@link RegisterClientCommandsEvent} 是 NeoForge 总线的普通事件、
+     * 不实现 {@code IModBusEvent}，所以它会自动落到 NeoForge 总线；与上面几个 mod 总线事件
+     * 共存靠的是 NeoForge 21.1 按事件类型自动判定（本类不写 {@code bus = ...}）。
+     * <p>
+     * 真正实现在 {@link ClientStatsCommand}（客户端专属类，读 {@code ClientRenderCache}）。
+     * 本类本身也只在客户端加载，所以这个转发不会把客户端类型带到专用服务器上。
+     */
+    @SubscribeEvent
+    public static void registerClientCommands(RegisterClientCommandsEvent event) {
+        ClientStatsCommand.register(event);
+    }
+
+    /**
+     * 冒烟钩子：在标题界面出现时把 {@code clientstats} 那条代码路径真的跑一遍并写日志。
+     * <p>
+     * <b>为什么需要它</b>：{@code /focaldecay clientstats} 只能由真人执行，
+     * 而"这条命令有没有注册成功、格式化代码会不会抛异常"是可以在无人值守时验掉的。
+     * 无头客户端只到主菜单，不会说话，所以唯一能自动触发的时机就是标题界面初始化。
+     * 它走的是 {@link ClientStatsCommand#smokeReport()}——与命令正文<b>同一段</b>格式化代码，
+     * 所以它通过就说明命令的正文不会炸（注册本身由 Brigadier 保证：注册失败会在启动日志里报错）。
+     * <p>
+     * 默认关闭（{@code -Dfocaldecay.clientStatsSmoke=true}），而且 Gradle 的 JavaExec 不转发
+     * 命令行 {@code -D}，要跑得先在 build.gradle 的 run 配置里转发——见 {@code AGENTS.md} §4。
+     * 没有世界时读数是 0，这是<b>预期</b>：这一趟要验的是"代码路径通"而不是"数字好看"。
+     */
+    @SubscribeEvent
+    public static void smokeClientStats(ScreenEvent.Init.Post event) {
+        if (!Boolean.getBoolean("focaldecay.clientStatsSmoke")) {
+            return;
+        }
+        if (!(event.getScreen() instanceof net.minecraft.client.gui.screens.TitleScreen)) {
+            return;
+        }
+        ClientStatsCommand.smokeReport();
     }
 
     /**
