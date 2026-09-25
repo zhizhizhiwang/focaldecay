@@ -185,6 +185,23 @@ public final class ClientRenderCache {
     private volatile MutationIndex lastIndex;
     private int scanCooldown;
     /**
+     * 当前客户端所在维度（2026-09-25，BACKLOG `P1-4`）。
+     * <p>
+     * <b>为什么需要这样一个字段</b>：区域数据的查询（保护判定、诞生周期、引导模型）
+     * 都要先回答"这是哪个维度"。原先那三处各自去读
+     * {@code Minecraft.getInstance().level.dimension()}——两次读同一个字段的 check-then-act，
+     * 而它们会被<b>区块编译线程</b>调用：主线程在两次读之间换世界/断线就会读到错维度甚至 NPE。
+     * <p>
+     * 现在维度由主线程在 {@link #tick()} 里维护一次（volatile 发布），
+     * 查询方只读这一个值；编译路径还能更精确——它用"本次编译那个 {@code RenderChunkRegion}
+     * 的 level 维度"（见 {@link #resolve}），完全不依赖任何全局字段。
+     * <p>
+     * 换世界时会有"一个 tick 的窗口"里这个值还是旧维度，而此刻 byDimension 已被清空、
+     * 新维度的快照也还没到——两个方向的查询都只会得到"没有数据"，
+     * 也就是"不保护、无幽灵预览"这个安全结果。
+     */
+    private volatile ResourceKey<Level> currentDimension;
+    /**
      * 已连续多少个 tick 处于"当前维度没有区域数据"的状态（BACKLOG P0-5）。
      * 换 {@code ClientLevel}（同维度重生也会）之后镜像被清空，靠它决定何时向服务端请求重发。
      */
@@ -212,19 +229,23 @@ public final class ClientRenderCache {
         if (settings == null) {
             return original; // 服务端快照未到：不渲染任何幽灵（见 mutationSettings 的说明）
         }
+        // 先确认这次编译属于我们正在处理的那个世界（BACKLOG P1-4）：把 region 校验提到最前面，
+        // 既省掉对外来世界的无谓判定，也让下面的 clientLevel 成为本次调用<b>钉住</b>的实例——
+        // 保护查询用它自己的维度，不再读任何全局字段。
+        if (!(region instanceof RenderChunkRegionAccessor accessor)) {
+            return original;
+        }
+        if (!(accessor.focaldecay$getLevel() instanceof ClientLevel clientLevel) || clientLevel != this.level) {
+            return original;
+        }
+
         long key = pos.asLong();
-        if (isProtectedNow(pos, original)) {
+        if (isProtectedNow(clientLevel.dimension(), pos, original)) {
             evaluate(key, original);
             return original;
         }
         if (observerOnline) {
             evaluate(key, original);
-            return original;
-        }
-        if (!(region instanceof RenderChunkRegionAccessor accessor)) {
-            return original;
-        }
-        if (!(accessor.focaldecay$getLevel() instanceof ClientLevel clientLevel) || clientLevel != this.level) {
             return original;
         }
 
@@ -315,7 +336,7 @@ public final class ClientRenderCache {
     private BlockState liveTarget(ClientLevel level, BlockPos pos, boolean writeBack) {
         BlockState original = level.getBlockState(pos);
         MutationSettings settings = this.mutationSettings;
-        if (settings == null || isProtectedNow(pos, original) || observerOnline || original.isAir()) {
+        if (settings == null || isProtectedNow(currentDimension, pos, original) || observerOnline || original.isAir()) {
             // 快照未到 / 硬保护 / 失焦已终止 / 空气（空气既拾不到也挖不出目标）
             return original;
         }
@@ -362,6 +383,7 @@ public final class ClientRenderCache {
             worldDays = 0;
             observerOnline = false;
             level = null;
+            currentDimension = null;
             // 快照跟着连接走：断开后必须丢掉，否则上一个服务器的种子/配置会渗进下一个世界
             mutationSettings = null;
             missingSettingsTicks = 0;
@@ -387,12 +409,15 @@ public final class ClientRenderCache {
             lastIndex = null;
             lastPeriodIndex = Long.MIN_VALUE;
         }
+        // 维度随 level 一起发布（volatile）：编译线程只读这一个值，
+        // 不再各自去 Minecraft.getInstance().level 上做 check-then-act（BACKLOG P1-4）。
+        currentDimension = current.dimension();
 
         // 自愈：换了 ClientLevel（重生/跨维度/换世界）之后，如果本维度还没有整表快照，
         // 就主动向服务端要一次。放在这里而不是依赖某个重生事件，是因为"客户端发现自己的数据没了"
         // 是事实，"服务端认为客户端该要数据了"是推断——以后任何新的丢镜像原因都被同一条逻辑覆盖。
         // 加延迟是为了不与登录/换维度时本来就有的那一次推送打架（重复请求一份整表不划算）。
-        if (!regions.hasSnapshotForCurrentLevel()) {
+        if (!regions.hasSnapshot(currentDimension)) {
             if (++missingRegionRequests == REGION_REQUEST_DELAY_TICKS) {
                 PacketDistributor.sendToServer(new RequestRegionDataPacket());
             }
@@ -623,7 +648,7 @@ public final class ClientRenderCache {
             targetCache.forEach((key, entry) -> {
                 BlockPos pos = BlockPos.of(key);
                 BlockState real = current != null ? current.getBlockState(pos) : Blocks.AIR.defaultBlockState();
-                if (regions.isProtected(pos, real, stage, settings)) {
+                if (regions.isProtected(currentDimension, pos, real, stage, settings)) {
                     targetCache.remove(key, entry);
                     decrSection(pos);
                     evaluated.remove(key);
@@ -644,10 +669,15 @@ public final class ClientRenderCache {
         }
     }
 
-    /** 当前客户端所在维度是否受保护（渲染/扫描的早退判据）。 */
-    private boolean isProtectedNow(BlockPos pos, BlockState state) {
+    /**
+     * 该维度下这个位置是否受保护（渲染/扫描的早退判据）。
+     * <p>
+     * 维度由调用方传入（BACKLOG `P1-4`）：区块编译线程用"本次编译那个 level 的维度"，
+     * 扫描与交互路径用 {@link #currentDimension}。这个方法因此不再依赖任何全局可变字段。
+     */
+    private boolean isProtectedNow(ResourceKey<Level> dimension, BlockPos pos, BlockState state) {
         MutationSettings settings = this.mutationSettings;
-        return settings != null && regions.isProtected(pos, state, currentStage(), settings);
+        return settings != null && regions.isProtected(dimension, pos, state, currentStage(), settings);
     }
 
     // ------------------------------------------------------------------
@@ -741,7 +771,7 @@ public final class ClientRenderCache {
                     long key = pos.asLong();
                     BlockState state = level.getBlockState(pos);
 
-                    if (!isCandidate(state, index) || isProtectedNow(pos, state) || !isExposed(level, pos)) {
+                    if (!isCandidate(state, index) || isProtectedNow(level.dimension(), pos, state) || !isExposed(level, pos)) {
                         if (removeEntry(pos, key, state)) {
                             changed = true;
                         }
@@ -793,7 +823,8 @@ public final class ClientRenderCache {
         return MutationHelper.resolve(original, pos, settings, stage,
                 settings.displayPeriod(level.getGameTime(), clockSpeed, clockOffset), index,
                 ClientRegionData.guidedBias(guided, pos, original, stage, settings.guidedStage3Halve()),
-                regions.protectionInfo(pos, original, stage, settings), regions.blockBirthPeriod(pos));
+                regions.protectionInfo(level.dimension(), pos, original, stage, settings),
+                regions.blockBirthPeriod(level.dimension(), pos));
     }
 
     /**
@@ -804,7 +835,7 @@ public final class ClientRenderCache {
      * 解析与偏向公式都在 {@link ClientRegionData}——那里才是这份数据的来源。
      */
     private List<ClientRegionData.GuidedModel> resolveGuidedModels() {
-        return regions.guidedModels();
+        return regions.guidedModels(currentDimension);
     }
 
     private int currentStage() {

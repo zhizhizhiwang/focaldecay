@@ -46,6 +46,7 @@
 > | `P0-5` | 同维度重生后客户端镜像永久失效（保护与出生周期全丢） | §F |
 > | `P0-6` | `evaluated` 负缓存无界增长（内存泄漏） | §F |
 > | `P0-7` | 服务端入口仍读本端配置（三个量不在快照里） | §F |
+> | `P1-4` | 编译线程上对 `Minecraft.level` 的 check-then-act 竞态 | §I |
 > | `P1-1` | 实体突变种子不含实体身份（同格实体共享命运） | §E |
 > | `P1-1c` | 实体转换先 `discard` 再建新实体（建失败即消失） | §E |
 >
@@ -192,22 +193,6 @@
   → 已修：结果按「区域数据版本 + 维度键」缓存（两个判据都要，理由见进度 §H）。
 - 验收（剩余部分）：大量基座下判定耗时可比；**且** `[sync]` 的两端一致性与
   `mutation audit` 的不变量全部照旧通过。
-
-### P1-4 客户端区块编译线程上的竞态
-
-- `ClientRegionData.current():196-200` 与 `:267-271`：
-  ```java
-  if (mc.level == null) return null;
-  return byDimension.get(mc.level.dimension());
-  ```
-  `Minecraft.level` 不是 volatile，从 ForkJoinPool worker 上做 `check-then-act`：
-  两次读之间主线程断线 → **编译器 worker NPE**；读到旧值 → 拿到错维度/错保护数据。
-  这与 `ClientRenderCache:796` 自己写的"避免跨线程读主世界"注释直接矛盾。
-- 另外 `clearCache()` 与在飞的编译之间没有屏障：worker 可以在清空之后用**旧的** `RenderChunkRegion`
-  重新插入一条幽灵（跨维度陈旧条目最多存活一个周期）。
-- 修法：客户端把"当前维度 + 该维度区域数据"打成**一个不可变快照对象**，主线程换世界时整体替换，
-  编译线程只读那一个 volatile 引用（一次性拿到，不再分两步）。
-- 验收：编译器路径上不再出现对 `Minecraft.level` 的二次读取；`[实机]` 反复快速换维度/退世界无异常。
 
 ### P1-5 客户端的"逐方块重走整个可见体积"
 

@@ -9,7 +9,6 @@ import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
@@ -97,7 +96,7 @@ final class ClientRegionData {
      */
     private volatile long regionVersion;
 
-    /** {@link #guidedModels()} 的缓存与它的失效判据（版本 + 维度，理由见该方法）。 */
+    /** {@link #guidedModels(ResourceKey)} 的缓存与它的失效判据（版本 + 维度，理由见该方法）。 */
     private volatile List<GuidedModel> guidedCache;
     private volatile long guidedCacheVersion = -1L;
     private volatile ResourceKey<Level> guidedCacheDimension;
@@ -225,28 +224,35 @@ final class ClientRegionData {
     // 查询
     // ------------------------------------------------------------------
 
-    /** 当前客户端所在维度的保护数据；未同步或无保护返回 null。 */
-    private RegionData current() {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) {
-            return null;
-        }
-        return byDimension.get(mc.level.dimension());
+    /**
+     * 指定维度的保护数据；未同步或无保护返回 null。
+     * <p>
+     * <b>维度是参数，不是自己去查全局</b>（2026-09-25，BACKLOG `P1-4`）：本类的查询方法原先各自去读
+     * 客户端全局的 {@code Minecraft.level}，而且是"判空 → 再读一次取维度"这种
+     * <b>两次读同一字段</b>的 check-then-act。这些方法会被<b>区块编译线程</b>（ForkJoinPool worker）
+     * 调用，主线程在两次读之间换世界/断线就会读到错维度、甚至 NPE。
+     * 改成由调用方传入之后，"这次查询属于哪个维度"变成了显式数据流，
+     * 编译路径可以直接用"本次编译那个 {@code ClientLevel} 的维度"（`ClientRenderCache.resolve`
+     * 本来就已经校验过 level 实例），不再依赖任何一个全局可变字段。
+     */
+    private RegionData current(ResourceKey<Level> dimension) {
+        return dimension == null ? null : byDimension.get(dimension);
     }
 
     /**
-     * 客户端当前所在维度<b>是否已经收到过整表快照</b>。
+     * 指定维度<b>是否已经收到过整表快照</b>。
      * <p>
      * 判据是"收到过快照"而不是"里面有没有内容"：空快照同样是有效信息
      * （"这个维度现在没有任何保护范围"），而"没收到过"与"收到了但是空的"必须区分开——
      * 前者要请求重发，后者不能反复请求。
+     *
+     * @param dimension 当前维度；{@code null} 表示还没进世界，此时谈不上"缺数据"
      */
-    boolean hasSnapshotForCurrentLevel() {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) {
-            return true; // 还没进世界：谈不上"缺数据"，不要据此发请求
+    boolean hasSnapshot(ResourceKey<Level> dimension) {
+        if (dimension == null) {
+            return true; // 还没进世界：不要据此发请求
         }
-        return snapshotReceived.contains(mc.level.dimension());
+        return snapshotReceived.contains(dimension);
     }
 
     /**
@@ -256,8 +262,9 @@ final class ClientRegionData {
      * 用的两个配置量（阶段3锁定强度、候选体训练点数）取自服务端快照：它们直接决定"有没有保护"，
      * 两端取值不同就会出现"客户端以为有保护、服务端照样转换"。
      */
-    MutationHelper.Protection protectionInfo(BlockPos pos, BlockState state, int stage, MutationSettings settings) {
-        RegionData data = current();
+    MutationHelper.Protection protectionInfo(ResourceKey<Level> dimension, BlockPos pos, BlockState state,
+                                            int stage, MutationSettings settings) {
+        RegionData data = current(dimension);
         if (data == null || settings == null) {
             return MutationHelper.Protection.NONE;
         }
@@ -294,13 +301,14 @@ final class ClientRegionData {
     }
 
     /** 硬保护判定（渲染/扫描早期跳过用；阶段3语义锁定不再是硬保护）。 */
-    boolean isProtected(BlockPos pos, BlockState state, int stage, MutationSettings settings) {
-        return protectionInfo(pos, state, stage, settings).hard();
+    boolean isProtected(ResourceKey<Level> dimension, BlockPos pos, BlockState state,
+                        int stage, MutationSettings settings) {
+        return protectionInfo(dimension, pos, state, stage, settings).hard();
     }
 
     /** 该方块的诞生周期；未同步或世界原生返回 -1。 */
-    long blockBirthPeriod(BlockPos pos) {
-        RegionData data = current();
+    long blockBirthPeriod(ResourceKey<Level> dimension, BlockPos pos) {
+        RegionData data = current(dimension);
         return data == null ? -1L : data.birthPeriods.getOrDefault(pos, -1L);
     }
 
@@ -317,12 +325,10 @@ final class ClientRegionData {
      * 只判版本是不够的——换维度时 {@code byDimension} 会换一份数据，而版本号是全局的；
      * 只判维度也不够——同一维度里原型机增减不会改维度键。
      */
-    List<GuidedModel> guidedModels() {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) {
+    List<GuidedModel> guidedModels(ResourceKey<Level> dimension) {
+        if (dimension == null) {
             return List.of();
         }
-        ResourceKey<Level> dimension = mc.level.dimension();
         List<GuidedModel> cached = guidedCache;
         if (cached != null && guidedCacheVersion == regionVersion && dimension.equals(guidedCacheDimension)) {
             return cached;

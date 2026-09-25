@@ -63,6 +63,7 @@
 | 半径算出负数或巨大值 / 模型数据里出现荒唐数值 | 2026Q4 §G | `copies` 等字段从 NBT 读入没有钳制，三角数在 int 里溢出；已加规范化构造器 + long 算术 + 夹取 |
 | 换世界后还在扫旧世界的区块节 | 2026Q4 §G | `pendingSections` 只在排空后重建，换世界没清 |
 | 区块节计数漂移、多余重编译 | 2026Q4 §G | `incrSection`/`decrSection` 非原子地改两张表；已用同一把锁包住复合更新 |
+| 反复换维度/重生后客户端崩在 worker 线程（或幽灵画错） | 2026Q4 §I | 区域数据查询各自去读 `Minecraft.level`，两次读之间的竞态；已改为维度参数 + 编译路径钉住 level（已修，待实机） |
 | 整合包里右键出现双重交互 | 2026Q4 §G | 取消结果可被更晚的监听器翻转；已加诊断日志（`cancellation result was changed`） |
 | 放置完成态模型时服务器卡住 | BACKLOG P0-1 | 单 tick 同步写 65³ 个方块 |
 | 掉落物凭空消失 | BACKLOG P0-3 | `asItem()` 可能是 AIR；空栈物品实体下一 tick 被 discard |
