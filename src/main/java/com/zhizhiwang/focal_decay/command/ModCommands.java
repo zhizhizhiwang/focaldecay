@@ -7,6 +7,8 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.recipe.DeriveCandidateRecipe;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
+import com.zhizhiwang.focal_decay.mutation.AnchorNormalizeAudit;
+import com.zhizhiwang.focal_decay.mutation.AnchorNormalizeProfiler;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuideAdvancementHandler;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
@@ -145,6 +147,12 @@ public final class ModCommands {
         for (String line : DeriveCandidateRecipe.selfTest(level)) {
             report(source, line);
         }
+        // 锚固化的保护语义要在世界坐标上布置一座临时基座，所以也需要真的 ServerLevel。
+        for (String line : AnchorNormalizeAudit.selfTest(level, pos)) {
+            report(source, line);
+        }
+        // 固化埋点的累计统计（BACKLOG P0-1）：量出来才知道该优化到什么程度。
+        report(source, AnchorNormalizeProfiler.summary());
         return 1;
     }
 

@@ -135,6 +135,17 @@ public class MutationEventHandler {
     }
 
     /**
+     * 固化一次的范围统计。返回值是<b>测试与诊断的接口</b>：让"保护有没有生效"变成可观测的数字，
+     * 而不是靠"某个方块碰巧变没变"来推断（那取决于概率骰子，会写出不稳定的断言）。
+     *
+     * @param scanned          真正跑过解析的坐标数
+     * @param changed          真的被改写的坐标数
+     * @param skippedProtected 因为落在<b>既有</b>硬保护范围内而直接跳过的坐标数
+     */
+    public record NormalizeStats(long scanned, long changed, long skippedProtected) {
+    }
+
+    /**
      * 将锚保护范围内的方块全部转换为"当前的失焦目标"（与生存破坏同一公式），
      * 然后才由调用方登记保护。
      * <p>
@@ -143,19 +154,35 @@ public class MutationEventHandler {
      * 关掉之后保护区内的方块保持原样（保护区本来也不会显示幽灵）。
      * 实现上把一切与坐标无关的量（查表、阶段、概率、种子）全部提到循环外，
      * 循环体内只剩一次数组查表和一次抽取。
+     * <p>
+     * <b>必须尊重既有保护</b>（2026-09-25 修）：固化发生在<b>新效果登记之前</b>，所以此刻
+     * {@code manager.protectionInfo} 返回的正是"其他既有原型机"的保护形态。此前这里硬传
+     * {@link MutationHelper.Protection#NONE}，于是把新基座放进一个已存在的稳定场内部时，
+     * 会把那个场里<b>本应冻结</b>的方块按当前失焦态重写——服务端方块变了、客户端仍按硬保护
+     * 不显示幽灵，表现为可见的失配。
+     * <p>
+     * 耗时与规模由 {@link AnchorNormalizeProfiler} 记录（BACKLOG P0-1）：先有数字，再谈优化。
      */
-    public static void convertPrototypeRange(ServerLevel level, BlockPos anchorPos, MutationPoolManager manager, int radius) {
+    public static NormalizeStats convertPrototypeRange(ServerLevel level, BlockPos anchorPos,
+                                                       MutationPoolManager manager, int radius) {
         if (!FocalDecayConfig.ANCHOR_NORMALIZE_RANGE.get()) {
-            return;
+            return new NormalizeStats(0, 0, 0);
         }
         if (FocalDecayWorldData.get(level.getServer()).isObserverOnline()) {
-            return; // 失焦终止：无需固化
+            return new NormalizeStats(0, 0, 0); // 失焦终止：无需固化
         }
+        long startedAt = System.nanoTime();
+        long cpuStartedAt = AnchorNormalizeProfiler.cpuClockNanos();
+
         long periodIndex = displayPeriodIndex(level);
         int stage = MutationHelper.currentStage(FocalDecayWorldData.get(level.getServer()).getDays());
         long worldSeed = level.getSeed();
         double chance = MutationHelper.mutationChance(stage);
         MutationIndex index = MutationIndexes.get(level.dimension());
+
+        // 计数器用数组包一层：lambda 里要写，局部变量写不了。
+        // [0] = scanned, [1] = changed, [2] = skippedProtected
+        long[] counters = new long[3];
 
         BlockPos.betweenClosed(anchorPos.offset(-radius, -radius, -radius), anchorPos.offset(radius, radius, radius))
                 .forEach(p -> {
@@ -166,13 +193,27 @@ public class MutationEventHandler {
                     if (!index.isSource(state.getBlock())) {
                         return;
                     }
+                    // 既有原型机的保护形态（此刻表里还没有本次要登记的那个效果）。
+                    // 硬保护命中的坐标绝不改写；软保护（阶段 3 语义锁定）按原语义参与解析。
+                    MutationHelper.Protection protection = manager.protectionInfo(p, state, stage);
+                    if (protection.hard()) {
+                        counters[2]++;
+                        return;
+                    }
+                    counters[0]++;
                     GuidedBias bias = manager.getGuidedBias(p, state, stage);
                     BlockState target = MutationHelper.resolve(state, p, worldSeed, periodIndex, index, chance,
-                            bias, MutationHelper.Protection.NONE, manager.getBlockBirthPeriod(p));
+                            bias, protection, manager.getBlockBirthPeriod(p));
                     if (target != state) {
                         level.setBlock(p, target, 3);
+                        counters[1]++;
                     }
                 });
+
+        AnchorNormalizeProfiler.record(level, anchorPos, radius, counters[0], counters[1],
+                System.nanoTime() - startedAt,
+                AnchorNormalizeProfiler.cpuClockNanos() - cpuStartedAt);
+        return new NormalizeStats(counters[0], counters[1], counters[2]);
     }
 
     /**
