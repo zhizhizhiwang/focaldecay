@@ -67,33 +67,55 @@
 
 ## 3. 硬约束（违反会直接出事）
 
-### 3.1 Shell 与编码
+### 3.1 Shell、编码与行尾
 
-**本机可用的 shell 只有 PowerShell。** 想换 Git Bash / WSL 会失败，且原因是环境性的、不是配置问题：
+**可用 shell：Git Bash（首选）**，bash 5.3+，`LANG=C.UTF-8`，
+`/c/Users/...` 形式的路径可直接用，中文与 UTF-8 原生支持。
+写文件最省事的是 heredoc（**定界符要加引号**，否则 shell 会展开内容里的反引号与变量）：
 
-| 尝试 | 结果 |
-|---|---|
-| `C:\Program Files\Git\bin\bash.exe` | `fatal error - couldn't create signal pipe, Win32 error 5` —— **受限沙箱下程序无法创建命名管道**，而 MSYS 的 fork/信号机制依赖它 |
-| `wsl` | `Wsl/EnumerateDistros/Service/E_ACCESSDENIED`（本机没有已安装的发行版） |
-
-所以在 Windows 上就用 PowerShell，并显式处理编码：
-
-```powershell
-# 读（UTF-8）
-Get-Content -Encoding UTF8 <file>
-# 读历史 GBK 文件
-[IO.File]::ReadAllLines($p, [Text.Encoding]::GetEncoding(936))
-# 写（UTF-8 无 BOM）
-[IO.File]::WriteAllText($p, $text, (New-Object Text.UTF8Encoding($false)))
-# 递归找文件：优先用 Glob 工具，别用 Get-ChildItem -Recurse
+```bash
+cd /c/Users/zzzhi/IdeaProjects/focaldecay
+cat <<'INNER_EOF' > path/to/file
+...内容...
+INNER_EOF
 ```
 
-- **PowerShell 默认 GBK**。编辑文件一律用 **UTF-8**。
-- **写在日志里的字符串一律 ASCII**。本项目控制台是 GBK，日志里写中文会变乱码，
-  而乱码恰好会掩盖关键线索（这个坑真实发生过：乱码掩盖了 `creative=true` 这一决定性信息）。
+需要精确的多行/中文替换时用 python（比 sed 稳）：
+
+```bash
+python - path/to/File.java <<'INNER_EOF'
+import io, sys
+p = sys.argv[1]
+s = io.open(p, encoding='utf-8').read()
+assert '旧片段' in s
+io.open(p, 'w', encoding='utf-8', newline='').write(s.replace('旧片段', '新片段'))
+INNER_EOF
+```
+
+> **PowerShell 只在必要时用**（例如只认 Windows 路径的工具）。它默认 GBK，
+> 且 `Set-Content -Encoding UTF8` **会写 BOM** —— javac 会直接报 `非法字符: U+FEFF`。
+> 必须用时，写文件走 `[IO.File]::WriteAllText` 配 `UTF8Encoding(false)`。
+
+**编码与行尾的硬规则**（`.gitattributes` 是权威值，2026-09-25 统一）：
+
+| 类型 | 约定 | 理由 |
+|---|---|---|
+| `.java` `.gradle` `.json` `.md` `.mcfunction` `.toml` `.yml` `.vsh` `.fsh` `gradlew` `.gitignore` `.gitattributes` | **LF** | 与仓库内 blob 一致，跨平台无噪音 |
+| `gradlew.bat` | **CRLF** | Windows 批处理用 LF 会被 cmd 解析出错 |
+| `.png` `.nbt` `.jar` `.ogg` `.zip` `.dat` | **二进制，绝不转换** | 行尾转换会改坏内容 |
+
+- 刻意**不用** `* text=auto`：它靠"前 8000 字节有没有 NUL"猜，而本仓库有 `.nbt`
+  这种"看着像文本、其实是二进制"的格式，猜错就改坏文件。
+  `.gitattributes` 用**扩展名白名单 + 二进制显式 `-text`**。
+- **写文件之后不要跑 `git checkout -- .`**：它会用 HEAD 的内容覆盖你**未暂存**的改动。
+  （这个坑本次踩过：刚写好的 `.gitattributes` 被它冲掉，随后半小时都在查"为什么属性不生效"。
+  要丢弃改动请显式指定路径。）
+- **属性是从索引/HEAD 里的内容读的**：改了 `.gitattributes` 必须 `git add` 之后才生效。
+- **写在日志里的字符串一律 ASCII**。控制台可能是 GBK，日志里写中文会变乱码，
+  而乱码恰好会掩盖关键线索（真实案例：乱码掩盖了 `creative=true` 这个决定性信息）。
   注释与文档可以写中文，**日志不行**。
-- 已知 `.gitignore` 等历史文件是 GBK，改动它们要用
-  `[IO.File]::ReadAllLines($p, [Text.Encoding]::GetEncoding(936))` 读写，别用默认编码覆盖。
+- 若遇到 GBK 历史文件（旧的 `.gitignore` 曾是），要用 cp936 读写，
+  否则一次"顺手格式化"就会把整个文件变成乱码（已经发生过）。
 
 ### 3.2 两端一致（本项目的最高优先级不变量）
 凡是进入 `MutationHelper.resolve` 的**静态输入**，都必须由服务端显式下发
@@ -118,8 +140,12 @@ Get-Content -Encoding UTF8 <file>
 - 任何被编译线程碰到的缓存/状态必须是**线程安全或每线程一份**；
 - 键是 `long` 的热路径用 `ThreadLocal` 而非 `ConcurrentHashMap`（后者要装箱，会把你刚消掉的分配加回来）；
 - 纯函数 + 每线程缓存是标准解，无一致性代价；
-- 从 worker 线程读主线程字段要一次性拿到（不要 `check-then-act`），
-  已知 `ClientRegionData.current()` 还有这个问题（BACKLOG P1-4）。
+- 从 worker 线程读主线程字段要**一次性拿到**，不要 `check-then-act`
+  （不要"判空 → 再读一次取字段"）。`ClientRegionData.current()` 曾经就是这样，
+  2026-09-25 已修（`P1-4`）——现在的做法是：**维度/世界由调用方当参数传下去**，
+  被调用方不再回头去全局变量里猜。编译路径用它本次编译那个 `ClientLevel` 的维度，
+  其余路径读 `ClientRenderCache.currentDimension`（volatile，单次读）。
+  **加新的区域/世界相关查询时照这个来。**
 
 ### 3.4 原版生命周期
 **不要为了改变一个中间变量而手工复刻原版流程。** 已经付过代价的：
@@ -200,14 +226,20 @@ Get-Content -Encoding UTF8 <file>
 ## 6. 常用命令与资料位置
 
 ### 命令
-```powershell
-.\gradlew.bat compileJava          # 编译
-.\gradlew.bat runData              # 重新生成 src/generated/resources
-.\gradlew.bat build -x test        # 完整构建（产物在 build/libs）
-.\gradlew.bat runServer            # 开发服务端（会加载数据包并报 codec 错误）
-$env:ALSOFT_DRIVERS='null'; .\gradlew.bat runClient        # 开发客户端（本机必须设这个环境变量）
-.\gradlew.bat runClientSecond      # 第二个客户端实例（联机测试，独立 run-client/ 目录）
+```bash
+cd /c/Users/zzzhi/IdeaProjects/focaldecay
+./gradlew.bat compileJava          # 编译
+./gradlew.bat runData              # 重新生成 src/generated/resources
+./gradlew.bat build -x test        # 完整构建（产物在 build/libs）
+./gradlew.bat runServer            # 开发服务端（会加载数据包并报 codec 错误）
+./gradlew.bat runClientSecond      # 第二个客户端实例（联机测试，独立 run-client/ 目录）
+
+# 开发客户端：本机必须设音频后端，否则卡死在 OpenAL 的 HRTF 初始化
+ALSOFT_DRIVERS=null ./gradlew.bat runClient
 ```
+
+> `runServer` 会自动收尾（devtest 数据包在 60 秒时 `stop`），所以前台跑就能返回。
+> 想看自测结论：`grep -E '\[(selftest|sync|anchor|entity|ritual|recipe|mutation|period)\]' run/logs/latest.log`
 
 ### 查源码 / API 的可靠姿势
 ```powershell
@@ -260,7 +292,8 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 
 ### 一句话现状（写于 2026-09-25）
 主线闭环、联机一致性已解决、自动化自检齐全；**当前处于"稳定与加固"阶段**，
-已完成 7 条 P0/P1 缺陷（见 `docs/progress/2026Q4.md` §C–§G）。
+已完成 9 条 P0/P1 缺陷（见 `docs/progress/2026Q4.md` §C–§I），另有两条部分完成。
 剩余：`P0-4` 挖掘路径（**待拍板的评审已就绪**）、`P0-1` 锚固化（等 §14.1 拍板）、
-`P0-8` 实机矩阵、`P1-1b` 实体突变范围过滤，以及 `P1-2`~`P1-7`。
+`P0-8` 实机矩阵、`P1-1b` 实体突变范围过滤、`P1-2`（拍板）、`P1-5`、`P1-7`，
+以及 `P1-3` / `P1-6` 的余项。
 玩法上最大的缺口是"观察没有产出"（详见 `DESIGN.md` §14.6）。

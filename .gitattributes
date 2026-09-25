@@ -1,5 +1,50 @@
-# Disable autocrlf on generated files, they always generate with LF
-# Add any extra files or paths here to make git stop saying they
-# are changed when only line endings change.
+# 行尾与文本/二进制判定
+#
+# 背景（2026-09-25）：仓库里 core.autocrlf=true，而本文件原先只给 src/generated 下了 eol=lf，
+# 于是绝大多数文件在检出时被换成 CRLF、提交回 LF。javac / gradle / git 的 diff 提示都会因此产生噪音，
+# 协作时也容易把"整个文件都变了"的假 diff 提上去。
+#
+# 判据：**只对已知的文本扩展名强制 LF，其余一律按二进制处理**。
+# 刻意不用 `* text=auto`：它靠"前 8000 字节里有没有 NUL"来猜，
+# 而本仓库有 .nbt（结构模板，含二进制载荷）这种"看起来像文本、其实是二进制"的格式——
+# 一旦猜错，git 会在行尾转换里改坏文件。
+#
+# 二进制扩展名显式标 `-text`，与白名单形成闭合：没被提到的扩展名
+# 也拿不到行尾转换（默认没有 text 属性），所以不会漏。
+#
+# 注意：本文件自己必须用 LF 落盘后再 git add。属性是从**索引/HEAD** 里的内容读的，
+# 工作区未暂存的改动不参与属性解析（这个坑本次踩过一次）。
+
+# ---- 文本：一律 LF（仓库内与工作区都是 LF）----
+*.java       text eol=lf
+*.gradle     text eol=lf
+*.properties text eol=lf
+*.toml       text eol=lf
+*.json       text eol=lf
+*.mcmeta     text eol=lf
+*.mcfunction text eol=lf
+*.md         text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.vsh        text eol=lf
+*.fsh        text eol=lf
+.gitattributes text eol=lf
+.gitignore   text eol=lf
+
+# gradlew 是无扩展名的 shell 脚本：保持 LF，否则在类 Unix 上无法执行
+gradlew      text eol=lf
+
+# gradlew.bat 是 Windows 批处理：**必须 CRLF**，LF 会让 cmd 解析出错
+gradlew.bat  text eol=crlf
+
+# ---- 二进制：禁止任何行尾转换 ----
+*.png -text
+*.nbt -text
+*.jar -text
+*.ogg -text
+*.zip -text
+*.dat -text
+
+# ---- 数据生成产物：由生成器决定，保持 LF（原有规则，保留）----
 src/generated/**/.cache/* text eol=lf
-src/generated/**/*.json text eol=lf
+src/generated/**/*.json   text eol=lf

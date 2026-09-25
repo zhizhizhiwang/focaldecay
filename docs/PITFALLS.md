@@ -39,18 +39,32 @@ jstack <pid>                # 直接看 "Render thread" 的栈
 
 **流程固定为：关客户端 → 编译 → 重开。**
 
-### 1.4 编码
-- PowerShell 默认 **GBK**；编辑文件一律 **UTF-8**。
+### 1.4 Shell、编码与行尾
 - **日志字符串一律 ASCII**。中文写进日志会按 GBK 落盘、按 UTF-8 读就成了乱码，
   而乱码会掩盖关键线索（真实案例：乱码掩盖了 `creative=true` 这个决定性信息）。
 - 历史文件（如 `.gitignore`）是 GBK，改它们要显式用 cp936 读写，
   否则一次"顺手格式化"就会把整个文件变成乱码（已经发生过）。
-- **不要用 `Set-Content -Encoding UTF8` / `Out-File -Encoding UTF8` 写源码**：
-  Windows PowerShell 的 `UTF8` 会**写入 BOM**（`EF BB BF`），javac 直接报
-  `错误: 非法字符: '\ufeff'`。用
+- **shell 首选 Git Bash**（bash 5.3+，`LANG=C.UTF-8`，路径形如 `/c/Users/...`）。
+  写文件用 `cat <<'EOF' > file`（**定界符必须加引号**，否则 shell 会展开内容里的
+  反引号与 `$`，把文档/代码写坏）；精确替换用 `python - file <<'EOF'`。
+  注意**嵌套 heredoc 的定界符不能重名**，否则外层会被内层提前结束
+  （本次踩过：外层与内层都叫同一个名字，python 报 `unterminated triple-quoted string`）。
+- **行尾由 `.gitattributes` 统一决定**（2026-09-25）：文本扩展名白名单一律 `eol=lf`；
+  `gradlew.bat` 特意 `eol=crlf`（LF 会让 cmd 解析出错）；`.png`/`.nbt`/`.jar` 等显式 `-text`。
+  **不要用 `* text=auto`**：它靠"前 8000 字节有没有 NUL"猜，而 `.nbt`
+  是"看着像文本、其实是二进制"，猜错会在行尾转换里改坏文件。
+- **`.gitattributes` 的改动必须先 `git add` 才生效**：属性是从**索引/HEAD** 的内容读的，
+  工作区里未暂存的版本不参与解析。本次在这个坑上花了半小时——
+  写完属性文件后 `git check-attr` 全是 `unspecified`，原因就是它还躺在工作区没进索引。
+- **有待提交改动时绝对不要跑 `git checkout -- .`**：它会用 HEAD 覆盖你**未暂存**的工作。
+  本次刚写好的 `.gitattributes` 就是这样被冲掉的。
+  要丢弃改动请显式指定路径。
+- **不要用 PowerShell 的 `Set-Content -Encoding UTF8` / `Out-File -Encoding UTF8` 写源码**：
+  它的 `UTF8` 会**写入 BOM**（字节 `EF BB BF`），javac 直接报
+  `错误: 非法字符: U+FEFF`。必须用 PowerShell 时走
   `[IO.File]::WriteAllText($p, $text, (New-Object Text.UTF8Encoding($false)))`。
   排查：读文件前三个字节，是 `239,187,191` 就是 BOM。
-  （`.gitattributes` 与 `.editorconfig` 都管不了这个——BOM 是文件内容的一部分。）
+  （`.gitattributes` 与 `.editorconfig` 都管不了它——BOM 是文件内容的一部分。）
 
 ---
 
