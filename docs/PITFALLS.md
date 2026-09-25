@@ -1,0 +1,372 @@
+# PITFALLS.md — 技术细节、踩坑与约定
+
+> 本文件装**可复用的技术事实**：环境、API 语义、易碎点、约定。
+> 不装玩法设计与待办（那些在 `DESIGN.md` / `BACKLOG.md`）。
+>
+> 这里的每一条都对应 `docs/progress/` 里一次真实的崩溃、返工或误判。
+> 想看"当时到底发生了什么"，去进度里搜现象词；本文件只留结论与做法。
+>
+> 最后更新：2026-09-25
+
+---
+
+## 1. 构建与运行环境
+
+### 1.1 本机跑客户端必须先设音频后端
+```powershell
+$env:ALSOFT_DRIVERS = 'null'
+.\gradlew.bat runClient
+```
+**不设会卡死在 OpenAL 的 `alcResetDeviceSOFT`（HRTF 初始化）**，表现为"资源加载到 88% 无响应"，
+强杀后 Gradle 报退出码 `-805306369`（`0xCFFFFFFF`）——**那个码只是强杀的产物，不是错误信息**。
+
+根因在 `com.mojang.blaze3d.audio.Library`：只要音频驱动声明支持 `ALC_SOFT_HRTF`，
+MC **必定**调用 `alcResetDeviceSOFT`，即使 `options.txt` 里 `directionalAudio:false` 也一样。
+属音频驱动层问题，与本模组无关（已用三组对照实验排除：带依赖 / 摘掉依赖 / 摘掉 mixin 配置，卡死点相同）。
+代价是没有声音（本项目 `soundCategory_master:0.0`，本来也没在听）。
+
+### 1.2 卡死怎么定位
+```powershell
+jps -l                      # 找 net.neoforged.devlaunch.Main 的 pid
+jstack <pid>                # 直接看 "Render thread" 的栈
+```
+`jcmd` 附加会被系统拒绝，**`jstack` 可用**。
+
+### 1.3 客户端运行期间不要重新编译
+`build/classes/java/main` 就是开发客户端的 classpath。编译之后**已加载的类不会更新、没加载的类会换成新的**，
+混出来的状态最容易撞进第三方模组的异常路径（实测：在 JEI 配方界面退出世界即崩于
+`RecipeGuiLayouts: Recipe crashed: IllegalStateException: Jei Client Configs have not been created yet`）。
+
+**流程固定为：关客户端 → 编译 → 重开。**
+
+### 1.4 编码
+- PowerShell 默认 **GBK**；编辑文件一律 **UTF-8**。
+- **日志字符串一律 ASCII**。中文写进日志会按 GBK 落盘、按 UTF-8 读就成了乱码，
+  而乱码会掩盖关键线索（真实案例：乱码掩盖了 `creative=true` 这个决定性信息）。
+- 历史文件（如 `.gitignore`）是 GBK，改它们要显式用 cp936 读写，
+  否则一次"顺手格式化"就会把整个文件变成乱码（已经发生过）。
+
+---
+
+## 2. 查源码与 API 的姿势
+
+```powershell
+# 签名
+javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
+# 源码（**优先**：能确认行为而不只是签名）
+#   build/moddev/artifacts/neoforge-21.1.248-sources.jar
+#   jar xf <sources.jar> net/minecraft/server/level/ServerPlayerGameMode.java
+# 第三方模组源码也在 gradle 缓存里（JEI 的 mezz/jei/library/... 是实现，不只是 API）
+#   ~/.gradle/caches/modules-2/files-2.1/.../jei-*-sources.jar
+```
+
+> **通用教训（用一次连修四轮换来的）**：引擎内置量/API 的语义——取值域、是否每帧被覆写、
+> 单位、是否回绕——**必须读源码确认**。那次后处理动画 bug 的前三轮都是凭命名推测
+> `Time` 和 `getRealtimeDeltaTicks()` 的含义，两次关键突破都来自用户的实际观察而非代码推理。
+
+几个**已经确认过的**语义陷阱：
+
+| API | 陷阱 |
+|---|---|
+| `PostChain` 的 `Time` | **内置且每帧被覆写**，每秒（20 tick）硬回绕到 `[0,1)`。写 `setUniform("Time", …)` 是无效代码。要做长于 1 秒的平滑周期动画**必须自建**不回绕的 uniform（本项目用 `TotalTime`） |
+| `getRealtimeDeltaTicks()` | 单位是 **tick 不是秒**（内部 `/msPerTick`，60fps 下每秒累加 20）。当秒用会让所有周期快 20 倍 |
+| `Block.asItem()` | 无 `BlockItem` 时返回 `Items.AIR`。**用它构造 `ItemStack` 会得到空栈**，而空栈物品实体在下一 tick 被 `discard()` → 静默删物品 |
+| `ItemEntity.setItem` | 本身不 discard；删除发生在 `tick()` |
+| `canOcclude()` | 只是"有能力遮挡"的开关。**雪片、半砖都是 true 却只挡住面的一部分**，拿它当"被完全遮挡"会误判 |
+| `isSolidRender()` | 要求**碰撞形状填满整格**，雪片同样为 false → 一刀切太多 |
+| 判断"是否完全遮住某个面" | 正解是 `state.getFaceOcclusionShape(level,pos,face.getOpposite())` 的包围盒是否覆盖整面（原版 `Block.shouldRenderFace` 的口径） |
+| `NeoForge` 的 `setCanceled(true)` | **不会**重置 `cancellationResult`。只取消不设结果 = 告诉原版"我没处理，继续走" |
+| `RightClickBlock.cancellationResult` 默认值 | `InteractionResult.PASS`。而 `ServerPlayerGameMode#useItemOn` 是 `if (event.isCanceled()) return event.getCancellationResult();` |
+| `LootTable.getRandomItems` | **不校验参数集**，所以表里写 `generic` 而用 `COMMAND` 参数集建上下文是安全的 |
+| `StructureSettings.spawn_overrides` | **必填**（`fieldOf`）。漏了会拒绝加载**整个存档**，空对象 `{}` 即可 |
+| `IntProvider` vs `NumberProvider` | 字段名不同：前者 `min_inclusive`/`max_inclusive`，后者 `min`/`max`。JSON 形状一样，写错会让整张表**静默不加载** |
+| `ItemStack.saveOptional()` | NeoForge 里返回 **`Tag`** 而不是 `CompoundTag` |
+| `StructureProcessor.process` | 方块**真正放置之前**被调用，此时方块实体还不存在；要带 NBT 得**返回带 NBT 的 `StructureBlockInfo`**（原版"箱子自带战利品"就是这个机制） |
+| 处理器回调里的坐标 | `relativeBlockInfo.pos()` **已经是世界坐标**，`blockInfo` 才是模板坐标 |
+| 结构模板 NBT 的 `size` / `pos` | 必须是 `TAG_List<TAG_Int>`，**不是 `[I; ...]`**。写成 int 数组会 `getList(...,3)` 返回空 → 所有方块**静默堆到 (0,0,0)** 且 `/place template` 照样报成功 |
+| 数据包函数里抛异常 | **中断整个函数**。`/data get block`、`execute if data block` 在目标没有方块实体时抛 `CommandSyntaxException`，后面命令全不执行——"函数跑一半停了"先怀疑它 |
+| 函数里命令的输出 | 被抑制，`/data get` 不进日志。要结论只能用 `say` |
+| NBT 匹配里的列表 | 是"**包含**"语义：`["a","b"]` = a 和 b 都在；`[]` **只**匹配空列表；`{Items:[{...}]}` = 任意一格命中 |
+| 结构里的悬挂实体 | 放置时刷 `Block-attached entity at invalid position` ERROR 属原版噪声，**实体位置是对的** |
+
+---
+
+## 3. 数据生成与存档
+
+- **改 `data/` 下任何 Provider 之后必须跑 `.\gradlew.bat runData`**，产物在 `src/generated/resources`。
+- **数据文件不要靠"看起来对"**：跑 `.\gradlew.bat runServer` 让开发服务器加载一遍数据包，
+  日志会直接给 codec 错误（例如 `No key spawn_overrides in MapLike`）。
+- **战利品表不能走数据生成**：`LootTableProvider.run()` 写盘时统一用原版 `LootTable.DIRECT_CODEC`
+  重新编码，**自定义条件键会被静默丢弃**，所以战利品表一律手写。
+- **`neoforge:conditions` 不是 vanilla 战利品条件**。它是 NeoForge **数据包条件**（注册在 `CONDITION_SERIALIZERS`），
+  塞进 `pools[].neoforge:conditions` 会让**整张表加载失败**。要做前置门控得注册一个真正的
+  vanilla 条件类型到 `Registries.LOOT_CONDITION_TYPE`（本项目：`focal_decay:patchouli_loaded`）。
+- **1.21.1 给结构容器配战利品**：正确写法是 NBT 里的 **`LootTable` 字符串**；
+  网上说的 `components.minecraft:container_loot` **走不通**
+  （`BlockEntity.loadWithComponents` 不会回调 `applyImplicitComponents` → `lootTable` 一直是 null → 箱子是空的）。
+  `LootTableSeed` 不用自己写，`placeInWorld` 会自动塞。
+- **`/place template` 测不出 `StructureProcessor`**：`PlaceCommand` 只在 `integrity < 1.0` 时才挂处理器。
+  验证必须走 `/place structure` 或真实世界生成。
+- **结构里的观测者基座自带模型**用 `StructureProcessor` 返回带 NBT 的 `StructureBlockInfo` 实现，
+  参考结构 `focal_decay:sample_anchor`，脚手架在 `tools/`。
+
+---
+
+## 4. 多线程（本项目最危险的一块）
+
+**`SectionCompiler.compile` 跑在 ForkJoinPool 的 worker 上，多个区块节同时编译**，
+而编译路径会调用 `MutationHelper.resolve` → `MutationStateMapper` 等。因此：
+
+- 任何被编译线程碰到的缓存/状态**必须是线程安全或每线程一份**；
+- 键是 `long` 的热路径用 `ThreadLocal` 而不是 `ConcurrentHashMap`
+  （后者每次 get/put 都要装箱，等于把刚消掉的分配又加回来）；映射是纯函数时各存一份无一致性代价。
+- **已踩的坑**：`MutationStateMapper` 的缓存最初是一张全局共享的 `Long2ObjectOpenHashMap`，
+  并发 put 把内部数组写坏 → 线上崩在 `rehash` 的 `ArrayIndexOutOfBoundsException`，
+  而在测试里表现为 fastutil 探测循环**死转**，把服务器拖到看门狗超时。
+- 不要从 worker 线程做"读主线程字段 → 判空 → 再读一次"的 `check-then-act`
+  （`Minecraft.level` 不是 volatile；这是 BACKLOG P1-4）。
+- 区块编译相关的事件/钩子先判 `level instanceof RenderChunkRegion`，这样破坏粒子、
+  手持方块、方块预览等走 `ClientLevel` 的地方一行都不受影响。
+
+---
+
+## 5. 联机一致性（本项目投入最大的一条线）
+
+**根本原则：`MutationHelper.resolve` 两端共用，但"算得一样"的前提是"喂进去的输入一样"。**
+
+- 客户端天然拿不到的东西有三类，**不要再假设它们一致**：
+  1. **世界种子**：1.21 的登录包只给生物群系缩放用的**哈希**种子，真种子只发给管理员；
+  2. **SERVER 配置**：客户端读的是它自己那份 toml，专用服务器上两份文件毫无关系；
+  3. **不落盘、靠区块加载重建的状态**（有效原型机列表）：登录快照只含已加载区块里的那些。
+- 做法：所有静态输入收进 `MutationSettings` 快照，由服务端下发；
+  客户端在收到快照前**不渲染任何幽灵**（宁可看不到，也不能看错）；
+  原型机与诞生周期走**增量包**，不要每次重发整表（那张表随建造无上限增长）。
+- **手写编解码必须配往返自测**：分量超过 `StreamCodec.composite` 的 6 个上限就得手写，
+  而 13 个字段里错一个**不会崩**，只会让两端静默地算出不同的世界。
+- **显示刻的相位**：客户端的 `level.getGameTime()` 是本地自走的，服务端每 20 tick 才校一次
+  （`MinecraftServer#tickChildren`，`tickCount % 20 == 0`）。两边满速时差半个 RTT，
+  **服务端掉帧时客户端会跑在前面**，两次校准之间最多领先 20 tick。
+  修法是交互时由客户端回报"我看到的显示刻"（`SyncClientViewPacket`），服务端校验后才采用
+  （位置对得上 / 足够新 / 偏差在物理可能范围内）。
+- 偏差界用**上界比较**而不是 `Math.abs(a-b) <= bound`：后者在客户端报来 `Long.MIN_VALUE`
+  时会溢出成负数、反而判成通过。
+- **出生周期与闸门必须在同一个时钟域**：闸门比的是显示刻，出生周期就必须记显示刻。
+  记存储刻的话，倍率 7 时"刚放下"的方块一上来就过期（放置立刻失焦、右键长按能来回转换），
+  倍率 < 1 时反向出错（方块长期不失焦）。记录时取 `max(服务端显示刻, 行动客户端回报的显示刻)`。
+- 并列决胜规则要**与列表顺序无关**（本项目按中心坐标字典序）：增量同步之后两端的列表顺序不保证一致。
+
+---
+
+## 6. 渲染与 Mixin
+
+### 6.1 幽灵状态的"同源"原则
+一句话：**凡是"比较两个方块"的判定，两边必须来自同一个世界。**
+
+- 网格替换了方块状态、面剔除却用真实状态 → 透过玻璃能一直看进方块内部（世界像破了个洞）。
+- 所以需要**两处钩子**：`SectionCompilerMixin`（画成什么）+ `BlockShouldRenderFaceMixin`（这个面画不画）。
+- 替换后 `Block.OCCLUSION_CACHE` 的键会自动变成幽灵对，不会拿真实状态的缓存结果去判断幽灵。
+- 仍用真实状态的：**环境光遮蔽**那 12 次邻居读取（观感偏差，不是破洞；每方块多 12 次查找，有意不改）。
+- 含水状态不参与失焦：幽灵替换会把整格状态换掉，而流体渲染读的正是替换后的状态 →
+  干燥幽灵的流体为空 → 水面出现 1 格缺口。判定必须**按状态**（`getFluidState().isEmpty()`）而不是按方块，
+  否则 `StairBlock/SlabBlock/FenceBlock/WallBlock/TrapDoorBlock/IronBarsBlock` 这些实现 `waterlogged` 的类
+  会被整体砍掉。
+
+### 6.2 缓存的有效期要覆盖**全部**输入
+"时间没过期"不等于"结论还成立"。
+- 幽灵是 `(真实方块, 位置, 种子, 周期)` 的函数，只判周期是不够的：
+  玩家挖掉方块时周期没变，缓存里"石头显示成钻石矿"还在，而面剔除会拿它当"那里有块不透明方块"
+  → 挖出来的洞要等下一轮表面扫描才出现（1~3 秒）。
+- 负缓存（"这里没有幽灵"）**同样是真实方块的函数**，也要存真实方块。
+- 诊断指标：周期日志里的 `N dropped mid-period because the real block changed`。
+  正常游玩应该有数；长期为 0 说明判据失效了。
+
+### 6.3 Mixin 与后处理
+- 本项目 mixin 配置是 `"required": true` + `defaultRequire: 1` → **注入失败即启动崩溃**，
+  不会静默降级（这个取舍是对的，但意味着版本升级要逐个复验）。
+- `SectionCompiler` 的注入点在 **5 参数**的 `compile`（含 additionalRenderers），
+  4 参数版本只是委托，`@Redirect` 必须用 5 参数描述符。
+- mixin 配置里客户端数组要写 `client`，运行时用官方映射，**不需要 refmap/MixinGradle**。
+- 自定义 post 效果的 program 必须放 `assets/minecraft/shaders/program/`，
+  而 PostChain JSON 放 `assets/<modid>/shaders/post/`——
+  因为 pass 引用 program 时按**默认命名空间**解析。
+- `PostChain` 构造**不补** `shaders/post/` 前缀，要传完整路径。
+- **program JSON 里漏声明 uniform ⇒ 该 uniform 静默变成 DUMMY**。
+  真实案例：漏了 `InSize` → `OutSize / InSize` 除零 → texCoord 变 NaN → 全屏花屏。
+- 自定义 PostChain **不跟随 `GameRenderer.resize`**，窗口变化后要自己比对宽高并 `resize`。
+- 应用点在 `GameRenderer.renderLevel(DeltaTracker)` 的**尾部**（手部渲染之后），
+  处理完要 `getMainRenderTarget().bindWrite(true)` 恢复主目标绑定。
+
+---
+
+## 7. 可选依赖与兼容
+
+- **引用 Patchouli / JEI 的代码必须放在 `compat/` 下的独立类**，宿主类只保留字符串 modid 检查 + 一次静态方法调用。
+  否则 `@EventBusSubscriber` 类的加载会被第三方类型拖垮（javac 会把 lambda 编译成签名带第三方类型的合成方法），
+  而未装该依赖的整合包**在类加载/校验阶段**直接崩——`ModList.isLoaded()` 和 `try/catch` **都拦不住**
+  （失败发生在方法被调用之前）。开发环境永远装了依赖，所以这个问题**只会在别人的整合包里暴露**。
+- 加完新引用后用 `javap -c -p -classpath build/classes/java/main <宿主类>` 确认字节码里不残留第三方类型。
+- 不要往 `run/mods` 手工放 gradle 已经提供的 jar（会同名双份）。
+
+### Patchouli 专项
+- **`book.json` 必须放 `data/<modid>/patchouli_books/<book>/book.json`，不能放 `assets/`**。
+  放错的后果是**完全不报错**：书不进 `BookRegistry` → 创造栏/搜索栏都没有 → `/give` 出来显示
+  `guide_book.invalid`。日志里的 `preloaded N jsons` 只证明**内容**被读到，**不代表书注册成功**。
+- **`en_us/` 是必需的语言集**：索引阶段只枚举 `en_us/`，加载阶段先试当前语言、取不到才回退 `en_us`。
+  只放 `zh_cn/` 会导致**整本书空白**，而 `preloaded` 依然照常打印。
+- `book.json` 的 `creative_tab` 要写**真实注册 ID**（本项目 `focal_decay_tab`，不是 `focal_decay:focal_decay`）；
+  写错**不报错**，只是静默不进栏。
+- 物品模型纹理路径要**全限定且带 `textures/`**：`patchouli:item/book_gray`。
+  写成 `patchouli:items/book_gray` 会静默变成紫黑方块。
+- `$(l)` 在 Patchouli 里**是 bold**（`$(l:entry)` 才是链接），写全称免得误读。
+- 正文里的 `$(name:arg)` 形式会**无条件**被当成 function 查找，查不到就打印
+  `[MISSING FUNCTION: name]`，后面的 command 查找根本轮不到——所以自定义宏命令名**不要带冒号**。
+- `book.json` 的 `macros` 是另一套机制（纯字符串替换、只能静态写死），`registerCommand` 不会往里加东西。
+- 手册里**不要硬编码会随配置漂移的数字**（覆盖半径、天数、消耗量），改为机制描述或走宏。
+- `/give` 调试写法（**注意引号**）：
+  `/give Dev patchouli:guide_book[patchouli:book="focal_decay:observer_manual"]`
+  不加引号会被补成 `minecraft:focal_decay` → 书无效 → 触发 Patchouli 自身的崩溃。
+
+### JEI 专项
+- **特殊配方**（`CustomRecipe` 子类）JEI **既不展示也不建索引**：
+  `CraftingCategoryExtension#isHandled` 就是 `!recipe.isSpecial()`。
+  要让它们可查，必须注册**原版工作台类别扩展**（`registerVanillaCategoryExtensions`
+  → `registration.getCraftingCategory().addExtension(类, 扩展)`），
+  并且配方要实现 `getIngredients()` / `getResultItem()`，让 `matches()` 与展示网格**共用同一个形状定义**。
+- **`needsRecipeBorder()` 默认返回 `true`**，自绘背景必须重写为 `false`，否则两层灰框。
+- **槽位坐标是图标中心**，不是左上角（按左上角传会整体偏左上约 8px）。
+- **文字宽度由布局包围盒决定**，与类别宽度无关：只放一个槽时文字区只有几像素 →
+  "一行 4 个字 + 省略号"。解法是放一个**零尺寸空绘制物**把右边界撑开
+  （不能用空槽代替：`IRecipeSlotBuilder` 没有可见性开关，空槽会连槽框一起画）。
+- **不要用 `IGuiHelper.createDrawable` 贴图做背景**：它走精灵/图集路径，实测大图只画出左上角一小块。
+  背景改为纯代码绘制（`GuiGraphics.fill`）。
+- **关系方向**：JEI 的"用途(U)"来自催化剂，"来源(R)"来自"哪些配方把该物品作为输出"。
+  想让信息出现在 R 侧，就用**物品信息页**或把它放成**输出槽**。
+- **JEI 索引的是服务端同步过来的配方表**（`ClientLevel#getRecipeManager`）：
+  联机时客户端旧 jar 救不了新服务端的配方。
+
+---
+
+## 8. 测试与断言的可靠性（这一节本身是教训）
+
+- **A/B 是硬要求**：新增断言时要**故意把代码改回坏状态**确认它真的 FAIL。
+  不做 A/B 的断言等于没有断言。
+- **压力测试的规模如果落在缓存容量以内，它就什么都没验**。
+  真实案例：并发测试先用单线程预热了全部样本对 → 并发阶段全是命中（不插入、不扩容、不竞争），
+  对着有 bug 的实现跑出 PASS。修法是把键空间放大到远超缓存上限（4624 → 27368 对，上限 4096）。
+- **压力测试要"有上限地等待"**：退化实现不再抛异常、而是在 fastutil 探测循环里死转，
+  `join()` 无限等会把服务器拖到看门狗超时被强杀。改成守护线程 + `join(timeout)`，
+  超时报 FAIL 并给解释，服务器存活。
+- **"看得见的现象"很容易验成假象**。结构/渲染类的探针踩过四种假失败：
+  ① 服务端 `/fill` **不带 `UPDATE_IMMEDIATE`**，走异步重编译，比表面扫描慢 → 计数为 0；
+  ② 探针把玩家自己的格子也填成实心方块 → 玩家窒息死亡 → 客户端停在死亡界面 →
+  **什么都不渲染，自然什么都不作废**（加 `doImmediateRespawn` 才暴露）；
+  ③ 暂存区用相对坐标 `~ ~300 ~` → 超出世界高度 → `clone` 静默失败 → 只填不还原，**把世界改了**；
+  ④ 玩家反复死亡+世界被改后，出生点高度图漂移，探针填的全是空气 → 还是 0。
+- 因此：**探针要用绝对坐标、要先 `tp` 到固定地点、要确认玩家活着、要能自己清理自己**。
+- 断言的措辞要能被搜到（现象词），便于以后在进度里检索。
+
+---
+
+## 9. 与版本升级相关的易碎点（升级 MC 前逐个复验）
+
+| 位置 | 为什么脆 |
+|---|---|
+| `SectionCompilerMixin` | 单匹配 `RenderChunkRegion#getBlockState`；原版增删调用点、或被别的模组同样 redirect 就冲突 |
+| `BlockShouldRenderFaceMixin` | `Block.shouldRenderFace` 是极热且**常被 mixin 的方法** |
+| `MinecraftPickBlockMixin` | 注入 `Minecraft#pickBlock` 中 `ClientLevel#getBlockState` 的两处调用 |
+| `MultiPlayerGameModeMixin` | `continueDestroyBlock` 的 `getBlockState` redirect + `startDestroyBlock`/`useItemOn` 的 HEAD inject |
+| `GameRendererMixin` | `renderLevel(DeltaTracker)` 的 TAIL |
+| `RenderChunkRegionAccessor` | `@Accessor("level")`，**字段改名即崩**（且编译期不报） |
+| `LevelRendererAccessor` | `@Accessor("viewArea")`，同上 |
+| `ObservationVeil` / `PostChain` 调用 | 渲染后端在 26.2 被整体重写（Vulkan、动态 `VertexFormat`） |
+| `client/facade/VanillaText`、`VanillaGui` | 26.2 **删除了 `Font` 的全部绘制方法**（改为 `prepareText` + `GlyphVisitor`）。所有文本绘制已经收进这两个门面，**新代码不要再直接调 `Font`** |
+| 落盘/过网的注册表数字 ID | **只有跨越进程/会话/存档边界的数字 ID 才是问题**；纯运行时的数组下标不受影响。已有约定：跨边界的标识一律用 `ResourceLocation` 字符串 |
+
+---
+
+## 10. 热路径性能基准（改 `mutation/` 前后对照用）
+
+`/focaldecay mutation selftest` 会打印。参考量级（本机、历史数据）：
+
+| 场景 | 耗时 |
+|---|---|
+| `chance = 1.00`（1 步扫描） | ~37–41 ns/次 |
+| `chance = 0.01`（阶段 1，期望回扫 ~100 步） | ~176–219 ns/次 |
+| 楼梯 + 状态迁移 | ~187 ns/次 |
+
+客户端扫描的规模（改之前先算一遍，别凭感觉）：
+- 每 `surface_update_frequency`（默认 **2 tick**，不是帧）扫最多 `SCAN_SECTION_BUDGET = 12` 节
+  × 4096 = **≤49,152 个位置/次，约 49 万/秒**；
+- 队列上限 17×17 列 × ≤13 层 = ≤3,757 节，**只在排空后重建** → 走完一圈约 313 次 ≈ **31 秒**。
+
+**改任何热路径前先跑一次 selftest 记下基线**，改完再跑，数字回退就要解释。
+
+---
+
+## 11. 自定义内容标识符总表（查注册名用）
+
+> 加新内容时**先看这里有没有同类**，命名保持一致；加完**回来补一行**。
+> 原属 `PROXYAI.md` §13 附录。
+
+**方块**
+- `anchor_prototype`（观测者基座 / 原型机）、`training_terminal`（训练终端）、
+  `observer_core`（观测者核心，含 `powered` 状态）、`throne_block`（王座岩，不可破坏）
+
+**物品**
+- 模型：`observer_model_blank`、`semantic_lock_model`、`guided_mutation_model`、
+  `bio_stabilizer_model`、`total_stability_model`（未激活）、`total_stability_model_activated`（已激活）、
+  `observer_model_candidate`（候选观测者 OBSR-3，主线）
+- 碎片：`semantic_fragment_rose`、`_throne`、`_semantic`、`_42ms`、`_crystal`、`_aaron`、`_cheng`
+- 已移除：`rebuilt_observer_protocol`（**不要再引用**）
+
+**方块实体类型**：`anchor_prototype`、`training_terminal`、`observer_core`
+
+**Attachment（原 Capability）**：`break_data`
+
+**方块标签**
+- 突变：`mutation_pool/wild`（+ `wild_nether` / `wild_end`）、`mutation_pool/*`（语义池与 16 个颜色池）、
+  `shape_class/*`（形态类）、`mutation_immune`、`mutation_source_extra`、`anchor_prototype_immune`
+- 概念：`focal_decay:concept/*`（wood/ore/stone/glass/terracotta/wool 等，数据生成策展）
+
+**实体类型标签**：`entity_mutation_pool_passive` / `_neutral` / `_hostile`
+
+**数据组件**：`focal_decay:observer_model_data`
+
+**结构 / 世界生成**：`focal_decay:end_throne`（结构）、`focal_decay:end_throne_spread`（放置类型）、
+`focal_decay:single_template`（结构类型）、`focal_decay:anchor_model` / `focal_decay:container_loot`（处理器）
+
+**战利品函数 / 条件**：`focal_decay:random_training`（函数）、`focal_decay:patchouli_loaded`（条件）
+
+**配方序列化器**：`crafting_special_copytrainedmodel`、`crafting_special_feedfragment`、
+`crafting_special_derivecandidate`
+（已移除：`crafting_special_rebuildobserver` —— 对应的 `rebuilt_observer_protocol` 物品也已删除）
+
+**着色器**：`observer_veil`（program 放 `assets/minecraft/shaders/program/`）
+
+**网络包**（NeoForge Payload API，协议版本 `"1"`）
+- S→C：`sync_mutation_settings`、`sync_region_data`、`sync_prototype`、`sync_birth_period`、
+  `sync_world_data`、`core_activate`、`throne_ritual`
+- C→S：`sync_client_view`
+
+**命令**：`/focaldecay days | throne [selftest] | inspect | trace | unlock | refocus | period | mutation audit | selftest | at`
+
+**JEI 类别 / 信息页**：`focal_decay:model_derivation`、`focal_decay:copy_model`、`focal_decay:feed_fragment`
+
+**Patchouli 手册**：书 ID `focal_decay:observer_manual`（= `data/focal_decay/patchouli_books/observer_manual/` 的目录名）
+
+---
+
+## 12. 约定速查（从历史条目里提炼的规则）
+
+1. 涉及修改既有实现逻辑、或改动核心语义的，**先讨论再动手**。
+2. 需求有歧义时，把**取向问题**摆出来让作者拍板。
+3. 报告结论时区分**代码确认的 / 文档声称的 / 推测的**。
+4. 加了新配置项或新状态，先回答"客户端怎么知道这个值"。
+5. 缓存派生值时，有效期要覆盖它的**全部**输入。
+6. 改了 `data/` 下 Provider 就跑 `runData`；改了数据格式就跑 `runServer` 让 codec 报错。
+7. 日志一律 ASCII；文档与注释可以中文。
+8. 可选依赖一律类加载隔离，并用 `javap` 复验字节码。
+9. **不要手工复刻原版生命周期**；只替换那个你要改变的变量，让原版管线跑完。
+10. 断言必须做 A/B；"未做实机验证"必须明说。
+11. 跨进程/会话/存档的标识用 `ResourceLocation` 字符串，不用数字 ID。
+12. 完成一项工作就把 BACKLOG 里那条删掉，并在进度里记一节（见 `AGENTS.md` §5）。

@@ -48,9 +48,10 @@ run-client/
 repo/
 !**/src/**/repo/
 
-## other
 
-MODRINTH.md
-PROGRESS.md
-PROXYAI.md
-TRAILER.md
+### 文档必须进版本控制 ###
+# 这里曾经列着 MODRINTH.md / PROGRESS.md / PROXYAI.md / TRAILER.md / TODO.md 五个条目。
+# 其中 PROXYAI/PROGRESS/TRAILER 因为先于该规则被跟踪，规则对它们无效（git 不理会已跟踪文件的 ignore）；
+# 而 MODRINTH.md 与 TODO.md 是后加的，于是被**静默挡在版本控制之外**——从未提交、外部不可见。
+# 这种"已跟踪文件还列在 ignore 里"的状态极具误导性：看 .gitignore 会以为文档完全不受管理。
+# 现在文档统一放 docs/ 下，一律跟踪。只忽略生成物与临时物，不要忽略任何 .md。

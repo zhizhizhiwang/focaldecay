@@ -51,6 +51,25 @@
 
 本仓库由 NeoForge MDK 起步，构建走 [ModDevGradle](https://github.com/neoforged/ModDevGradle)，文档见 <https://docs.neoforged.net/>。
 
+---
+
+## 参与开发 / 阅读顺序
+
+文档已经分家，**入口只有一个**：
+
+| 想知道的 | 去哪 |
+|---|---|
+| 工程守则、必读顺序、验证清单 | [`AGENTS.md`](AGENTS.md) ← **从这里开始** |
+| 机制怎么运作、为什么这么设计 | [`docs/DESIGN.md`](docs/DESIGN.md) |
+| 现在做到哪了、下一步做什么 | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
+| 待办清单（单一真源） | [`docs/BACKLOG.md`](docs/BACKLOG.md) |
+| 技术细节与踩过的坑 | [`docs/PITFALLS.md`](docs/PITFALLS.md) |
+| 历史上发生过什么（按现象查） | [`docs/progress/INDEX.md`](docs/progress/INDEX.md) |
+
+> 贡献代码前请读 `AGENTS.md` 的 §3（硬约束）与 §4（验证清单）。
+> 这里有几条不遵守就会出事的规矩：日志一律 ASCII、可选依赖必须类加载隔离、
+> 不要手工复刻原版生命周期、任何进 `MutationHelper.resolve` 的静态输入都必须由服务端下发。
+
 
 ---
 
