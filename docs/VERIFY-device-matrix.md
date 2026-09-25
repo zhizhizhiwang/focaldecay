@@ -21,6 +21,29 @@
 >
 > §4.3 / §4.5 需要十几分钟；§4.4（挂机 2 小时）可以只在长期玩时顺便做。
 
+### ⚠️ 先做这一步：别让日志被下一次运行冲掉
+
+**`runServer` 会轮换 `latest.log` 与 `debug.log`**（实测：一次 43 分钟的客户端会话，
+日志在我随后跑了几次 `runServer` 之后只剩最后 74 秒服务端的内容，客户端那部分永久丢失）。
+
+所以玩完一轮之后、**在跑任何 `runServer` 之前**，先把客户端日志复制走：
+
+```bash
+cp run/logs/latest.log run/logs/verify-client-$(date +%m%d-%H%M).log
+# 客户端会话的日志一律在 run/ 下（第二个实例在 run-client/logs/）
+```
+
+**不需要整份日志**。真正有价值的是这三类行，先 grep 出来贴给我就够了：
+
+```bash
+# ① 本模组相关的错误/异常
+grep -iE "focal_decay|com\.zhizhiwang" run/logs/latest.log | grep -iE "error|exception|warn"
+# ② 周期边界那行（P0-6 的判据：cachedDecisions 必须回落）
+grep "cleared .* ghost entries" run/logs/latest.log
+# ③ 方块选择框与挖掘路径的注入证据（可选）
+grep -iE "mixin.*focal_decay" run/logs/debug.log
+```
+
 ### 怎么把结果交回来
 
 **不需要填满整张表**。把下面这段直接粘回来、按你实际的发现改就行：
