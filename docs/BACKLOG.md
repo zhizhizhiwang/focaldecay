@@ -85,6 +85,11 @@
 
 ### P0-4 挖掘绕过原版破坏生命周期
 
+> ⚠️ **方案评审已就绪，待拍板：[`REVIEW-break-path.md`](REVIEW-break-path.md)**
+> 含推荐方案（只换方块、让原版管线跑完）、退路（补齐八项差集）、两者对比、
+> 验收标准，以及**需要作者决定的 4 个点**。
+> 拍板后结论进 `DESIGN.md` §5.2，本条从 BACKLOG 删除。
+
 - `InteractionHandler.onBlockBreak`（`:348-418`）`setCanceled(true)` 后手工补
   `setBlock(AIR)` → `Block.getDrops` → 自建 `ItemEntity` → `getExpDrop` → `mineBlock` → `awardStat` → `causeFoodExhaustion`。
 - 已对照原版 `ServerPlayerGameMode.destroyBlock`（`:250-289`）与 NeoForge 补丁逐行求差集

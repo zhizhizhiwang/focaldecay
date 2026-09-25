@@ -103,9 +103,15 @@ Get-Content -Encoding UTF8 <file>
 - 加任何新配置项 / 新状态时，问自己两句：
   **"客户端怎么知道这个值？"** —— 答不上来就说明它必须进同步。
   **"两端不一致时，是静默算错，还是能看出来？"** —— 必须是后者。
-- 已知仍**没有**进快照的三个量（`WILD_CHANCE` 服务端入口、「SEMANTIC_LOCK_STAGE3_STRENGTH」、
-  `WILD_AUTO_INCLUDE`）是待修项，见 `docs/BACKLOG.md` P0-7。**不要照抄它们的写法。**
+- **服务端也要走同一份快照**，不要直接读 `FocalDecayConfig`：
+  客户端的输入只可能来自快照，服务端留一条"直接读配置"的路径就等于留下两条取值路径，
+  而它们在局域网里会分叉（`P0-7` 就是这一类，2026-09-25 已修）。
+  服务端权威快照走 `MutationSettings.server(seed)`；池成员这类派生状态经
+  `MutationIndexes.setWildAutoInclude(...)` 统一取值。
+- 改了任何影响解析的配置项，**必须确认配置重载时会重发快照**（见 `ModConfigHandler`）。
 - 回归网是 `/focaldecay mutation selftest` 的 `[sync]` 段。改了任何与解析相关的输入，都跑它。
+- 手写编解码加字段时，`equals` 往返**测不出"漏搬"**（两边都落默认值）——
+  `[sync]` 里有一条"翻转字段看解码结果是否跟着变"的断言专门守这个。
 
 ### 3.3 线程
 **区块编译跑在 ForkJoinPool 上，多个区块节同时编译。** 因此：
@@ -165,6 +171,7 @@ Get-Content -Encoding UTF8 <file>
 | `docs/PITFALLS.md` | 技术细节：环境、API 语义陷阱、多线程、联机一致性、渲染与 Mixin、可选依赖、测试可靠性、版本易碎点、热路径基准、**标识符总表** | 玩法设计、待办 |
 | `docs/progress/INDEX.md` | 进度分卷登记 + **按现象查**速查表 + 按主题查 | 具体根因分析 |
 | `docs/progress/<卷>.md` | **已发生的事**：按主题分节，每节四段（现象/根因/修法/验证） | 待办（只留指针） |
+| `docs/REVIEW-*.md` | **待拍板方案的评审材料**：问题、候选方案、取舍对比、验收标准、需要作者决定的点 | 已决定的结论（拍板后结论进 `DESIGN.md`，条目从 `BACKLOG.md` 删除） |
 | `docs/release/*` | 分发用文案（Modrinth 元数据、宣传片脚本） | 工程内容 |
 
 ### 写进度的规矩（这一条是为了治好"文档越来越乱"）
@@ -249,8 +256,11 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 | 为什么当初这么设计 | `DESIGN.md` 各章的"为什么"段落 + 进度里对应的根因分析 |
 | 某个注册名 / 标识符 | [`docs/PITFALLS.md`](docs/PITFALLS.md) §11 |
 | 还没定案的设计问题 | [`docs/DESIGN.md`](docs/DESIGN.md) §14 |
+| 待拍板的方案评审 | [`docs/REVIEW-break-path.md`](docs/REVIEW-break-path.md)（挖掘路径重构） |
 
 ### 一句话现状（写于 2026-09-25）
-主线闭环、联机一致性已解决、自动化自检齐全；**当前处于"稳定与加固"阶段**——
-主要缺口是 8 条 P0（锚固化卡顿、掉落物突变丢件、挖掘绕过原版生命周期等）与实机验证不足；
+主线闭环、联机一致性已解决、自动化自检齐全；**当前处于"稳定与加固"阶段**，
+已完成 7 条 P0/P1 缺陷（见 `docs/progress/2026Q4.md` §C–§G）。
+剩余：`P0-4` 挖掘路径（**待拍板的评审已就绪**）、`P0-1` 锚固化（等 §14.1 拍板）、
+`P0-8` 实机矩阵、`P1-1b` 实体突变范围过滤，以及 `P1-2`~`P1-7`。
 玩法上最大的缺口是"观察没有产出"（详见 `DESIGN.md` §14.6）。

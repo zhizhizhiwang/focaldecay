@@ -425,6 +425,10 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
 
 ### 5.2 交互锁定
 - **统一方块识别函数（2026-08-10 新增，2026-09-15 收拢为 `MutationHelper.resolve`）**：`MutationHelper.resolve(source, pos, worldSeed, periodIndex, index, chance, bias, protection, birthPeriod)` 为生存破坏、右键交互、创造中键选取、客户端预览、锚固化共用的唯一识别入口；受保护位置、非源方块、没抽中的情况一律返回原方块。
+- ⚠️ **本节描述的挖掘实现正在评审中**：现状是"取消 `BreakEvent` 后手工复刻原版流程"，
+  它与 §12.4 的原则冲突，并且已经漏掉了八项原版行为（详见
+  [`REVIEW-break-path.md`](REVIEW-break-path.md)）。推荐方案是**只把可见目标放回世界、
+  让原版 `destroyBlock` 跑完**——与 §5.3 右键那条同一套路。拍板后本节改写。
 - **挖掘开始**：`PlayerInteractEvent.LeftClickBlock`（服务端）记录：
   - 目标方块状态 `targetState`（此时计算）
   - 周期索引 `periodIndex`(锁定方块)
