@@ -196,27 +196,24 @@ public final class DoomsdayHandler {
         }
     }
 
-    /** 实体是否处于某原型机效果的"生物稳定"范围内（生物稳定/完全稳定全部，语义锁定命中训练实体）。 */
+    /**
+     * 实体是否处于某原型机效果的稳定范围内。
+     * <p>
+     * 每个实体只读一次配置、每个效果只做一次半径比较与一次集合命中（BACKLOG `P1-3`）。
+     * 原实现是"逐实体造一个实体类型 ID 字符串 + 逐效果做 {@code List<String>.contains}"——
+     * 那两件事都发生在"每阶段周期对每个实体"的热路径上，而且都是可以完全消掉的。
+     * 判定规则本身在 {@link MutationPoolManager.PrototypeEffect#protectsEntity} 里（纯函数）。
+     */
     private static boolean isEntityProtected(ServerLevel level, Entity entity) {
-        String entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString();
-        for (MutationPoolManager.PrototypeEffect effect : MutationPoolManager.get(level).getPrototypeEffects()) {
-            if (Math.max(Math.abs((long) entity.getX() - effect.center().getX()),
-                    Math.max(Math.abs((long) entity.getY() - effect.center().getY()),
-                            Math.abs((long) entity.getZ() - effect.center().getZ()))) > effect.radius()) {
-                continue;
-            }
-            String type = effect.data().type();
-            if (ObserverModelData.TYPE_TOTAL.equals(type)) {
-                return true;
-            }
-            if (ObserverModelData.TYPE_CANDIDATE.equals(type) && effect.data().candidateComplete()) {
-                return true; // 已完成候选 = 完全稳定
-            }
-            if (ObserverModelData.TYPE_BIO.equals(type)) {
-                return FocalDecayConfig.BIO_STABILIZE_ENTITIES.get() && effect.data().bioEnergy() > 0;
-            }
-            if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)
-                    && effect.data().trainedEntities().contains(entityId)) {
+        List<MutationPoolManager.PrototypeEffect> effects = MutationPoolManager.get(level).getPrototypeEffects();
+        if (effects.isEmpty()) {
+            return false; // 没有基座时的快路径：绝大多数世界在这一条上就返回了
+        }
+        boolean bioStabilizes = FocalDecayConfig.BIO_STABILIZE_ENTITIES.get();
+        EntityType<?> type = entity.getType();
+        BlockPos pos = entity.blockPosition();
+        for (MutationPoolManager.PrototypeEffect effect : effects) {
+            if (effect.withinRadius(pos) && effect.protectsEntity(type, bioStabilizes)) {
                 return true;
             }
         }

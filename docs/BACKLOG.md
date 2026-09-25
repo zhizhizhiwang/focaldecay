@@ -172,19 +172,26 @@
   2. **明确定义"只有玩家途径的方块才有出生保护"**，接受活塞/`/fill` 的两种偏差（最省力，但必须是**声明**而非遗漏）。
 - 顺手：剪枝地平线硬绑 `CUMULATIVE_SCAN_CAP = 128`，改回扫上限会让表线性变大 —— 在配置注释里点明这个耦合。
 
-### P1-3 多条服务端路径的"保护/引导"判定仍是 O(原型机数) + 字符串分配
+### P1-3 服务端/客户端的"保护判定"仍在热路径上分配（**部分完成**）
 
-- `DoomsdayHandler.isEntityProtected:174-198`：**每个实体**都
-  `BuiltInRegistries.ENTITY_TYPE.getKey(type).toString()`（字符串分配）再线性扫全部效果。
-- `MutationPoolManager.protectionInfo:231` / `getGuidedBias:281`：线性扫 + 切比雪夫判定，**无空间索引**
-  （全仓 grep 确认没有 `ChunkPos/SectionPos → effects` 的映射）。
-- 客户端更重：`resolveGuidedModels()` 在**每个方块**上被调用（`ClientRenderCache:230,318`）
-  → `ClientRegionData:265-284` **每次新分配一个 `ArrayList`**，并对每个原型机重做
-  `MutationIndexes.get` + `index.tagged(concept)`（字符串哈希）；`resolve` 的注释却写着"每个区块节解析一次"。
-- 修法：① `trainedEntities` 在登记期解析成 `Set<EntityType<?>>`（照抄已有的 `Set<Block> trained` 做法）；
-  ② 按 `ChunkPos`/`SectionPos` 建索引；③ 客户端的引导模型列表改成**随区域数据快照一起重算并缓存**，
-  不要逐方块重建。
-- 验收：`[stress]` 或微基准显示单方块/单实体判定无分配；热路径耗时不回退。
+> **2026-09-25 已完成三件**：实体白名单的登记期解析、保护规则抽成纯函数、
+> 客户端引导模型列表的缓存。见 [`progress/2026Q4.md`](progress/2026Q4.md#h-保护判定去掉热路径分配2026-09-25)。
+> **剩下空间索引**（下面第 ② 项）没做——它不影响正确性，且触发条件与其余几项不同，单独留在这里。
+
+- ~~`DoomsdayHandler.isEntityProtected`：**每个实体**都
+  `BuiltInRegistries.ENTITY_TYPE.getKey(type).toString()`（字符串分配）再线性扫全部效果。~~
+  → 已修：`trainedEntities` 在登记期解析成 `Set<EntityType<?>>`，判定变成一次集合命中。
+- **仍未做：`ChunkPos`/`SectionPos` → effects 的空间索引。**
+  `MutationPoolManager.protectionInfo` / `getGuidedBias` 与客户端的 `protectionInfo`
+  都是线性扫 + 切比雪夫判定（全仓 grep 确认没有空间索引）。
+  触发条件与已修的那两条不同：它只在**单维度内基座数量很大**（几十上百座）时才成为问题，
+  而这需要先有实机数据确认。`0-8` 矩阵里应加一条"大量基座下的判定耗时"。
+  （注意：索引只是加速，**不得改变语义**——两端必须仍然给出相同结果。）
+- ~~客户端 `resolveGuidedModels()` 在**每个方块**上被调用，每次新分配 `ArrayList`
+  并重做 `index.tagged(concept)` 的字符串哈希；而 `resolve` 的注释写着"每个区块节解析一次"。~~
+  → 已修：结果按「区域数据版本 + 维度键」缓存（两个判据都要，理由见进度 §H）。
+- 验收（剩余部分）：大量基座下判定耗时可比；**且** `[sync]` 的两端一致性与
+  `mutation audit` 的不变量全部照旧通过。
 
 ### P1-4 客户端区块编译线程上的竞态
 

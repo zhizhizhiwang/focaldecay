@@ -26,6 +26,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -365,8 +366,78 @@ public final class MutationAudit {
         out.addAll(mapperStressTest(index));
         out.addAll(itemMutationSelfTest(index));
         out.addAll(modelDataInvariantSelfTest());
+        out.addAll(entityProtectionSelfTest(index));
         out.addAll(syncSelfTest(level, pos));
         return out;
+    }
+
+    /**
+     * 实体保护判定的自测（2026-09-25，BACKLOG `P1-3`）。
+     * <p>
+     * 规则原本散在 {@code DoomsdayHandler#isEntityProtected} 的循环里，那里对每个实体都要
+     * 造一个实体类型 ID 字符串、再对每个效果做 {@code List<String>.contains}；
+     * 现在收进 {@code PrototypeEffect#protectsEntity(EntityType, boolean)} 这个<b>纯函数</b>
+     * ——顺便也就变得可以直接测了。
+     * <p>
+     * 断言逐型号走一遍，包括两个容易写反的边界：
+     * 生物稳定模型的"能量为 0 即失效"、语义锁定"只护住被训练的<b>那几种</b>实体"。
+     */
+    private static List<String> entityProtectionSelfTest(MutationIndex index) {
+        List<String> out = new ArrayList<>();
+        BlockPos pos = BlockPos.ZERO;
+        Set<Block> noBlocks = Set.of();
+
+        ObserverModelData total = new ObserverModelData(ObserverModelData.TYPE_TOTAL, List.of(), List.of(),
+                1.0, "", 0, 0, true, 0);
+        ObserverModelData bioCharged = new ObserverModelData(ObserverModelData.TYPE_BIO, List.of(), List.of(),
+                1.0, "", 0, 100, false, 0);
+        ObserverModelData bioDrained = new ObserverModelData(ObserverModelData.TYPE_BIO, List.of(), List.of(),
+                1.0, "", 0, 0, false, 0);
+        ObserverModelData lockPig = new ObserverModelData(ObserverModelData.TYPE_SEMANTIC_LOCK,
+                List.of(), List.of("minecraft:pig"), 1.0, "", 0, 0, false, 0);
+        ObserverModelData guided = new ObserverModelData(ObserverModelData.TYPE_GUIDED, List.of(), List.of(),
+                0.5, "focal_decay:concept/stone", 0, 0, false, 0);
+
+        boolean ok = true;
+        ok &= effect(total, noBlocks, Set.of()).protectsEntity(EntityType.PIG, true);
+        // 生物稳定：能量 > 0 且开关打开才保护；开关关掉就不保护（这是服务端语义配置）
+        ok &= effect(bioCharged, noBlocks, Set.of()).protectsEntity(EntityType.PIG, true);
+        ok &= !effect(bioCharged, noBlocks, Set.of()).protectsEntity(EntityType.PIG, false);
+        ok &= !effect(bioDrained, noBlocks, Set.of()).protectsEntity(EntityType.PIG, true);
+        // 语义锁定：只护住训练过的那一种
+        ok &= effect(lockPig, noBlocks, Set.of(EntityType.PIG)).protectsEntity(EntityType.PIG, true);
+        ok &= !effect(lockPig, noBlocks, Set.of(EntityType.PIG)).protectsEntity(EntityType.COW, true);
+        // 引导模型不是保护型：它只扰动漂移方向
+        ok &= !effect(guided, noBlocks, Set.of()).protectsEntity(EntityType.PIG, true);
+
+        out.add("[selftest] entity protection rules per model type"
+                + " (total / bio on+off / bio drained / lock trained+untrained / guided): "
+                + (ok ? "PASS" : "FAIL"));
+        out.addAll(entityProtectionSpatialSelfTest());
+        return out;
+    }
+
+    /** 半径判定也是纯函数了，顺手验一下边界（半径是切比雪夫距离）。 */
+    private static List<String> entityProtectionSpatialSelfTest() {
+        List<String> out = new ArrayList<>();
+        MutationPoolManager.PrototypeEffect effect = new MutationPoolManager.PrototypeEffect(
+                new BlockPos(10, 64, 10), 4,
+                new ObserverModelData(ObserverModelData.TYPE_TOTAL, List.of(), List.of(),
+                        1.0, "", 0, 0, true, 0),
+                Set.of(), Set.of(), null);
+        boolean ok = effect.withinRadius(new BlockPos(14, 64, 10))
+                && effect.withinRadius(new BlockPos(10, 68, 6))     // 三个轴都吃半径
+                && !effect.withinRadius(new BlockPos(15, 64, 10))   // 恰好出界
+                && !effect.withinRadius(new BlockPos(10, 69, 10));
+        out.add("[selftest] prototype radius uses Chebyshev distance (inclusive boundary): "
+                + (ok ? "PASS" : "FAIL"));
+        return out;
+    }
+
+    private static MutationPoolManager.PrototypeEffect effect(ObserverModelData data,
+                                                              Set<Block> trained,
+                                                              Set<EntityType<?>> trainedEntities) {
+        return new MutationPoolManager.PrototypeEffect(BlockPos.ZERO, 8, data, trained, trainedEntities, null);
     }
 
     /**

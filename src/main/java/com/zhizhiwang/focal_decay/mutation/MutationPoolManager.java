@@ -17,6 +17,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -52,11 +53,57 @@ public class MutationPoolManager extends SavedData {
     /**
      * 有效原型机效果：中心、切比雪夫半径、模型训练数据，外加两份登记期预算好的查表。
      *
-     * @param trained 语义锁定的被训练方块（O(1) 命中判定）
-     * @param concept 引导模型的概念邻域（null = 非引导模型或概念无效）
+     * @param trained         语义锁定的被训练方块（O(1) 命中判定）
+     * @param trainedEntities 语义锁定的被训练实体类型（O(1) 命中判定）
+     *                        <p>
+     *                        存 {@code Set<EntityType<?>>} 而不是模型里的 {@code List<String>}
+     *                        （2026-09-25，BACKLOG `P1-3`）：实体突变对<b>每个实体</b>都要问这个问题，
+     *                        而原实现每次都 {@code BuiltInRegistries.ENTITY_TYPE.getKey(type).toString()}
+     *                        造一个字符串再去 {@code List.contains}——纯粹的热路径分配，
+     *                        与方块那边早就修掉的是同一个毛病。
+     * @param concept         引导模型的概念邻域（null = 非引导模型或概念无效）
      */
     public record PrototypeEffect(BlockPos center, int radius, ObserverModelData data,
-                                  Set<Block> trained, ClassifiedPool concept) {
+                                  Set<Block> trained, Set<EntityType<?>> trainedEntities,
+                                  ClassifiedPool concept) {
+
+        /** 中心到该坐标的切比雪夫距离是否在半径内。 */
+        public boolean withinRadius(BlockPos pos) {
+            return Math.max(Math.abs(pos.getX() - center.getX()),
+                    Math.max(Math.abs(pos.getY() - center.getY()),
+                            Math.abs(pos.getZ() - center.getZ()))) <= radius;
+        }
+
+        /**
+         * 这个效果是否保护该实体——<b>纯函数</b>（唯一的开关由调用方传入，见下）。
+         * <p>
+         * 收在这里而不是留在 {@code DoomsdayHandler} 里遍历：判定规则与效果数据是一件事，
+         * 散在调用方会让"加一种型号就要改一处循环"。
+         * <p>
+         * {@code bioStabilizesEntities} 由调用方传入而不是在这里读配置：那样这个方法就与配置无关，
+         * 可以被自测直接调用。注意它<b>不</b>属于"两端必须一致"的那类输入——
+         * 实体突变只发生在服务端，客户端不参与这个决策（与 {@code MutationSettings} 里那些
+         * 会影响失焦<b>解析</b>的量不同）。所以读服务端配置是对的，只是读一次就够。
+         *
+         * @param entityType 待判定的实体类型
+         * @param bioStabilizesEntities 生物稳定模型是否保护实体（{@code bio_stabilize_entities}）
+         */
+        public boolean protectsEntity(EntityType<?> entityType, boolean bioStabilizesEntities) {
+            String type = data.type();
+            if (ObserverModelData.TYPE_TOTAL.equals(type)) {
+                return true;
+            }
+            if (ObserverModelData.TYPE_CANDIDATE.equals(type) && data.candidateComplete()) {
+                return true; // 已完成候选 = 完全稳定
+            }
+            if (ObserverModelData.TYPE_BIO.equals(type)) {
+                return bioStabilizesEntities && data.bioEnergy() > 0;
+            }
+            if (ObserverModelData.TYPE_SEMANTIC_LOCK.equals(type)) {
+                return trainedEntities.contains(entityType);
+            }
+            return false;
+        }
     }
 
     private final List<PrototypeEffect> prototypeEffects = new ArrayList<>();
@@ -162,7 +209,8 @@ public class MutationPoolManager extends SavedData {
         }
         MutationIndex index = MutationIndexes.get(level.dimension());
         PrototypeEffect effect = new PrototypeEffect(pos.immutable(), radiusFor(data), data,
-                parseTrained(data.trainedTargets()), conceptPool(data, index));
+                parseTrained(data.trainedTargets()), parseTrainedEntities(data.trainedEntities()),
+                conceptPool(data, index));
         prototypeEffects.add(effect);
         prototypeEffectsView = null;
         syncAddition(level, effect);
@@ -229,6 +277,33 @@ public class MutationPoolManager extends SavedData {
             }
         }
         return blocks;
+    }
+
+    /**
+     * 把模型里的实体类型 ID 列表解析成 {@link EntityType} 集合（登记期一次，判定期 O(1)）。
+     * <p>
+     * 与 {@link #parseTrained} 同一做法，之前漏了实体那一半（BACKLOG `P1-3`）。
+     * 只回答"这个 ID 现在还在注册表里吗"——非法/已移除的 ID 一律忽略，
+     * 因为训练期可能记下后来被移除的类型，那种条目就该不生效而不是抛异常。
+     * 至于"这个类型在当前维度能不能生成"，是实际转换时的判断，不在这里做。
+     */
+    private static Set<EntityType<?>> parseTrainedEntities(List<String> trainedEntities) {
+        Set<EntityType<?>> types = new HashSet<>();
+        for (String id : trainedEntities) {
+            try {
+                ResourceLocation key = ResourceLocation.tryParse(id);
+                if (key == null) {
+                    continue;
+                }
+                EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.get(key);
+                if (type != null) {
+                    types.add(type);
+                }
+            } catch (Exception ignored) {
+                // 非法 ID 忽略（与方块那边一致）
+            }
+        }
+        return types;
     }
 
     /** 引导模型的概念邻域池；非引导模型或概念无效时返回 null。 */
@@ -305,7 +380,7 @@ public class MutationPoolManager extends SavedData {
                                                     MutationSettings settings) {
         MutationHelper.Protection result = MutationHelper.Protection.NONE;
         for (PrototypeEffect effect : prototypeEffects) {
-            if (!withinRadius(pos, effect)) {
+            if (!effect.withinRadius(pos)) {
                 continue;
             }
             String type = effect.data().type();
@@ -356,7 +431,7 @@ public class MutationPoolManager extends SavedData {
         double bestQ = 0.0;
         for (PrototypeEffect effect : prototypeEffects) {
             ClassifiedPool concept = effect.concept();
-            if (concept == null || !withinRadius(pos, effect)) {
+            if (concept == null || !effect.withinRadius(pos)) {
                 continue;
             }
             if (!concept.contains(original.getBlock())) {
@@ -371,12 +446,6 @@ public class MutationPoolManager extends SavedData {
             best = effect;
         }
         return best == null ? GuidedBias.NONE : new GuidedBias(best.concept(), bestQ);
-    }
-
-    private static boolean withinRadius(BlockPos pos, PrototypeEffect effect) {
-        return Math.max(Math.abs(pos.getX() - effect.center().getX()),
-                Math.max(Math.abs(pos.getY() - effect.center().getY()),
-                        Math.abs(pos.getZ() - effect.center().getZ()))) <= effect.radius();
     }
 
     // ---- 方块诞生周期 ----

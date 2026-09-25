@@ -89,6 +89,19 @@ final class ClientRegionData {
      */
     private final Set<ResourceKey<Level>> snapshotReceived = ConcurrentHashMap.newKeySet();
 
+    /**
+     * 区域数据版本（2026-09-25，BACKLOG `P1-3`）：任何一处写入都 +1，供派生缓存判失效。
+     * <p>
+     * 用"版本号"而不是"每次比一遍内容"：写入点是低频的（登录快照、单条增量、断线），
+     * 而读取点在这条链路的最热处（逐方块）。版本号让失效判断退化成一次 {@code long} 比较。
+     */
+    private volatile long regionVersion;
+
+    /** {@link #guidedModels()} 的缓存与它的失效判据（版本 + 维度，理由见该方法）。 */
+    private volatile List<GuidedModel> guidedCache;
+    private volatile long guidedCacheVersion = -1L;
+    private volatile ResourceKey<Level> guidedCacheDimension;
+
     // ------------------------------------------------------------------
     // 写入（主线程：payload handler）
     // ------------------------------------------------------------------
@@ -128,6 +141,7 @@ final class ClientRegionData {
         }
 
         byDimension.put(dimension, new RegionData(prototypeList, incoming));
+        regionVersion++; // 派生缓存（guidedModels）失效
         snapshotReceived.add(dimension);
         return changed;
     }
@@ -155,6 +169,7 @@ final class ClientRegionData {
             prototypes.add(toClientPrototype(data));
         }
         byDimension.put(dimension, new RegionData(prototypes, old.birthPeriods));
+        regionVersion++;
     }
 
     /**
@@ -171,6 +186,7 @@ final class ClientRegionData {
             births.put(pos, period);
         }
         byDimension.put(dimension, new RegionData(old.prototypes, births));
+        regionVersion++;
     }
 
     /**
@@ -183,6 +199,7 @@ final class ClientRegionData {
     void clear() {
         byDimension.clear();
         snapshotReceived.clear();
+        regionVersion++;
     }
 
     private static ClientPrototype toClientPrototype(SyncRegionDataPacket.PrototypeData p) {
@@ -288,30 +305,51 @@ final class ClientRegionData {
     }
 
     /**
-     * 把已同步的引导模型解析成"半径 + 概念池 + 强度"的可直接查询形态，并算出该位置的偏向。
-     * 每次扫描一个区块节解析一次：{@code MutationIndexes#tagged} 有缓存，
-     * 但也没必要在每个方块上重复走一遍。
+     * 把已同步的引导模型解析成"半径 + 概念池 + 强度"的可直接查询形态。
      * <p>
-     * <b>只读当前维度</b>：{@link #current()} 与 {@link MutationIndexes#get} 用的是同一个维度键。
+     * <b>结果带缓存</b>（2026-09-25，BACKLOG `P1-3`）：调用方在<b>逐方块</b>路径上问它
+     * （{@code ClientRenderCache.resolve} / {@code liveTarget}），而每次解析都要新建一个
+     * {@code ArrayList}、并对每个引导模型重做一次 {@code MutationIndexes#tagged(concept)} 的字符串哈希查找。
+     * 原来的注释写着"每个区块节解析一次"，实际是逐方块——注释与代码不一致本身也是这条要修的原因之一：
+     * 它让"这里很便宜"变成了一个没人再检查的假设。
+     * <p>
+     * 失效判据是<b>两个</b>量：区域数据版本（整表快照与两条增量都会推它）与维度键。
+     * 只判版本是不够的——换维度时 {@code byDimension} 会换一份数据，而版本号是全局的；
+     * 只判维度也不够——同一维度里原型机增减不会改维度键。
      */
     List<GuidedModel> guidedModels() {
-        RegionData data = current();
         Minecraft mc = Minecraft.getInstance();
-        if (data == null || mc.level == null || data.prototypes.isEmpty()) {
+        if (mc.level == null) {
             return List.of();
         }
-        MutationIndex index = MutationIndexes.get(mc.level.dimension());
-        List<GuidedModel> models = new ArrayList<>();
-        for (ClientPrototype prototype : data.prototypes) {
-            if (!ObserverModelData.TYPE_GUIDED.equals(prototype.type()) || prototype.concept().isEmpty()) {
-                continue;
-            }
-            ClassifiedPool pool = index.tagged(prototype.concept());
-            if (pool.isEmpty()) {
-                continue;
-            }
-            models.add(new GuidedModel(prototype.center(), prototype.radius(), pool, prototype.q()));
+        ResourceKey<Level> dimension = mc.level.dimension();
+        List<GuidedModel> cached = guidedCache;
+        if (cached != null && guidedCacheVersion == regionVersion && dimension.equals(guidedCacheDimension)) {
+            return cached;
         }
+
+        RegionData data = byDimension.get(dimension);
+        List<GuidedModel> models;
+        if (data == null || data.prototypes.isEmpty()) {
+            models = List.of();
+        } else {
+            MutationIndex index = MutationIndexes.get(dimension);
+            List<GuidedModel> built = new ArrayList<>();
+            for (ClientPrototype prototype : data.prototypes) {
+                if (!ObserverModelData.TYPE_GUIDED.equals(prototype.type()) || prototype.concept().isEmpty()) {
+                    continue;
+                }
+                ClassifiedPool pool = index.tagged(prototype.concept());
+                if (pool.isEmpty()) {
+                    continue;
+                }
+                built.add(new GuidedModel(prototype.center(), prototype.radius(), pool, prototype.q()));
+            }
+            models = List.copyOf(built); // 不可变：缓存会被多处长期读到
+        }
+        guidedCache = models;
+        guidedCacheVersion = regionVersion;
+        guidedCacheDimension = dimension;
         return models;
     }
 
