@@ -65,6 +65,24 @@ jstack <pid>                # 直接看 "Render thread" 的栈
   `[IO.File]::WriteAllText($p, $text, (New-Object Text.UTF8Encoding($false)))`。
   排查：读文件前三个字节，是 `239,187,191` 就是 BOM。
   （`.gitattributes` 与 `.editorconfig` 都管不了它——BOM 是文件内容的一部分。）
+- **不要把 gradle 的输出接进管道后再用 `&&` 判成败**（2026-09-25 踩到，危险度高）。
+  `./gradlew.bat compileJava -q 2>&1 | tail -10 && echo "COMPILE OK"` 里的 `&&`
+  判的是 **`tail` 的退出码**，而 `tail` 永远成功——于是**编译失败也照样打印 "COMPILE OK"**。
+  这个坑真实发生过：一次编译错误被掩盖了四轮工具调用，期间我一直在读**旧的 `.class`**、
+  对着"为什么新加的断言没生效"查错方向，最后靠比对 `.class` 与 `.java` 的 mtime 才发现
+  根本没编译成功。症状（新断言不出现、日志顺序与代码不符）全部指向错误的方向。
+  正确写法（任选）：
+  ```bash
+  ./gradlew.bat compileJava >/dev/null 2>&1; echo "exit=$?"   # 直接看退出码
+  set -o pipefail && ./gradlew.bat compileJava 2>&1 | tail -5  # 让管道整体返回失败
+  ./gradlew.bat compileJava 2>&1 | tail -5                     # 只看输出，后面不接 &&
+  ```
+  **通用规则**：任何"用管道截断输出"的地方都不要再用 `&&` 判成败。
+  同理，`grep -c` 在无匹配时返回 **1**——把它接在 `&&` 后面会让"没有 FAIL 行"
+  变成"命令失败"，也踩过一次。
+  **排查手法**：怀疑"代码改了但没生效"时，先比对
+  `build/classes/.../X.class` 与 `src/.../X.java` 的 mtime，再看 `javap -p` 里有没有新方法名。
+  这一步比读日志快得多，而且能直接排除"根本没编译"这一类。
 
 ---
 

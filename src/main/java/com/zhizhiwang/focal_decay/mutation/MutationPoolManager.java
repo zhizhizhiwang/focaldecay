@@ -62,10 +62,14 @@ public class MutationPoolManager extends SavedData {
      *                        造一个字符串再去 {@code List.contains}——纯粹的热路径分配，
      *                        与方块那边早就修掉的是同一个毛病。
      * @param concept         引导模型的概念邻域（null = 非引导模型或概念无效）
+     * @param dimension       这个效果所在维度（2026-09-25，BACKLOG `P1-6` 第 12 条）。
+     *                        效果本来就是<b>按维度分开存</b>的（每个 {@code ServerLevel} 一份
+     *                        SavedData），但记录里原先没有它，于是"标签重载后重建概念池"
+     *                        没法知道该取哪个维度的索引。加上它比让调用方去猜要诚实。
      */
     public record PrototypeEffect(BlockPos center, int radius, ObserverModelData data,
                                   Set<Block> trained, Set<EntityType<?>> trainedEntities,
-                                  ClassifiedPool concept) {
+                                  ClassifiedPool concept, net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension) {
 
         /** 中心到该坐标的切比雪夫距离是否在半径内。 */
         public boolean withinRadius(BlockPos pos) {
@@ -210,7 +214,7 @@ public class MutationPoolManager extends SavedData {
         MutationIndex index = MutationIndexes.get(level.dimension());
         PrototypeEffect effect = new PrototypeEffect(pos.immutable(), radiusFor(data), data,
                 parseTrained(data.trainedTargets()), parseTrainedEntities(data.trainedEntities()),
-                conceptPool(data, index));
+                conceptPool(data, index), level.dimension());
         prototypeEffects.add(effect);
         prototypeEffectsView = null;
         syncAddition(level, effect);
@@ -304,6 +308,39 @@ public class MutationPoolManager extends SavedData {
             }
         }
         return types;
+    }
+
+    /**
+     * 标签重载后，用<b>新索引</b>重建所有已登记效果的概念邻域池（BACKLOG `P1-6` 第 12 条）。
+     * <p>
+     * <b>为什么必须做</b>：{@link PrototypeEffect} 在登记期就把 {@code ClassifiedPool} 算好并
+     * 持有它（热路径要求：逐方块判定不能每次去查标签）。而标签重载会让
+     * {@code MutationIndexes#invalidate()} 丢掉整套索引，此后两端就走岔了：
+     * <ul>
+     *   <li><b>客户端</b>每次从新索引重建（{@code ClientRegionData} 存的是概念<b>字符串</b>、
+     *       用时才查池），所以它自动是对的；</li>
+     *   <li><b>服务端</b>手里那份效果还指着<b>旧池</b>——引导邻域两端不一致，
+     *       直到那座原型机被重新登记（取出模型再放回）为止。</li>
+     * </ul>
+     * 这违反"两端必须逐位一致"这条最高优先级不变量，所以在这里补上。
+     * <p>
+     * <b>降级行为</b>：概念标签被数据包删掉时 {@code conceptPool} 返回 {@code null}，
+     * 效果退化成"半径内但不偏向任何邻域"——那是正确的降级，不是错误。
+     * <p>
+     * 只在服务端调用（客户端根本没有本类：它是 SavedData）。
+     */
+    public void refreshConceptPools() {
+        if (prototypeEffects.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < prototypeEffects.size(); i++) {
+            PrototypeEffect effect = prototypeEffects.get(i);
+            ClassifiedPool rebuilt = conceptPool(effect.data(),
+                    MutationIndexes.get(effect.dimension()));
+            prototypeEffects.set(i, new PrototypeEffect(effect.center(), effect.radius(), effect.data(),
+                    effect.trained(), effect.trainedEntities(), rebuilt, effect.dimension()));
+        }
+        prototypeEffectsView = null; // 列表内容变了：丢弃不可变视图缓存
     }
 
     /** 引导模型的概念邻域池；非引导模型或概念无效时返回 null。 */

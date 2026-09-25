@@ -67,8 +67,21 @@ public final class MutationIndexes {
         }
     }
 
-    /** 标签或配置变化后调用：丢弃全部缓存，下次访问重建。 */
+    /**
+     * 标签或配置变化后调用：丢弃全部缓存，下次访问重建。
+     * <p>
+     * <b>丢弃前先把每个索引内部的派生缓存释放掉</b>（BACKLOG `P1-6` 第 11 条）：
+     * {@code tagPools} 一张表可能装着几百份 {@code boolean[registry.size()]}，
+     * 而"从 CACHE 里移除"只是让它变成垃圾，真正回收要等 GC；重载是可以在游玩中途反复发生的。
+     * <p>
+     * 已经持有某个池对象的调用方不受影响（{@code releaseCaches()} 不改池对象本身）——
+     * 但"服务端已登记的原型机效果持有旧池"是<b>另一件事</b>，见
+     * {@code MutationPoolManager#refreshConceptPools}。
+     */
     public static void invalidate() {
+        for (MutationIndex index : CACHE.values()) {
+            index.releaseCaches();
+        }
         CACHE.clear();
     }
 }

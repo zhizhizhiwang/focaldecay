@@ -191,4 +191,35 @@ public final class MutationIndex {
     public int blocksWithoutItem() {
         return wild.flat().length - itemPool().length;
     }
+
+    /**
+     * 释放 {@link #tagPools}（BACKLOG `P1-6` 第 11 条）。
+     * <p>
+     * <b>为什么值得显式释放</b>，而不是等这个索引被 GC：每个条目是一份
+     * {@code boolean[registry.size()]}（当前约 1064 个 bool，一个条目约 1 KB），
+     * 而 {@code GuidedConcept#fallbackCandidates} 会遍历<b>每一个</b>方块标签并逐个调
+     * {@link #tagged(String)}——也就是说<b>一次</b>概念解析就能把几百个标签全灌进这张表。
+     * 索引本身在标签重载时被丢弃，但"从缓存里移除"与"回收那几百个 boolean 数组"
+     * 之间隔了一整个 GC 周期，而重载是可以在游玩中途反复发生的。
+     * <p>
+     * 调用点：{@code MutationIndexes#invalidate()}。
+     * <p>
+     * <b>注意这个方法是安全的</b>：它只清空这张表，不修改任何池对象本身，
+     * 所以已经直接持有某个 {@code ClassifiedPool} 引用的调用方不受影响。
+     * （"调用方持有旧池"是另一件事，见 {@code MutationPoolManager#refreshConceptPools}。）
+     */
+    public void releaseCaches() {
+        tagPools.clear();
+    }
+
+    /**
+     * 当前缓存了多少个动态标签池（<b>供自测与审计</b>）。
+     * <p>
+     * 存在的唯一理由是让"释放有没有发生"变成一个可断言的事实：
+     * 这个泄漏的形态是"几百份 {@code boolean[]} 多活一个 GC 周期"，
+     * 不释放也不影响功能，所以只能直接问这张表有多大。
+     */
+    public int cachedTagPoolCount() {
+        return tagPools.size();
+    }
 }

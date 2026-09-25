@@ -426,7 +426,7 @@ public final class MutationAudit {
                 new BlockPos(10, 64, 10), 4,
                 new ObserverModelData(ObserverModelData.TYPE_TOTAL, List.of(), List.of(),
                         1.0, "", 0, 0, true, 0),
-                Set.of(), Set.of(), null);
+                Set.of(), Set.of(), null, net.minecraft.world.level.Level.OVERWORLD);
         boolean ok = effect.withinRadius(new BlockPos(14, 64, 10))
                 && effect.withinRadius(new BlockPos(10, 68, 6))     // 三个轴都吃半径
                 && !effect.withinRadius(new BlockPos(15, 64, 10))   // 恰好出界
@@ -439,7 +439,8 @@ public final class MutationAudit {
     private static MutationPoolManager.PrototypeEffect effect(ObserverModelData data,
                                                               Set<Block> trained,
                                                               Set<EntityType<?>> trainedEntities) {
-        return new MutationPoolManager.PrototypeEffect(BlockPos.ZERO, 8, data, trained, trainedEntities, null);
+        return new MutationPoolManager.PrototypeEffect(BlockPos.ZERO, 8, data, trained, trainedEntities, null,
+                net.minecraft.world.level.Level.OVERWORLD);
     }
 
     /**
@@ -748,7 +749,51 @@ public final class MutationAudit {
 
         // ---- 模型数据的两条界限（BACKLOG P1-6 第 13、14 条） ----
         out.addAll(modelBoundsSelfTest());
+
+        // ---- 索引派生缓存能被释放（BACKLOG P1-6 第 11 条） ----
+        out.add(tagPoolReleaseSelfTest(index));
         return out;
+    }
+
+    /**
+     * {@code MutationIndex#releaseCaches()} 真的把动态标签池清掉了（BACKLOG P1-6 第 11 条）。
+     * <p>
+     * <b>为什么要专门测这个</b>：那个"泄漏"不表现为功能错误，而是"几百份
+     * {@code boolean[registry.size()]} 多活一个 GC 周期"，只会在反复重载数据包时长胖。
+     * 既然没有可观测的症状，就只能直接问一句"表空了没有"——所以这里用
+     * {@link MutationIndex#cachedTagPoolCount()}。
+     * <p>
+     * <b>取样用真实标签列表里的第一个非空标签</b>，不写死名字：写死的话数据包换了标签名
+     * 这条断言就会退化成空跑（池为空 → 前后都是 0 → 恒通过，而且看不出原因）。
+     * <p>
+     * <b>A/B</b>：把 {@code releaseCaches()} 改成空方法体，这条会 FAIL（表非空）。
+     */
+    private static String tagPoolReleaseSelfTest(MutationIndex index) {
+        // getTagNames() 返回的是 Stream（不是 Iterable），所以这里显式取迭代器：
+        // 用 stream().filter(...).findFirst() 也能写，但那样每次都要构造一遍流水线，
+        // 而这里唯一的目的是"拿到第一个非空标签"，迭代器更直白。
+        String probeTag = null;
+        var tags = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getTagNames().iterator();
+        while (tags.hasNext()) {
+            var tag = tags.next();
+            if (!index.tagged(tag.location().toString()).isEmpty()) {
+                probeTag = tag.location().toString();
+                break;
+            }
+        }
+        if (probeTag == null) {
+            return "[selftest] tag pool release: FAIL (no non-empty block tag to probe with"
+                    + " - tags not loaded?)";
+        }
+        int before = index.cachedTagPoolCount();
+        index.releaseCaches();
+        int after = index.cachedTagPoolCount();
+        // 释放后查询仍然必须给出正确内容（releaseCaches 只清表，不该弄坏任何东西）
+        boolean stillCorrect = !index.tagged(probeTag).isEmpty();
+        boolean ok = before > 0 && after == 0 && stillCorrect;
+        return "[selftest] tag pool release empties the derived cache and keeps lookups working"
+                + " (probe tag " + probeTag + "): " + (ok ? "PASS" : "FAIL")
+                + " cached before=" + before + " after=" + after + " lookupOk=" + stillCorrect;
     }
 
     /**
@@ -879,21 +924,43 @@ public final class MutationAudit {
                             + " - the birth gate is not sealing");
                 }
 
-                // ---- 断言 D：诞生周期确实被用作回扫起点（极远的过去 ⇒ 这一刻就会变） ----
-                // 若实现把 birthPeriod 忽略掉（例如恒当 0），这条与 C 会同时失败。
-                BlockState oldBirth = MutationHelper.resolve(source, pos, seed, now, index, 1.0,
-                        GuidedBias.NONE, MutationHelper.Protection.NONE, Math.max(0L, now - 500L));
-                if (oldBirth == source) {
-                    failures.add("speed=" + speed + ": a block born long ago was still frozen"
-                            + " - the birth period is not used as the backscan start");
+                // ---- 断言 D：诞生周期确实在起作用，而且是在**可达的**窗口里 ----
+                //
+                // ⚠️ 断言 D 与 E 的第一版都写错了，而且错法与本条断言最初那个 bug **同源**：
+                // 它们都拿"极远的过去"当对照物。而回扫有两重上限——
+                // {@code span = periodIndex - fromPeriod + 1} 与 {@code CUMULATIVE_SCAN_CAP = 128}
+                // 取 min——所以<b>凡是距今超过 128 个周期的诞生周期，彼此都不可区分</b>：
+                // 回溯窗口一律落在 [now-127, now]。
+                // 实测：开发世界里 now 已经跑到 7168，于是 birth=now-500 与 birth=now-6668
+                // 给出完全相同的判定，断言 D 稳定 FAIL。
+                //
+                // 换成一个**可达的**对照物：k=0（刚出生）vs k=5（出生于 5 个周期前）。
+                // 前者的回扫窗口只有 1 格 [now]，后者有 6 格 [now-5, now]——
+                // 两者必须至少在一个周期上给出不同判定。
+                boolean birthMatters = false;
+                for (long p = now; p <= now + 3; p++) {
+                    BlockState fresh = MutationHelper.resolve(source, pos, seed, p, index, 1.0,
+                            GuidedBias.NONE, MutationHelper.Protection.NONE, now);
+                    BlockState older = MutationHelper.resolve(source, pos, seed, p, index, 1.0,
+                            GuidedBias.NONE, MutationHelper.Protection.NONE, Math.max(0L, now - 5L));
+                    birthMatters |= fresh != older;
+                }
+                if (!birthMatters) {
+                    failures.add("speed=" + speed + ": birth=now and birth=now-5 give identical verdicts"
+                            + " - the birth period is not moving the backscan window");
                 }
 
-                // ---- 断言 E：诞生周期取的是**显示刻**，不是存储刻（这条才是原来想测的东西） ----
-                // 只有非 1.0 倍率下两个时钟才会分开；speed=1 时它们相等，这条天然无意义。
+                // ---- 断言 E：诞生周期取的是**显示刻**，不是存储刻 ----
+                // 这条测的是"哪根时钟"，所以对照物必须是另一根时钟本身，而不是一个更远的偏移量
+                // （那样会落进上面那个"超过 128 周期就不可区分"的坑）。
+                // 而且**必须挑一个窗口**：存储刻诞生周期与显示刻相差很大时，两者的回溯窗口
+                // 都可能已经撞上 128 上限而不可区分——所以这里扫一段更长的周期，要求至少有一个
+                // 周期上两者判定不同；全都相同才判 FAIL。
+                // speed=1 时两根时钟逐位相同，这条天然无意义（由 {@code [period]} 段守那件事）。
                 if (speed != 1.0) {
                     long storageBirth = MutationEventHandler.storagePeriodIndex(level);
                     boolean discriminating = false;
-                    for (long p = now; p <= now + 3; p++) {
+                    for (long p = now; p <= now + 64; p++) {
                         discriminating |= MutationHelper.resolve(source, pos, seed, p, index, 1.0,
                                 GuidedBias.NONE, MutationHelper.Protection.NONE, birth)
                                 != MutationHelper.resolve(source, pos, seed, p, index, 1.0,
@@ -901,8 +968,8 @@ public final class MutationAudit {
                     }
                     if (!discriminating) {
                         failures.add("speed=" + speed + ": display-clock birth and storage-clock birth"
-                                + " give identical verdicts (display=" + now + " storage=" + storageBirth
-                                + " birth=" + birth + ")");
+                                + " give identical verdicts over 64 periods (display=" + now
+                                + " storage=" + storageBirth + " birth=" + birth + ")");
                     }
                 }
             }
@@ -913,7 +980,7 @@ public final class MutationAudit {
         // 原措辞里的 "storage clock would differ" 描述的是一个**错误**的判据（见方法内的长注释），
         // 留着旧措辞会让下一个人以为它还在测那件事。
         return "[sync] birth gate (newborn frozen / mutates after 3 periods / future birth seals"
-                + " / old birth mutates / display clock drives it): "
+                + " / birth period moves the window / display clock drives it): "
                 + ((frozenOk && mutatesOk && failures.isEmpty()) ? "PASS" : "FAIL " + String.join("; ", failures))
                 + " [" + String.join(" | ", clockNotes) + "]";
     }

@@ -97,6 +97,17 @@ public class MutationEventHandler {
     @SubscribeEvent
     public static void onTagsUpdated(TagsUpdatedEvent event) {
         MutationIndexes.invalidate();
+        // 服务端手里那些已登记的原型机效果持有**登记期**算好的概念池，索引一换它们就过期了，
+        // 而客户端每次从新索引重建 → 引导邻域两端不一致（BACKLOG P1-6 第 12 条）。
+        // 客户端没有 MutationPoolManager（它是 SavedData），所以这里必须判断服务端实例是否存在：
+        // 本事件在客户端也会触发（收到服务端的标签同步时）。
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server == null) {
+            return;
+        }
+        for (ServerLevel level : server.getAllLevels()) {
+            MutationPoolManager.get(level).refreshConceptPools();
+        }
     }
 
     /** 周期性剪枝诞生周期表（详见 {@link MutationPoolManager#pruneBirthPeriods(long)}）。 */
