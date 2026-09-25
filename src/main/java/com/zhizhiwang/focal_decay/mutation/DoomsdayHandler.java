@@ -4,6 +4,7 @@ import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
@@ -22,6 +23,7 @@ import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 末日阶段系统（设计大纲 §6 / PROGRESS 第 8 项）：
@@ -119,6 +121,25 @@ public final class DoomsdayHandler {
         }
     }
 
+    /**
+     * 单个实体本周期的突变骰子种子（<b>纯函数</b>，供自测直接调用）。
+     * <p>
+     * <b>为什么必须含实体身份</b>（2026-09-25 修，BACKLOG `P1-1`）：早先是
+     * {@code mix64(worldSeed ^ pos ^ tick)}，而 {@code blockPosition()} 只是方块坐标。
+     * 同一 tick、同一方格里的多个实体（牧场里挤在一起的牛羊、刷怪塔里堆叠的怪）
+     * 于是拿到<b>完全相同的随机序列</b>——是否突变、突变成什么全都一样，
+     * 表现为"一群牛同时变成同一只僵尸"。这在实体密集处非常显眼，而且明显不像自然现象。
+     * <p>
+     * 三个分量各自先雪崩再异或：坐标低位、UUID 低位、tick 低位是会互相纠缠的
+     * （这个教训在方块种子那边付过一次学费，见 `PROGRESS` 的纵向随机性修复）。
+     */
+    public static long mutationSeed(long worldSeed, BlockPos pos, long tick, UUID entityId) {
+        long identity = entityId == null ? 0L : entityId.getLeastSignificantBits();
+        return MutationHelper.mix64(MutationHelper.mix64(pos.asLong())
+                ^ MutationHelper.mix64(identity)
+                ^ MutationHelper.mix64(worldSeed ^ tick));
+    }
+
     /** 每周期对每个实体掷确定性骰子，命中的生物/掉落物转换为池内目标。 */
     private static void mutateEntities(ServerLevel level, long tick, int stage) {
         double chance = switch (stage) {
@@ -148,7 +169,7 @@ public final class DoomsdayHandler {
             if (entity == null || !entity.isAlive()) {
                 continue;
             }
-            long seed = MutationHelper.mix64(worldSeed ^ entity.blockPosition().asLong() ^ tick);
+            long seed = mutationSeed(worldSeed, entity.blockPosition(), tick, entity.getUUID());
             RandomSource random = RandomSource.create(seed);
             if (random.nextDouble() >= chance) {
                 continue;
@@ -219,6 +240,35 @@ public final class DoomsdayHandler {
         level.registryAccess().lookupOrThrow(Registries.ENTITY_TYPE)
                 .get(tag)
                 .ifPresent(holders -> holders.forEach(holder -> pool.add(holder.value())));
+    }
+
+    /**
+     * 实体突变种子的自测（{@code /focaldecay mutation selftest} 的 {@code [entity]} 一行）。
+     * <p>
+     * 钉的是 BACKLOG `P1-1`：种子必须含<b>实体身份</b>，否则同一 tick、同一方格里的多个实体
+     * 会拿到完全相同的随机序列（"一群牛同时变成同一只僵尸"）。
+     * <p>
+     * 断言用<b>采样分布</b>而不是"两个 UUID 给出不同种子"——后者对单次比较来说是概率性的，
+     * 写成断言等于是碰运气。这里在同一个位置、同一个 tick 上取 512 个不同 UUID，
+     * 要求几乎全部互不相同；旧实现（不含身份）在这个断言下会是 1 种，直接 FAIL。
+     */
+    public static List<String> selfTest(long worldSeed) {
+        List<String> out = new ArrayList<>();
+        BlockPos pos = new BlockPos(64, 70, -32);
+        long tick = 12345L;
+        final int samples = 512;
+
+        java.util.Set<Long> seeds = new java.util.HashSet<>();
+        for (int i = 0; i < samples; i++) {
+            UUID id = new UUID(0x5EED_0000_0000_0000L + i, 0xABCD_0000_0000_0000L + i);
+            seeds.add(mutationSeed(worldSeed, pos, tick, id));
+        }
+        // 旧实现同一位置同一 tick 只可能给出 1 个种子；留一点余量以容忍理论碰撞。
+        boolean distinct = seeds.size() >= samples - 4;
+        out.add("[entity] same position+tick, " + samples + " different entities -> distinct seeds: "
+                + (distinct ? "PASS" : "FAIL (" + seeds.size() + " distinct -"
+                + " entities sharing a block would mutate identically)"));
+        return out;
     }
 
 }

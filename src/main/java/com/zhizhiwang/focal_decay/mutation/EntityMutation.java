@@ -1,5 +1,7 @@
 package com.zhizhiwang.focal_decay.mutation;
 
+import com.zhizhiwang.focal_decay.FocalDecay;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.ListTag;
@@ -61,20 +63,44 @@ public final class EntityMutation {
         return result;
     }
 
-    /** 把 mob 替换为 targetType 的实体，仅继承白名单字段与位置/朝向。 */
+    /**
+     * 把 mob 替换为 targetType 的实体，仅继承白名单字段与位置/朝向。
+     * <p>
+     * <b>顺序很重要</b>（2026-09-25 修，BACKLOG `P1-1c`）：必须<b>先建、先 load、确认成功，
+     * 最后才 discard 源实体</b>。早先的实现是 {@code source.discard()} 排在
+     * {@code targetType.create(...)} 的空值检查之前——于是 create 返回 null（或 load 抛异常）时，
+     * 旧实体已经被删、新实体还不存在，<b>生物凭空消失</b>；load 抛异常还会直接逃出 tick 处理器。
+     * <p>
+     * 失败时保留源实体（即"转换没发生"），而不是留下一个空位。调用方无法区分这两种结果，
+     * 但对玩家而言"没变"远好于"没了"。
+     */
     public static void convert(ServerLevel level, Mob source, EntityType<?> targetType) {
         CompoundTag tag = buildConversionTag(source);
         Vec3 pos = source.position();
         float yRot = source.getYRot();
         float xRot = source.getXRot();
-        source.discard();
 
+        // 先建：建不出来就什么都不做，源实体原样留着。
         Entity target = targetType.create(level);
         if (target == null) {
             return;
         }
-        target.load(tag);
+
+        // 再把继承来的状态 load 进去。这里可能抛（目标实体对这个 NBT 不满意），
+        // 所以包一层并丢弃半成品——此时源实体仍然完好。
+        try {
+            target.load(tag);
+        } catch (Exception failure) {
+            target.discard();
+            FocalDecay.LOGGER.warn("[focal_decay] entity conversion skipped:"
+                            + " loading preserved NBT into {} failed: {}",
+                    BuiltInRegistries.ENTITY_TYPE.getKey(targetType), failure.toString());
+            return;
+        }
+
         target.moveTo(pos.x, pos.y, pos.z, yRot, xRot);
+        // 到这里新实体已经准备好了，才移除旧的。
+        source.discard();
         level.addFreshEntity(target);
     }
 }
