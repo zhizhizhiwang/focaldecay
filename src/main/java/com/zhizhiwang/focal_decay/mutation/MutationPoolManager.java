@@ -61,6 +61,19 @@ public class MutationPoolManager extends SavedData {
 
     private final List<PrototypeEffect> prototypeEffects = new ArrayList<>();
     /**
+     * {@link #prototypeEffects} 的不可变视图缓存（2026-09-25，BACKLOG `P1-6` 第 5 条）。
+     * <p>
+     * 旧实现把内部那张<b>可变</b>列表直接交出去（{@code getPrototypeEffects()}），而调用方
+     * （实体突变、稳定场粒子、命令…）会长时间持有它。只要有人顺手改一下，
+     * 就变成"绕过登记流程修改有效原型机列表"——那正是最难查的一类 bug。
+     * 现在对外一律给不可变视图；内部改动后把它置空，下次访问重建。
+     * <p>
+     * 为什么不是每次 {@code List.copyOf}：{@code convertPrototypeRange} 会在逐坐标循环里
+     * 调 {@code protectionInfo}/{@code getGuidedBias}，而那些方法要遍历这份列表——
+     * 每次复制一份 27 万次是不可接受的。缓存 + 失效是这里唯一合理的做法。
+     */
+    private List<PrototypeEffect> prototypeEffectsView;
+    /**
      * 上一次<b>发给客户端</b>的效果摘要（位置 -> 摘要）。增量同步的判据：
      * 新摘要与这里存的不相等才发包。存的是"客户端现在以为的样子"，所以
      * "客户端能观察到的字段变了没有"这个问题不需要另写一份签名去维护。
@@ -111,8 +124,17 @@ public class MutationPoolManager extends SavedData {
     }
 
     // ---- 原型机效果 ----
+    /**
+     * 有效原型机效果的<b>不可变视图</b>。调用方可以长期持有它——内部改动会让旧视图失效，
+     * 但旧视图本身不会被改坏（见 {@link #prototypeEffectsView}）。
+     */
     public List<PrototypeEffect> getPrototypeEffects() {
-        return prototypeEffects;
+        List<PrototypeEffect> view = prototypeEffectsView;
+        if (view == null) {
+            view = List.copyOf(prototypeEffects);
+            prototypeEffectsView = view;
+        }
+        return view;
     }
 
     /**
@@ -131,6 +153,7 @@ public class MutationPoolManager extends SavedData {
      */
     public void updatePrototypeEffect(ServerLevel level, BlockPos pos, ItemStack modelStack) {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
+        prototypeEffectsView = null; // 内部列表变了：丢弃不可变视图缓存
         ObserverModelData data = modelStack.getItem() instanceof ObserverModelItem
                 ? ObserverModelItem.getData(modelStack) : null;
         if (data == null || ObserverModelData.TYPE_BLANK.equals(data.type())) {
@@ -141,12 +164,14 @@ public class MutationPoolManager extends SavedData {
         PrototypeEffect effect = new PrototypeEffect(pos.immutable(), radiusFor(data), data,
                 parseTrained(data.trainedTargets()), conceptPool(data, index));
         prototypeEffects.add(effect);
+        prototypeEffectsView = null;
         syncAddition(level, effect);
     }
 
     /** 移除某个位置的原型机效果（方块被破坏/模型被取出）；变化时广播删除增量。 */
     public void removePrototypeEffect(ServerLevel level, BlockPos pos) {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
+        prototypeEffectsView = null;
         syncRemoval(level, pos);
     }
 
@@ -158,10 +183,40 @@ public class MutationPoolManager extends SavedData {
         }
     }
 
+    /**
+     * 广播删除增量，并顺手清掉"已经不存在的中心"的残留条目。
+     * <p>
+     * <b>为什么要顺手清</b>（2026-09-25，BACKLOG `P1-6` 第 6 条）：{@code syncedEffects} 原先只在
+     * 这个方法里删条目，而被爆炸 / 活塞 / {@code /setblock} 移除的基座<b>不会</b>走这条路径
+     * （那些方式不触发 {@code BlockEvent.BreakEvent}）——它们留下的条目会一直挂在表里，
+     * 表随"曾经存在过的基座数量"单调增长。
+     * <p>
+     * 判据是精确的：{@code syncedEffects} 描述的是"客户端现在以为的样子"，
+     * 所以一个中心只要不在当前有效效果列表里，它就不该在表里。
+     * 放在这个方法里是因为它本来就在"效果集合刚发生变化"时被调用。
+     */
     private void syncRemoval(ServerLevel level, BlockPos pos) {
         if (syncedEffects.remove(pos) != null) {
             ModNetwork.sendPrototype(level, pos, null);
         }
+        pruneSyncedEffects();
+    }
+
+    /** 丢掉 {@code syncedEffects} 里没有对应有效效果的条目（见 {@link #syncRemoval}）。 */
+    private void pruneSyncedEffects() {
+        if (syncedEffects.isEmpty()) {
+            return;
+        }
+        if (prototypeEffects.isEmpty()) {
+            syncedEffects.clear();
+            return;
+        }
+        // 有效中心做成集合再删：两者都只跟"当前有多少座基座"同阶，不在热路径上。
+        Set<BlockPos> live = new HashSet<>(prototypeEffects.size() * 2);
+        for (PrototypeEffect effect : prototypeEffects) {
+            live.add(effect.center());
+        }
+        syncedEffects.keySet().removeIf(key -> !live.contains(key));
     }
 
     private static Set<Block> parseTrained(List<String> trainedTargets) {
@@ -210,14 +265,28 @@ public class MutationPoolManager extends SavedData {
         };
     }
 
-    /** 完全稳定模型的半径：32 减去年限递增的复制损耗，并不低于基础半径。 */
+    /**
+     * 完全稳定模型的半径：32 减去年限递增的复制损耗，并不低于基础半径。
+     * <p>
+     * 用 {@code long} 算三角数并把结果夹进范围（2026-09-25，BACKLOG `P1-6` 第 8 条）：
+     * 旧实现在 int 里算 {@code generation * (generation + 1) / 2 * penalty}，
+     * 越界的 {@code copies}（可以来自手改存档/病态数据包）会让它溢出成负数或巨大值。
+     * 虽然末尾的 {@code Math.max} 兜住了"半径变成负数"这一种后果，
+     * 但<b>不该依赖下游的兜底</b>——半径会被当作固化循环的边界使用，一个巨大的值就是一次长时间卡顿。
+     * 这里同时做了两层：算术用 long 不可能溢出，返回值再夹进 [基础半径, 32]。
+     */
     private static int totalStabilityRadius(int copies) {
         int base = 32;
-        int penalty = Math.max(0, FocalDecayConfig.TOTAL_STABILITY_COPY_PENALTY.get());
-        int generation = Math.max(0, copies);
+        int floor = FocalDecayConfig.PROTOTYPE_RADIUS.get();
+        long penalty = Math.max(0, FocalDecayConfig.TOTAL_STABILITY_COPY_PENALTY.get());
+        long generation = Math.max(0, copies);
         // 三角数：1 代 ×1、2 代 ×3、3 代 ×6 —— 损耗不断加剧
-        int lost = generation * (generation + 1) / 2 * penalty;
-        return Math.max(FocalDecayConfig.PROTOTYPE_RADIUS.get(), base - lost);
+        long lost = generation * (generation + 1) / 2 * penalty;
+        long radius = base - lost;
+        if (radius < floor) {
+            return floor;
+        }
+        return (int) Math.min(radius, base);
     }
 
     /**

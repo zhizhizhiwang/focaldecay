@@ -141,14 +141,22 @@ public class FocalDecayWorldData extends SavedData {
         return true;
     }
 
-    /** 每 tick 调用：有玩家在线时累计，满一个游戏日后天数 +1 并广播给所有玩家。 */
+    /**
+     * 每 tick 调用：有玩家在线时累计，满一个游戏日后天数 +1 并广播给所有玩家。
+     * <p>
+     * <b>每 tick 打脏是有意的</b>（2026-09-25，BACKLOG `P1-6` 第 9 条）：以前只有 {@code days++}
+     * 那一刻才 {@code setDirty()}，于是崩溃/强杀最多丢 20 分钟的游戏日进度——
+     * 而这个字段的写入成本几乎为零（原版按间隔刷盘），丢一整天进度的代价却远大于它。
+     * 注意：<b>调试时钟（speed/offset）刻意仍然不落盘</b>，见 {@link #setClock}——
+     * 那个是"忘了 reset 会让世界看起来卡住"的测试档位，不该跨重启存活。
+     */
     public void tick(MinecraftServer server) {
         if (server.getPlayerCount() > 0) {
             partialTicks++;
+            setDirty();
             if (partialTicks >= TICKS_PER_DAY) {
                 partialTicks -= TICKS_PER_DAY;
                 days++;
-                setDirty();
                 broadcastWorldData();
             }
         }

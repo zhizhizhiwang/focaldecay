@@ -213,56 +213,46 @@
 
 ### P1-6 杂项真缺陷（都小，但都是真 bug）
 
-1. **世界种子泄露**：`ModNetwork.java:50` 把**真实种子**发给每一个客户端，绕过 `/seed` 的权限门控。
-   客户端确实需要它才能算幽灵，但应当至少记录在案（这是模组的既定代价），
-   或改为"服务端预计算 + 只下发结果"（代价大，不建议）。
+> **2026-09-25 已完成 7 项**：~~3~~ ~~4~~ ~~5~~ ~~6~~ ~~8~~ ~~9~~ ~~15~~ —— 见
+> [`progress/2026Q4.md`](progress/2026Q4.md#g-一批独立小缺陷2026-09-25)。
+> 下面保留**尚未处理**的项；编号沿用原编号（不复用已完成的号，免得别处引用失效）。
+
+1. **世界种子泄露**：`ModNetwork` 把**真实种子**发给每一个客户端，绕过 `/seed` 的权限门控。
+   客户端确实需要它才能算幽灵。`[拍板]` 建议**明确记录为接受**（写进手册的已知行为）——
+   这是"客户端自行解析"这条架构的既定代价；改成"服务端预计算 + 只下发结果"会推翻整套预览方案，
+   代价远大于收益。需要的是**一句声明**，不是一次重构。
+
 2. **登录整表包的服务端卡顿**：`SyncRegionDataPacket` 携带**整张诞生周期表**
    （`ModNetwork.java:123-140`，两个 `long[]`）。老存档上登录那一刻会在主线程序列化整表。
    建议分批（按区块）或压缩成单个交错 `long[]`。
-3. **`pendingSections` 换世界不清**（`ClientRenderCache:354-362` 只清缓存不清队列）。
-4. **`activeSections` 幻影条目**：`putEntry` 在 put **之后**才 `incrSection`（`:838-841`），
-   而 `incrSection/decrSection` 非原子地改两张表（`:888-901`）→ 多余的重编译。
-5. **`getPrototypeEffects()` 返回可变内部列表**（`MutationPoolManager:114-116`），
-   只有 `BioStabilizerHandler:46` 迭代前拷了一份；`DoomsdayHandler:176`、`TotalStabilityFieldHandler:26` 直接迭代。
-   建议返回 `List.copyOf` 或不可变视图。
-6. **`syncedEffects` 只增不减**（`MutationPoolManager:70`，只在 `syncRemoval` 里删）
-   → 被爆炸/活塞/`/setblock` 移除的基座留下的条目永不清理。
+
 7. **原型机效果不随区块卸载失效**（无 `ChunkEvent.Unload` 处理）
    → 未加载区块里的基座继续保护"不存在的地方"，且被爆炸摧毁的基座的效果会留到重启。
    `[拍板]` 若确认"未加载 = 无保护"是设计意图，请写进文档；否则要补卸载处理。
-8. **`totalStabilityRadius` 的 int 溢出**（`MutationPoolManager:214-221`）：
-   `generation*(generation+1)/2*penalty` 在 `copies ≈ 20000` 时溢出。
-   实际影响有限（`Math.max(PROTOTYPE_RADIUS, lost)` 会把它夹回基础半径 8，不会变成巨大值传给固化循环），
-   但 `copies` 从 NBT/命令读入**没有任何 clamp**，建议在读取处夹一个上限（例如 0..`total_stability_max_copies`）。
-9. **`FocalDecayWorldData.partialTicks++` 不 `setDirty()`**（`:145-155`）
-   → 崩溃最多丢 20 分钟的游戏日进度。
+
 10. **`ThroneRitualData` 的 setter 不 `setDirty()`**（`:138-156`），靠 `tickRitual` 每 tick 兜底
     → 仪式开始瞬间崩溃会丢进度。
+
 11. **`MutationIndex.tagPools` 无淘汰**（`:48`）：每个概念标签一份 `boolean[registry.size()]`
     （约 1064 bool，还好），但用 `MutationIndexBuilder:106`/`GuidedConcept.fallbackCandidates` 的路径会持续加新标签。
+
 12. **tag 重载后服务端效果持有旧池**：`MutationIndexes.invalidate()`（`MutationEventHandler:88`）
     丢弃索引，但已登记的效果仍拿着登记时建的 `ClassifiedPool`（`MutationPoolManager:142`），
     而客户端每次从新索引重建（`ClientRegionData:277`）→ `/reload` 后引导邻域不一致，直到重新登记。
     修法：`invalidate()` 时把 `prototypeEffects` 的 `concept()` 一起重建。
+
 13. **候选体绕过训练上限**：`ModelTrainingHandler:135` 的上限判定带了 `!candidate &&`，
     于是候选观测者不受 `training_max_targets`（默认 64）约束，只受 `candidate_required_points`
     （可配到 10000，副本还会把需求除以增益）限制 → 一件物品的组件里能塞进**上千个 id 字符串**，
     而 `STREAM_CODEC` 每次记录都要重新序列化整份（`ObserverModelData.java:44-65`）。
     建议给候选体一个独立的、更宽松但仍有界的上限（例如 512），并在 tooltip 里显示"已记录 N 项"。
+
 14. **副手训练会把组件写到主手槽**：`ModelTrainingHandler:151-154` 的重同步固定写
     `serverPlayer.getInventory().selected`，而 `held` 取自 `getItemInHand(event.getHand())`
     （`:41`、`:70`）→ 副手训练时客户端看到的是**主手槽被写入了副手那枚模型的组件**，
     真正的副手组件直到下一次整份同步才更新（表现为"进度显示错位"，不是真的复制）。
     修法：按 `event.getHand()` 选槽位再同步（主手用 `selected`，副手用 `Inventory.SLOT_OFFHAND`）。
-15. **右键取消可被后续监听器翻转**：NeoForge 的 `PlayerInteractEvent.setCanceled` **不会**重置
-    `cancellationResult`，所以另一个 `receiveCanceled=true` 的 HIGHEST 监听器可以在此之后
-    把 `FAIL` 改成别的值（甚至取消取消）。那时原版会拿着**它早先抓取的旧 blockstate**
-    再跑一遍 `useItemOn` → 双重效果（目标方块 `use` 两次，或顺手放置手里的方块）。
-    本模组的顺序是 `setBlock` → 重派发 → `setCanceled(true)` → `setCancellationResult(FAIL)`，
-    已经是"最后取消、最后设结果"的最稳写法；**建议在 mixin/事件层记录一条诊断**，
-    当发现 `event.getCancellationResult() != FAIL` 时打一行日志，便于在整合包里定位这类冲突。
-    另：本模组注册在 HIGHEST，若别的模组**更早**注册 HIGHEST 并取消，本模组会被跳过（这是正确的），
-    但"方块已被本模组改写世界"这一事实没有回滚路径 —— 已在 P0-4 一并讨论。
+
 16. **`spawnAfterBreak` 缺失导致方块专属破坏效果丢失**（与 P0-4 同源，单列以便回归）：
     红石矿的额外掉落、sculk 相关行为等依赖它。修 P0-4 时自动解决。
 

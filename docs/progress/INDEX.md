@@ -60,6 +60,10 @@
 | 玩家改了自己那份 toml，联机两端的池不一样 | 2026Q4 §F | `wild_auto_include` 两端各读配置、且不在快照里（已修） |
 | 模组构造阶段直接崩：`IModBusEvent events are not allowed on the common NeoForge bus` | 2026Q4 §F | `ModConfigEvent` 必须挂 **mod bus**；挂错是构造期失败，不是功能失效 |
 | 一条断言"翻转某个字段看长度变没变"永远 FAIL | 2026Q4 §F | `writeBoolean` 真假都写 1 字节，长度恒定；判据要用"解码结果是否跟着变" |
+| 半径算出负数或巨大值 / 模型数据里出现荒唐数值 | 2026Q4 §G | `copies` 等字段从 NBT 读入没有钳制，三角数在 int 里溢出；已加规范化构造器 + long 算术 + 夹取 |
+| 换世界后还在扫旧世界的区块节 | 2026Q4 §G | `pendingSections` 只在排空后重建，换世界没清 |
+| 区块节计数漂移、多余重编译 | 2026Q4 §G | `incrSection`/`decrSection` 非原子地改两张表；已用同一把锁包住复合更新 |
+| 整合包里右键出现双重交互 | 2026Q4 §G | 取消结果可被更晚的监听器翻转；已加诊断日志（`cancellation result was changed`） |
 | 放置完成态模型时服务器卡住 | BACKLOG P0-1 | 单 tick 同步写 65³ 个方块 |
 | 掉落物凭空消失 | BACKLOG P0-3 | `asItem()` 可能是 AIR；空栈物品实体下一 tick 被 discard |
 | 箱子被破坏后里面的东西没了 | BACKLOG P0-4 | 取消了 `BreakEvent`，`playerDestroy`（溢出内容物）从未被调用 |

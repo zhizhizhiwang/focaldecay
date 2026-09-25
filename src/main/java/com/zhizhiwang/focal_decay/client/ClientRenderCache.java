@@ -358,6 +358,7 @@ public final class ClientRenderCache {
                 clearCache();
             }
             regions.clear();
+            pendingSections.clear();
             worldDays = 0;
             observerOnline = false;
             level = null;
@@ -372,6 +373,10 @@ public final class ClientRenderCache {
         if (current != level) {
             level = current;
             clearCache();
+            // 扫描队列也必须丢掉（BACKLOG P1-6 第 3 条）：它装的是"上一个世界还要扫哪些区块节"，
+            // 换世界之后那些坐标属于另一个维度，扫过去既浪费时间又可能把结果写进新世界的缓存。
+            // 队列原本只在排空后才重建，所以不清就会真的去扫旧坐标。
+            pendingSections.clear();
             // 换世界/重生也丢掉区域镜像：维度键（尤其 minecraft:overworld）在不同存档里是同一个，
             // 留着上一个世界的数据会让新世界开局就带一批不存在的保护范围与诞生周期。
             //
@@ -931,18 +936,44 @@ public final class ClientRenderCache {
         }
     }
 
+    /**
+     * 区块节的成员计数与"活跃节"集合。两把锁分别保护各自的复合更新。
+     * <p>
+     * <b>为什么需要锁</b>（2026-09-25，BACKLOG `P1-6` 第 4 条）：这两个集合都被<b>多处</b>改
+     * （主线程的扫描、编译线程的 {@code putEntry}/{@code dropEntry}、主线程的 {@code clearCache}），
+     * 而原来每处都是"改计数 → 再改集合"两步。结果有两个可观测的坏处：
+     * <ul>
+     *   <li>幻影条目：{@code clearCache} 清空集合之后，一个在飞的编译线程又把计数加回去，
+     *       于是集合里出现一条没有幽灵支撑的记录，导致多余的重编译；</li>
+     *   <li>计数漂移：{@code decrSection} 在计数已经 ≤0 时删掉计数表项，但反方向的
+     *       "先 put 再 incr" 让"同一条目被数了两次"成为可能（例如同 key 被 put 两次而
+     *       {@code prev == null} 的判断被并发穿插）。</li>
+     * </ul>
+     * 锁的成本可以接受：{@code clearCache} 只在低频事件上调用（周期翻页、换世界、换查表、区域数据更新），
+     * 逐方块路径上一次都不会碰到。用 {@code synchronized} 而不是更细的结构，
+     * 是因为这里要的是"两个集合看到同一个状态"，而这正是原子块能表达、无锁结构很难表达的。
+     */
+    private final Object sectionLock = new Object();
+
     private void incrSection(BlockPos pos) {
         long section = SectionPos.asLong(pos);
-        sectionCounts.merge(section, 1, Integer::sum);
-        activeSections.add(section);
+        synchronized (sectionLock) {
+            int count = sectionCounts.merge(section, 1, Integer::sum);
+            if (count > 0) {
+                activeSections.add(section);
+            }
+        }
     }
 
     private void decrSection(BlockPos pos) {
         long section = SectionPos.asLong(pos);
-        int count = sectionCounts.merge(section, -1, Integer::sum);
-        if (count <= 0) {
-            sectionCounts.remove(section);
-            activeSections.remove(section);
+        synchronized (sectionLock) {
+            int count = sectionCounts.merge(section, -1, Integer::sum);
+            if (count <= 0) {
+                // 计数不该落到 ≤0（那样说明有人多减了），顺手清干净而不是留着漂移的负数。
+                sectionCounts.remove(section);
+                activeSections.remove(section);
+            }
         }
     }
 
@@ -964,15 +995,17 @@ public final class ClientRenderCache {
      * 而重建判定的代价只在下一轮表面扫描里摊开——那本来就是要做的工作。
      */
     private void clearCache() {
-        if (!activeSections.isEmpty()) {
-            for (long sectionKey : activeSections) {
-                markSectionDirty(SectionPos.of(sectionKey));
+        synchronized (sectionLock) {
+            if (!activeSections.isEmpty()) {
+                for (long sectionKey : activeSections) {
+                    markSectionDirty(SectionPos.of(sectionKey));
+                }
             }
+            targetCache.clear();
+            evaluated.clear();
+            activeSections.clear();
+            sectionCounts.clear();
         }
-        targetCache.clear();
-        evaluated.clear();
-        activeSections.clear();
-        sectionCounts.clear();
     }
 
     /** 世界渲染器未就绪（viewArea 为 null）时跳过，避免世界加载/卸载过渡期 NPE。 */

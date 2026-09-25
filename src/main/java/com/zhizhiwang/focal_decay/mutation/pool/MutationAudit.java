@@ -7,6 +7,7 @@ import com.zhizhiwang.focal_decay.mutation.GuidedBias;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
+import com.zhizhiwang.focal_decay.mutation.MutationPoolManager;
 import com.zhizhiwang.focal_decay.mutation.MutationSettings;
 import com.zhizhiwang.focal_decay.mutation.MutationStateMapper;
 import com.zhizhiwang.focal_decay.network.SyncClientViewPacket;
@@ -363,7 +364,39 @@ public final class MutationAudit {
                 + bench(index, Blocks.OAK_STAIRS, pos, seed, 0.01) + " ns");
         out.addAll(mapperStressTest(index));
         out.addAll(itemMutationSelfTest(index));
+        out.addAll(modelDataInvariantSelfTest());
         out.addAll(syncSelfTest(level, pos));
+        return out;
+    }
+
+    /**
+     * {@link ObserverModelData} 的入参不变式自测（2026-09-25，BACKLOG `P1-6` 第 8 条）。
+     * <p>
+     * 这些字段都可以从 NBT / 组件 / 命令直接读入，而 `copies` 会进入
+     * {@code MutationPoolManager#totalStabilityRadius} 的三角数计算——
+     * 越界值不该让半径算到溢出上（半径会被当作固化循环的边界）。
+     * 断言用"故意喂越界值，看规范化有没有把它们拉回合法域"来验，而不是只验 happy path。
+     */
+    private static List<String> modelDataInvariantSelfTest() {
+        List<String> out = new ArrayList<>();
+        ObserverModelData wild = new ObserverModelData(
+                ObserverModelData.TYPE_TOTAL, List.of(), List.of(),
+                5.0, null, -7, -3, false, Integer.MAX_VALUE);
+        boolean copiesClamped = wild.copies() == ObserverModelData.MAX_COPIES;
+        boolean progressClamped = wild.progress() == 0;
+        boolean energyClamped = wild.bioEnergy() == 0;
+        boolean strengthClamped = wild.stabilityStrength() == 1.0;
+        boolean conceptNotNull = wild.concept().isEmpty();
+        boolean ok = copiesClamped && progressClamped && energyClamped && strengthClamped && conceptNotNull;
+        out.add("[selftest] model data clamps out-of-range inputs (copies/progress/energy/strength/concept): "
+                + (ok ? "PASS" : "FAIL copies=" + wild.copies() + " progress=" + wild.progress()
+                + " energy=" + wild.bioEnergy() + " strength=" + wild.stabilityStrength()
+                + " concept=" + wild.concept()));
+        // 半径不能因为越界 copies 而变成负数或巨大值（它是固化循环的边界）。
+        int radius = MutationPoolManager.radiusFor(wild);
+        boolean radiusSane = radius >= FocalDecayConfig.PROTOTYPE_RADIUS.get() && radius <= 32;
+        out.add("[selftest] total stability radius stays within [base, 32] for extreme copies: "
+                + (radiusSane ? "PASS" : "FAIL -> " + radius));
         return out;
     }
 

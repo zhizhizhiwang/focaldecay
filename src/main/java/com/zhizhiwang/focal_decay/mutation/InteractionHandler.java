@@ -313,6 +313,18 @@ public class InteractionHandler {
         // FAIL 会干净地终止整条后续流程：方块已由我们转换、交互已由目标方块处理完毕。
         event.setCanceled(true);
         event.setCancellationResult(InteractionResult.FAIL);
+
+        // 诊断（BACKLOG P1-6 第 15 条）：NeoForge 的 setCanceled 不重置 cancellationResult，
+        // 所以<b>更晚</b>注册的 receiveCanceled=true 监听器可以把 FAIL 改成别的值（甚至取消取消）。
+        // 那时原版会拿着它早先抓取的旧 blockstate 再跑一遍 useItemOn →
+        // 目标方块被 use 两次，或顺手把手里的方块放下去。
+        // 我们无法阻止别人这么做，但可以把它变成可诊断的——整合包里出现双重交互时先看这一行。
+        if (event.getCancellationResult() != InteractionResult.FAIL) {
+            FocalDecay.LOGGER.warn("[focal_decay] right-click cancellation result was changed by another"
+                            + " listener at {}: expected {} but got {} -"
+                            + " vanilla may now run the interaction a second time",
+                    pos.toShortString(), InteractionResult.FAIL, event.getCancellationResult());
+        }
     }
 
     private static String id(BlockState state) {

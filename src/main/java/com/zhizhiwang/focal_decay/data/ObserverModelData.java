@@ -28,6 +28,43 @@ public record ObserverModelData(String type, List<String> trainedTargets, List<S
     public static final String TYPE_TOTAL = "total_stability";
     public static final String TYPE_CANDIDATE = "candidate";
 
+    /**
+     * {@code copies} 的硬上限（2026-09-25，BACKLOG `P1-6`）。
+     * <p>
+     * 这个字段可以从 NBT / 组件 / 命令直接读入，而<b>没有任何钳制</b>；而它进入
+     * {@code MutationPoolManager#totalStabilityRadius} 的三角数计算
+     * （{@code generation * (generation + 1) / 2 * penalty}）。正常玩法下代数只有 0/1/2，
+     * 越界值只可能来自手改存档或病态数据包——但那种输入不该让半径计算落到 int 溢出上。
+     * <p>
+     * 取 1024 而不是"配置里的上限"：配置（{@code total_stability_max_copies}）是<b>玩法约束</b>，
+     * 而这里是<b>数据合法性约束</b>，两者不该耦合（整合包把玩法上限调到 16 时，
+     * 这里也不该悄悄改写它读到的值）。
+     */
+    public static final int MAX_COPIES = 1024;
+
+    /**
+     * 规范化入参不变式（2026-09-25，BACKLOG `P1-6`）。写在这里而不是每个构造点各写一遍：
+     * 这些字段都来自外部（NBT / 网络 / 合成），而它们各自有明确的合法域。
+     * <ul>
+     *   <li>{@code copies} —— 见 {@link #MAX_COPIES}；负数会让"第几代副本"这种显示与三角数计算同时失去意义。</li>
+     *   <li>{@code progress} —— 候选体训练进度，负数会让进度条与完成判定错乱。</li>
+     *   <li>{@code bioEnergy} —— 生物稳定模型的能量，负数会被 {@code > 0} 判定当成"已失效"，
+     *       但同时又被 tooltip 直接读出来显示成负数。</li>
+     *   <li>{@code stabilityStrength} —— 语义锁定的保护强度 / 引导模型的完备度 q，语义上是概率，钳到 [0,1]。</li>
+     * </ul>
+     * 列表字段（trainedTargets / trainedEntities）也一并做成不可变副本：它们是 item component 的一部分，
+     * 在 {@code ClientPrototype} 等地方会被跨线程读到，能改的列表迟早会被谁改一下。
+     */
+    public ObserverModelData {
+        copies = Math.max(0, Math.min(MAX_COPIES, copies));
+        progress = Math.max(0, progress);
+        bioEnergy = Math.max(0, bioEnergy);
+        stabilityStrength = Math.max(0.0, Math.min(1.0, stabilityStrength));
+        trainedTargets = List.copyOf(trainedTargets);
+        trainedEntities = List.copyOf(trainedEntities);
+        concept = concept == null ? "" : concept;
+    }
+
     public static final Codec<ObserverModelData> CODEC = RecordCodecBuilder.create(inst -> inst.group(
             Codec.STRING.fieldOf("type").forGetter(ObserverModelData::type),
             Codec.STRING.listOf().optionalFieldOf("trainedTargets", List.of()).forGetter(ObserverModelData::trainedTargets),
