@@ -4,6 +4,7 @@
   "package": "com.zhizhiwang.focal_decay.mixin",
   "mixins": [
     "DisplayAccessor",
+    "ServerPlayerGameModeMixin",
     "TextDisplayAccessor"
   ],
   "client": [
