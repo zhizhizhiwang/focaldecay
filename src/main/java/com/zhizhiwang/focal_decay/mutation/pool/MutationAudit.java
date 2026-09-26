@@ -6,6 +6,7 @@ import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.ModelTrainingHandler;
+import com.zhizhiwang.focal_decay.mutation.ThroneRitualHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationEventHandler;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationPoolManager;
@@ -752,7 +753,63 @@ public final class MutationAudit {
 
         // ---- 索引派生缓存能被释放（BACKLOG P1-6 第 11 条） ----
         out.add(tagPoolReleaseSelfTest(index));
+
+        // ---- 仪式决策：离线不该销毁进度（实机 §3b.3 发现） ----
+        out.add(ritualDecisionSelfTest());
         return out;
+    }
+
+    /**
+     * 仪式该暂停还是失败（<b>纯函数</b>断言）。
+     * <p>
+     * 这条守的是 2026-09-26 实机发现的一个**数据销毁**级缺陷：玩家退出世界时
+     * {@code level.getPlayerByUUID} 返回 null，而那条分支**无条件 {@code fail}**，
+     * {@code fail} → {@code stop()} 会清空 {@code playerId} —— 于是"一退出世界，仪式进度就没了"。
+     * 而且它<b>崩溃与正常退出表现相同</b>（走同一分支），所以现象看起来像"服务端崩溃导致回退"。
+     * <p>
+     * 为什么必须放在这里而不是靠实机：**离线路径在无头自测里根本走不到**
+     * （没有真实玩家会登录又退出），所以这是唯一能拦住它回归的地方。
+     * <p>
+     * A/B：把 {@code decide} 的 {@code alive == null || !alive} 分支改回无条件
+     * {@code FAIL}（即原实现），第 1、2 条会 FAIL。
+     */
+    private static String ritualDecisionSelfTest() {
+        List<String> bad = new ArrayList<>();
+
+        // 1. 离线 + pause_on_leave=true → 暂停（保留进度）。这是本次修的核心。
+        if (ThroneRitualHandler.decide(null, true, true) != ThroneRitualHandler.RitualAction.PAUSE) {
+            bad.add("offline with pause_on_leave=true must PAUSE (it used to FAIL and wipe playerId)");
+        }
+        // 2. 离线 + pause_on_leave=false → 失败（尊重配置）
+        if (ThroneRitualHandler.decide(null, true, false) != ThroneRitualHandler.RitualAction.FAIL) {
+            bad.add("offline with pause_on_leave=false must FAIL");
+        }
+        // 3. 在线且在半径内 → 继续
+        if (ThroneRitualHandler.decide(true, true, true) != ThroneRitualHandler.RitualAction.CONTINUE) {
+            bad.add("online and in radius must CONTINUE");
+        }
+        // 4. 在线但离开半径 → 受 pause_on_leave 控制（原行为，防回归）
+        if (ThroneRitualHandler.decide(true, false, true) != ThroneRitualHandler.RitualAction.PAUSE) {
+            bad.add("leaving the radius with pause_on_leave=true must PAUSE");
+        }
+        if (ThroneRitualHandler.decide(true, false, false) != ThroneRitualHandler.RitualAction.FAIL) {
+            bad.add("leaving the radius with pause_on_leave=false must FAIL");
+        }
+        // 5. 死亡 → 失败
+        if (ThroneRitualHandler.decide(false, true, true) != ThroneRitualHandler.RitualAction.FAIL) {
+            bad.add("a dead player must FAIL");
+        }
+        // 6. **离线与死亡必须被区别对待**（离线 null → PAUSE，死亡 false → FAIL）。
+        //    这一条不是多余的：第一版断言把两者混成一个参数，于是"离线应暂停"与"死亡应失败"
+        //    直接矛盾、断言自己 FAIL。现在把"它们不能相同"本身钉下来，
+        //    以后谁把两个分支合并回去，这里会立刻响。
+        if (ThroneRitualHandler.decide(null, true, true) == ThroneRitualHandler.decide(false, true, true)) {
+            bad.add("offline and dead must NOT be treated the same"
+                    + " (logging off keeps progress; dying fails)");
+        }
+        return "[ritual] offline pauses instead of wiping progress; death still fails"
+                + " (logoff must never destroy the ritual): "
+                + (bad.isEmpty() ? "PASS" : "FAIL (" + String.join("; ", bad) + ")");
     }
 
     /**

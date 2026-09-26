@@ -218,7 +218,9 @@ public final class FocalDecayConfig {
                 .comment("Distance (blocks) a player may stray from the throne while the ritual is active.")
                 .defineInRange("throne_ritual_radius", 16, 4, 64);
         THRONE_RITUAL_PAUSE_ON_LEAVE = builder
-                .comment("Pause the ritual when the player leaves the radius; otherwise it fails.")
+                .comment("Pause the ritual when the player leaves the radius OR logs off; otherwise it fails."
+                        + " Logging off counts as leaving: the progress is kept (playerId and remainingTicks"
+                        + " survive a restart) and resumes when the same player re-enters the radius.")
                 .define("throne_ritual_pause_on_leave", true);
         CANDIDATE_REQUIRED_POINTS = builder
                 .comment("The 100% mark for the Candidate Observer model (OBSR-3). It is the CAP, not a"

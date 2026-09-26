@@ -159,10 +159,78 @@ public final class ThroneRitualHandler {
         }
     }
 
+    /**
+     * 仪式这一 tick 该做什么（<b>纯函数</b>，供自测）。
+     * <p>
+     * 抽出来是因为原先的判断散在三处（在线性 / 存活 / 是否在半径内），而其中<b>一处漏了</b>
+     * `pause_on_leave`，造成的是<b>数据销毁</b>级后果：
+     * <ul>
+     *   <li>玩家<b>离开半径</b> → 受 {@code pause_on_leave} 保护（保留了 {@code playerId}）；</li>
+     *   <li>玩家<b>离线</b>（退出世界 / 断线 / 服务器刚启动还没登录）→ <b>无条件</b> {@code fail}，
+     *       而 {@code fail} → {@code stop()} 会清空 {@code playerId}。</li>
+     * </ul>
+     * 于是"玩家一退出世界，仪式进度就被销毁并存盘"，而且<b>崩溃与正常退出表现完全一样</b>
+     * ——因为它们走同一条分支。
+     * <p>
+     * 实测证据（作者 2026-09-26 提供的三个存档，我解了 NBT）：
+     * <pre>
+     *   新的世界 (7)  Active=0  Player=380df991-…  Remaining=130   ← pause 路径，留了 UUID
+     *   新的世界 (4)  Active=0  Player 字段缺失     Remaining=522   ← stop 路径
+     *   新的世界 (8)  Active=0  Player 字段缺失     Remaining=501   ← stop 路径（刚复现的那次）
+     * </pre>
+     * 只有 {@code stop()} 会清空 playerId，所以"Player 字段缺失"就是"被销毁过"的指纹。
+     *
+     * @param alive      玩家是否在线且存活；{@code null} = 不在线
+     * @param inRadius   是否在仪式半径内
+     * @param pauseOnLeave 配置 {@code throne_ritual_pause_on_leave}
+     */
+    public enum RitualAction { CONTINUE, PAUSE, FAIL }
+
+    /**
+     * @param alive       {@code null} = <b>不在线</b>（退出世界 / 断线）；
+     *                    {@code true} = 在线且存活；{@code false} = <b>已死亡</b>
+     * @param inRadius    是否在仪式半径内（离线时无意义）
+     * @param pauseOnLeave 配置 {@code throne_ritual_pause_on_leave}
+     *                    <p>
+     *                    <b>注意"离线"与"死亡"是两件事，不要合并</b>：
+     *                    离线是玩家关掉了游戏（应当保住进度），死亡是他真的没撑住（算失败）。
+     *                    第一版写这条断言时我把两者混成一个参数，结果两个期望直接矛盾——
+     *                    那正是这条断言现在专门检查的点。
+     */
+    public static RitualAction decide(Boolean alive, boolean inRadius, boolean pauseOnLeave) {
+        if (alive == null) {
+            // 离线：按 pause_on_leave 处理，与"离开半径"完全一致。
+            // 离线<b>不</b>该销毁进度——玩家只是关掉了游戏，而 stop() 会清空 playerId。
+            return pauseOnLeave ? RitualAction.PAUSE : RitualAction.FAIL;
+        }
+        if (!alive) {
+            return RitualAction.FAIL; // 死亡：算失败（与离线区别对待）
+        }
+        return inRadius ? RitualAction.CONTINUE : (pauseOnLeave ? RitualAction.PAUSE : RitualAction.FAIL);
+    }
+
     private static void tickRitual(ServerLevel level, ThroneRitualData data) {
         ServerPlayer player = (ServerPlayer) level.getPlayerByUUID(data.playerId());
         BlockPos throne = BlockPos.of(data.thronePos());
-        if (player == null || !player.isAlive()) {
+        if (player == null) {
+            // 玩家不在线（退出世界 / 断线 / 服务器刚启动还没登录）。
+            //
+            // ⚠️ 这里原先无条件 fail(level, data, null)，而 fail 会 stop() —— 那会**清空 playerId**
+            // 并置 active=false。后果是**玩家一退出世界，仪式进度就被销毁并存盘**，
+            // 而且崩溃与正常退出表现完全相同（走同一条分支）。详见 decide 的说明。
+            //
+            // 不发包：此刻没有玩家在线可收（sendToAllPlayers 遍历的是在线列表），
+            // 玩家回来时 start() 会重新广播一次开始包。
+            if (RitualAction.PAUSE == decide(null, true, FocalDecayConfig.THRONE_RITUAL_PAUSE_ON_LEAVE.get())) {
+                data.pause();
+            } else {
+                fail(level, data, null);
+            }
+            return;
+        }
+        if (!player.isAlive()) {
+            // 死亡：保持原行为（算失败）。与"离线"不同——离线是玩家关掉了游戏，
+            // 死亡是他真的没撑住。
             fail(level, data, null);
             return;
         }
@@ -173,8 +241,9 @@ public final class ThroneRitualHandler {
             return;
         }
         int radius = FocalDecayConfig.THRONE_RITUAL_RADIUS.get();
-        if (player.blockPosition().distSqr(throne) > (double) radius * radius) {
-            if (FocalDecayConfig.THRONE_RITUAL_PAUSE_ON_LEAVE.get()) {
+        boolean inRadius = player.blockPosition().distSqr(throne) <= (double) radius * radius;
+        if (!inRadius) {
+            if (RitualAction.PAUSE == decide(true, false, FocalDecayConfig.THRONE_RITUAL_PAUSE_ON_LEAVE.get())) {
                 data.pause();
                 ModNetwork.sendToAllPlayers(new ThroneRitualPacket(
                         ThroneRitualPacket.STATE_PAUSED, data.remainingTicks(), data.totalTicks(), data.wave()));

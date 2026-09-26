@@ -129,6 +129,17 @@ public class ObserverModelItem extends Item {
                 int percent = ObserverModelData.candidatePercent(data.progress(), requiredCandidatePoints(data));
                 tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_progress", percent)
                         .withStyle(ChatFormatting.AQUA));
+                // 候选体豁免 training_max_targets，但有自己的界（BACKLOG P1-6 第 13 条）：
+                // 不显示出来，玩家分不清"还差多少练满"和"已经到顶了"。
+                //
+                // ⚠️ 这一行必须放在**本分支内**：本分支末尾有 `return`，
+                // 而第一版把它加在了那个 return 之后的分支里 —— 编译器直接报
+                // "条件始终为 false"（2026-09-26 由作者发现）。加工具提示这类"顺手的改动"
+                // 特别容易掉进提前返回后面，因为编译器不一定报，而这一处恰好报了。
+                tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_targets",
+                                data.trainedTargets().size() + data.trainedEntities().size(),
+                                FocalDecayConfig.CANDIDATE_MAX_TARGETS.get())
+                        .withStyle(ChatFormatting.GRAY));
                 tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_hint")
                         .withStyle(ChatFormatting.DARK_GRAY));
             }
@@ -154,16 +165,9 @@ public class ObserverModelItem extends Item {
             }
         } else {
             int count = data.trainedTargets().size() + data.trainedEntities().size();
-            // 候选体额外显示上限（BACKLOG P1-6 第 13 条）：它豁免训练上限、有自己的界，
-            // 不显示出来玩家就没法判断"还差多少练满"还是"已经到顶了"。
-            if (ObserverModelData.TYPE_CANDIDATE.equals(data.type())) {
-                tooltipComponents.add(Component.translatable("tooltip.focal_decay.candidate_targets",
-                                count, FocalDecayConfig.CANDIDATE_MAX_TARGETS.get())
-                        .withStyle(ChatFormatting.GRAY));
-            } else {
-                tooltipComponents.add(Component.translatable("tooltip.focal_decay.model_targets", count)
-                        .withStyle(ChatFormatting.GRAY));
-            }
+            // 走到这里的一定不是候选体（候选体在那个分支末尾就 return 了），所以不需要再判类型。
+            tooltipComponents.add(Component.translatable("tooltip.focal_decay.model_targets", count)
+                    .withStyle(ChatFormatting.GRAY));
             tooltipComponents.add(Component.translatable("tooltip.focal_decay.model_shift_hint")
                     .withStyle(ChatFormatting.DARK_GRAY));
         }
