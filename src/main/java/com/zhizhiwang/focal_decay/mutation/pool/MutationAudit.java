@@ -991,20 +991,40 @@ public final class MutationAudit {
                 // 实测：开发世界里 now 已经跑到 7168，于是 birth=now-500 与 birth=now-6668
                 // 给出完全相同的判定，断言 D 稳定 FAIL。
                 //
-                // 换成一个**可达的**对照物：k=0（刚出生）vs k=5（出生于 5 个周期前）。
-                // 前者的回扫窗口只有 1 格 [now]，后者有 6 格 [now-5, now]——
-                // 两者必须至少在一个周期上给出不同判定。
-                boolean birthMatters = false;
+                // 换成一个**可达的、而且是必然成立的**对照物。
+                //
+                // 第二版仍然 flaky（实测 1193 通过 / 1205 失败）：它断言
+                // "birth=now 与 birth=now-5 必定给出不同判定"，而**那不必然**——
+                // 累积转换允许两者相同：k=1 抽中而 k=2..5 都没抽中时，两个窗口给出同一个结果。
+                // 声明一个偶然成立的东西，它就会 flaky。
+                //
+                // **声明的应该是"必然"的那一面**。回扫窗口是
+                //   [max(fromPeriod, periodIndex - CUMULATIVE_SCAN_CAP + 1), periodIndex]
+                // 其中 fromPeriod = birth + 1。于是有一条**可证明**的性质：
+                //   **两个诞生周期只要都早于 periodIndex - CAP + 1，就落在同一个有效窗口里，
+                //   判定必然相同。**
+                // 结合"刚出生的方块在 now 冻结"（断言 A），就得到"诞生周期确实在移动窗口"
+                // 这个结论——而且与随机种子无关、不 flaky。
+                int cap = MutationHelper.CUMULATIVE_SCAN_CAP;
                 for (long p = now; p <= now + 3; p++) {
-                    BlockState fresh = MutationHelper.resolve(source, pos, seed, p, index, 1.0,
-                            GuidedBias.NONE, MutationHelper.Protection.NONE, now);
-                    BlockState older = MutationHelper.resolve(source, pos, seed, p, index, 1.0,
-                            GuidedBias.NONE, MutationHelper.Protection.NONE, Math.max(0L, now - 5L));
-                    birthMatters |= fresh != older;
+                    BlockState cutA = MutationHelper.resolve(source, pos, seed, p, index, 1.0,
+                            GuidedBias.NONE, MutationHelper.Protection.NONE, Math.max(0L, p - cap - 10));
+                    BlockState cutB = MutationHelper.resolve(source, pos, seed, p, index, 1.0,
+                            GuidedBias.NONE, MutationHelper.Protection.NONE, Math.max(0L, p - cap - 500));
+                    if (cutA != cutB) {
+                        failures.add("speed=" + speed + ": two birth periods older than the scan cap"
+                                + " (p=" + p + ", cap=" + cap + ") gave different verdicts"
+                                + " - the cap is not defining the effective window");
+                        break;
+                    }
                 }
-                if (!birthMatters) {
-                    failures.add("speed=" + speed + ": birth=now and birth=now-5 give identical verdicts"
-                            + " - the birth period is not moving the backscan window");
+                // 反向：刚刚出生的方块在 now 这一刻必须冻结（与断言 A 同源，但这里针对
+                // "birth 参数真的被读到了"这一点再钉一次——若实现忽略该参数，A 也会失败，
+                // 两条一起才说明 birth 既被读、又被上限约束。）
+                if (MutationHelper.resolve(source, pos, seed, now, index, 1.0,
+                        GuidedBias.NONE, MutationHelper.Protection.NONE, now) != source) {
+                    failures.add("speed=" + speed + ": a block born now mutated at now"
+                            + " - the newborn gate is not sealing (birth period ignored?)");
                 }
 
                 // ---- 断言 E：诞生周期取的是**显示刻**，不是存储刻 ----
