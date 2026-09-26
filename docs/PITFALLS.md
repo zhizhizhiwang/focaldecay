@@ -59,6 +59,29 @@ jstack <pid>                # 直接看 "Render thread" 的栈
 - **有待提交改动时绝对不要跑 `git checkout -- .`**：它会用 HEAD 覆盖你**未暂存**的工作。
   本次刚写好的 `.gitattributes` 就是这样被冲掉的。
   要丢弃改动请显式指定路径。
+- **绝不要写 `open(p, 'w').write(open(p).read())` 这种"读回来再写回去"的一行式**（2026-09-26 踩到，
+  **后果最严重的一次**）。Python **从左到右求值**：先执行 `open(p, 'w')`——那一步**当场把文件截断为 0**
+  ——然后才去求值 `open(p).read()`，读到的必然是空字符串，于是把空写回。
+  实测把 `docs/VERIFY-device-matrix.md`（620 行）清成 0 字节，
+  而且因为当时用 `git add -A` 且**没有看 `--stat`**，空文件被直接提交，
+  直到作者问"你是不是不小心把 VERIFY-device-matrix.md 删了"才发现。
+  **正确写法**（读→关→改→写，四步分开）：
+  ```python
+  with io.open(p, encoding='utf-8') as fh:
+      s = fh.read()                      # 先完整读出来，句柄关闭
+  s = s.replace(old, new)
+  with io.open(p, 'w', encoding='utf-8', newline='') as fh:
+      fh.write(s)
+  ```
+  两条防身规矩：
+  1. **提交前永远看一眼 `git diff --cached --stat`**。那一次的输出是
+     `1 file changed, 621 deletions(-)`——一眼就能看出是删了整个文件，
+     而我只看了 `git status --short`（它只显示 `M`，看不出删了多少行）。
+  2. 脚本改写**受版本控制的文件**时，改完立刻回读并断言关键锚点仍在
+     （本会话后期已经这么做了，但出事那次恰好是唯一一个没做的）。
+  教训：**"读回来再写回去"这类操作必须先确认读到的是真内容**，
+  而"先截断后读"恰好让它永远读到空的——失败得静默且彻底。
+
 - **`printf '...' >> file` 往没有末尾换行的文件追加，会把两行粘成一行**（2026-09-26 踩到）。
   本项目的 `tools/devtest-datapack/**/*.mcfunction` 原先**末尾都没有换行符**
   （`tail -c 1` 是 `s` 不是 `
