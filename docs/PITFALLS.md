@@ -59,6 +59,20 @@ jstack <pid>                # 直接看 "Render thread" 的栈
 - **有待提交改动时绝对不要跑 `git checkout -- .`**：它会用 HEAD 覆盖你**未暂存**的工作。
   本次刚写好的 `.gitattributes` 就是这样被冲掉的。
   要丢弃改动请显式指定路径。
+- **`printf '...' >> file` 往没有末尾换行的文件追加，会把两行粘成一行**（2026-09-26 踩到）。
+  本项目的 `tools/devtest-datapack/**/*.mcfunction` 原先**末尾都没有换行符**
+  （`tail -c 1` 是 `s` 不是 `
+`），所以
+  `printf 'schedule function devtest:stop 8s
+' >> load.mcfunction`
+  得到的是 `...stop 60sschedule function devtest:stop 8s` —— 一行无法解析的命令，
+  整个函数加载失败：`Failed to load function devtest:load`，
+  于是**所有** `schedule` 都不生效、devtest 自测静默不跑（表现为"跑完了但没有任何 `[selftest]` 输出"）。
+  两个修法任选：追加前先 `printf '
+' >> file`，或者用 `cat >> file <<'EOF'`；
+  **并且给这类脚本文件补上末尾换行**（已经在 2026-09-26 补齐了三份副本共 20 个文件）。
+  教训与"管道掩盖退出码"同类：**这类静默失败不会报错，只会让后续步骤不执行**。
+
 - **不要用 PowerShell 的 `Set-Content -Encoding UTF8` / `Out-File -Encoding UTF8` 写源码**：
   它的 `UTF8` 会**写入 BOM**（字节 `EF BB BF`），javac 直接报
   `错误: 非法字符: U+FEFF`。必须用 PowerShell 时走

@@ -21,6 +21,24 @@
 >
 > §4.3 / §4.5 需要十几分钟；§4.4（挂机 2 小时）可以只在长期玩时顺便做。
 
+### ⚠️ 用 `runServer` 起服务器时，devtest 脚手架会自动关服
+
+`run/world/datapacks/devtest` 是给无头自测用的：world load 后 60 秒自动 `stop`
+（否则前台跑 `runServer` 会一直挂着不返回）。
+
+**2026-09-26 起它已改成"没有玩家在线时才停"**，所以联机验证时不会再被踢。
+但要知道这件事存在——**如果你看到"服务端进世界一段时间后没了"，先怀疑它**，
+别怀疑模组。查法：
+
+```bash
+grep -nE "Stopping server|logged in with entity" run/logs/latest.log | tail -4
+```
+
+如果是"登录后十几秒关服"、且尾行是 `Stopping server` + 完整保存，那就是脚手架，不是崩溃
+（真崩溃会有异常栈或 `crash-reports/` 里的报告）。
+
+想彻底关掉自动停服：删掉 `load.mcfunction` 里那条 `schedule function devtest:stop`。
+
 ### ⚠️ 先做这一步：别让日志被下一次运行冲掉
 
 **`runServer` 会轮换 `latest.log` 与 `debug.log`**（实测：一次 43 分钟的客户端会话，
