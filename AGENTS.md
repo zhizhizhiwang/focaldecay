@@ -339,7 +339,7 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 | 为什么当初这么设计 | `DESIGN.md` 各章的"为什么"段落 + 进度里对应的根因分析 |
 | 某个注册名 / 标识符 | [`docs/PITFALLS.md`](docs/PITFALLS.md) §11 |
 | 还没定案的设计问题 | [`docs/DESIGN.md`](docs/DESIGN.md) §14 |
-| 待拍板的方案评审 | [`docs/REVIEW-gameplay-spine.md`](docs/REVIEW-gameplay-spine.md)（玩法主轴：定向失焦，2026-09-28 **方向已定案**；结论见 `DESIGN.md` §13.8–§13.10，**§4 还剩 7 项参数与形式待定**）；已拍板保留的记录：[`docs/REVIEW-break-path.md`](docs/REVIEW-break-path.md) |
+| 待拍板的方案评审 | [`docs/REVIEW-gameplay-spine.md`](docs/REVIEW-gameplay-spine.md)（玩法主轴：定向失焦，2026-09-28 **全部定案（29 条裁定）**，设计已冻结；结论见 `DESIGN.md` §13.8–§13.10，§4 只剩 3 条不阻塞的遗留）；已拍板保留的记录：[`docs/REVIEW-break-path.md`](docs/REVIEW-break-path.md) |
 | **实机要验什么、怎么验** | [`docs/VERIFY-device-matrix.md`](docs/VERIFY-device-matrix.md)（每项含步骤 / 期望 / 观测点 / 判定，文末有结果登记表） |
 | A/B 回归开关 | [`AGENTS.md`](#4-验证清单改完必须过) §4 末尾（`-Dfocaldecay.abOldBreakPipeline=true`） |
 | 客户端诊断读数 | `/focaldecay clientstats`（扫描成本、幽灵条目、负缓存、队列深度） |
@@ -357,4 +357,4 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 剩余：`P0-1` 锚固化（等 §14.1 拍板）、`P1-1b` 实体突变范围过滤、`P1-2`（拍板）、
 `P1-5`（增量队列已做；2026-09-28 实测**推翻了它的验收前提**，见 §S）、`P1-7`，以及 `P1-3` 的余项。
 **`P1-6` 的 16 个子项已全部处理完**（14 项修复 + 2 项作者拍板保留现状）。
-玩法侧：**"观察没有产出"这个缺口已有定案（2026-09-28）**：定向失焦（催化域 / 沉降仪式），结论见 `DESIGN.md` §13.8–§13.10；还剩参数与形式待定，见 [`docs/REVIEW-gameplay-spine.md`](docs/REVIEW-gameplay-spine.md) §4（BACKLOG `P2-7`）。
+玩法侧：**"观察没有产出"这个缺口已有定案（2026-09-28）**：定向失焦（催化域 / 沉降仪式），结论见 `DESIGN.md` §13.8–§13.10；**设计已冻结（29 条裁定）**，可以按 P0 主轴开工；剩下 3 条不阻塞的遗留见 [`docs/REVIEW-gameplay-spine.md`](docs/REVIEW-gameplay-spine.md) §4（BACKLOG `P2-7`）。
