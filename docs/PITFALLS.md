@@ -446,6 +446,19 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
   （或者用项目自带的 `tools/structuregen/NbtTop.java`）。
   真实案例：一行"`Player` 字段在 NBT 里**缺失**"就钉死了"进度被 `stop()` 销毁过"这个结论
   ——因为只有 `stop()` 会清空它。比读代码猜快得多，而且不会被自己的假设带偏。
+- **给一个格式化函数加了行，别忘了改调用方**（2026-09-28 新增，第二次犯同类错）。
+  `ClientStatsCommand#format()` 返回 `String[]`，而命令正文写死了
+  `String head = lines[0]; String cache = lines[1];`。后来给 `format()` 加了第三行
+  （P1-5 的 `idleShare`）——**那一行永远不会被打印**。
+  它的隐蔽之处在于：命令照常工作、日志照常有输出、没有任何报错，
+  只是**缺了最关键的那一行**，而看的人会以为"这个观测点没实现"
+  （实际发生了：作者跑了一轮，日志里 0 条 `idleShare`，而代码里确实有）。
+  **这和"工具提示加在提前返回之后"（§R）是同一类：加了内容，没检查它是否可达。**
+  防身两条：
+  1. **不要写死索引**，用 `for (String line : lines)` 遍历；
+  2. 给"期望产出几条"配一个**具名常量**，并让冒烟/自测把它与实际条数比对
+     （本项目的做法见 `ClientStatsCommand#EXPECTED_LINE_COUNT` 与 `smokeReport()`；
+     A/B 验证过：把常量改成 4 会打出 `FORMAT/REPORT MISMATCH  FAIL`）。
 - **给断言留一条"控制组"**（2026-09-25 新增）。测"某某回调被调用了没有"这类性质时，
   正确答案恰恰是"没被调用"，最容易写成永远 PASS 的空断言。
   补一条"绕开被测代码、直接调原版入口，探针必须全部响应"的控制组，

@@ -37,6 +37,20 @@ public final class ClientStatsCommand {
     private ClientStatsCommand() {
     }
 
+    /**
+     * {@link #format} 期望产出的行数。
+     * <p>
+     * <b>这个常量是"加了内容忘了改调用方"这类事故的报警器。</b>
+     * 真实发生过：给 {@code format()} 加了第三行（P1-5 的 idleShare），
+     * 而命令正文写死了 {@code lines[0]} / {@code lines[1]} ——
+     * 于是那一行永远打不出来，命令照常工作、日志照常有输出，只是缺了最关键的一行。
+     * {@link #smokeReport()} 会在冒烟时把它与实际行数比对并显式报错。
+     */
+    private static final int EXPECTED_LINE_COUNT = 3;
+
+    /** {@link #format} 产出的每一行都必须以它开头（便于 grep 与冒烟自检）。 */
+    private static final String LINE_PREFIX = "[clientstats] ";
+
     public static void register(RegisterClientCommandsEvent event) {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
         dispatcher.register(Commands.literal("focaldecay")
@@ -62,8 +76,21 @@ public final class ClientStatsCommand {
         // 第一版每次都打，日志里出现两份一模一样的行——诊断输出重复比不输出更容易误导。
         if (!smokeDone) {
             smokeDone = true;
-            for (String line : format(ClientRenderCache.INSTANCE.scanStats())) {
+            String[] lines = format(ClientRenderCache.INSTANCE.scanStats());
+            for (String line : lines) {
                 FocalDecay.LOGGER.info("{} (smoke, no world loaded yet - zeros are expected)", line);
+            }
+            // 行数自检（见 EXPECTED_LINE_COUNT 的说明）：加了行却忘了改调用方时，这里会响。
+            if (lines.length != EXPECTED_LINE_COUNT) {
+                FocalDecay.LOGGER.error("[clientstats] FORMAT/REPORT MISMATCH  FAIL: format() produced {} lines"
+                                + " but EXPECTED_LINE_COUNT is {} - a line exists that the command never prints"
+                                + " (or one was dropped). Fix the caller, then update the constant.",
+                        lines.length, EXPECTED_LINE_COUNT);
+            }
+            for (String line : lines) {
+                if (!line.startsWith(LINE_PREFIX)) {
+                    FocalDecay.LOGGER.error("[clientstats] FORMAT PREFIX PROBLEM  FAIL: {}", line);
+                }
             }
         }
     }
@@ -101,17 +128,25 @@ public final class ClientStatsCommand {
             ClientRenderCache.INSTANCE.resetScanStats();
         }
         // 日志一律 ASCII：控制台可能是 GBK，中文会变乱码并掩盖线索。
+        //
+        // ⚠️ 这里**必须遍历整个数组**，不要把行号写死。
+        // 第一版用的是 `String head = lines[0]; String cache = lines[1];` ——
+        // 于是后来给 format() 加了第三行（P1-5 的 idleShare）之后，
+        // **那一行永远不会被打印**：命令照常工作、日志照常有输出，
+        // 只是缺了最关键的一行，而看的人会以为"这个观测点没实现"
+        // （实际发生了：作者跑了一轮，日志里 0 条 idleShare）。
+        // 教训与"工具提示加在提前返回之后"是同一类：**加了内容忘了改调用方**。
         String[] lines = format(ClientRenderCache.INSTANCE.scanStats());
-        String head = lines[0];
-        String cache = lines[1];
 
         // 无玩家执行者（理论上客户端命令不会）仍然写日志，保证脚本能取到结论。
         if (source.getPlayer() == null) {
-            FocalDecay.LOGGER.info(head);
-            FocalDecay.LOGGER.info(cache);
+            for (String line : lines) {
+                FocalDecay.LOGGER.info(line);
+            }
         }
-        source.sendSuccess(() -> Component.literal(head), false);
-        source.sendSuccess(() -> Component.literal(cache), false);
+        for (String line : lines) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
         source.sendSuccess(() -> Component.literal(
                 "[clientstats] cachedDecisions 是负缓存条目数：它在每个周期边界应当被清空，"
                         + "持续单调增长就是 BACKLOG P0-6 那类无界增长；"
