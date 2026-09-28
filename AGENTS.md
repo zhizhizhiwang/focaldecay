@@ -339,7 +339,7 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 | 为什么当初这么设计 | `DESIGN.md` 各章的"为什么"段落 + 进度里对应的根因分析 |
 | 某个注册名 / 标识符 | [`docs/PITFALLS.md`](docs/PITFALLS.md) §11 |
 | 还没定案的设计问题 | [`docs/DESIGN.md`](docs/DESIGN.md) §14 |
-| 待拍板的方案评审 | [`docs/REVIEW-gameplay-spine.md`](docs/REVIEW-gameplay-spine.md)（玩法主轴：定向失焦，2026-09-28 开启，**§4 的 7 个点待拍板**）；已拍板保留的记录：[`docs/REVIEW-break-path.md`](docs/REVIEW-break-path.md) |
+| 待拍板的方案评审 | [`docs/REVIEW-gameplay-spine.md`](docs/REVIEW-gameplay-spine.md)（玩法主轴：定向失焦，2026-09-28 开启，**§4 的 8 个点待拍板**）；已拍板保留的记录：[`docs/REVIEW-break-path.md`](docs/REVIEW-break-path.md) |
 | **实机要验什么、怎么验** | [`docs/VERIFY-device-matrix.md`](docs/VERIFY-device-matrix.md)（每项含步骤 / 期望 / 观测点 / 判定，文末有结果登记表） |
 | A/B 回归开关 | [`AGENTS.md`](#4-验证清单改完必须过) §4 末尾（`-Dfocaldecay.abOldBreakPipeline=true`） |
 | 客户端诊断读数 | `/focaldecay clientstats`（扫描成本、幽灵条目、负缓存、队列深度） |
