@@ -209,11 +209,13 @@ public final class ModCommands {
                 + " block=" + BuiltInRegistries.BLOCK.getKey(block)
                 + " shapeClass=" + index.shapeClasses().name(shapeClass)
                 + " source=" + index.isSource(block)
+                + " tier=T" + index.tier(block)
                 + " localCandidates=" + index.localCount(block)
                 + " wildInClass=" + index.wild().count(shapeClass));
         report(source, "  birthPeriod="
                 + MutationPoolManager.get(level).getBlockBirthPeriod(pos)
                 + " target=" + BuiltInRegistries.BLOCK.getKey(target.getBlock())
+                + " targetTier=T" + index.tier(target.getBlock())
                 + " targetState=" + target);
         // 挖掘锁定（2026-09-25 新增）：`BlockEvent.BreakEvent` 的处理完全由这份数据驱动，
         // 而它以前在游戏里<b>完全观测不到</b>——"挖出来的掉落和我看到的不一样"这类问题

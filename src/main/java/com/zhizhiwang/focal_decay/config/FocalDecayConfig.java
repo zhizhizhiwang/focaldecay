@@ -36,6 +36,7 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.BooleanValue ENABLE_STAGE_SYSTEM;
     public static final ModConfigSpec.DoubleValue WILD_CHANCE;
     public static final ModConfigSpec.BooleanValue WILD_AUTO_INCLUDE;
+    public static final ModConfigSpec.DoubleValue GUIDE_UP_TIER_CHANCE;
     public static final ModConfigSpec.BooleanValue ANCHOR_NORMALIZE_RANGE;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_CAPACITY;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_COST;
@@ -126,6 +127,13 @@ public final class FocalDecayConfig {
                         "own semantic pools. 0 = purely local drift (a stone block only ever becomes stone-like),",
                         "1 = the old behaviour (everything draws from one big pool). Must match on both sides:")
                 .defineInRange("wild_chance", 0.25, 0.0, 1.0);
+        GUIDE_UP_TIER_CHANCE = builder
+                .comment("Chance (0-1) that a GUIDED or CATALYSED mutation is allowed to reach one tier above its",
+                        "source block (tier = 'how much civilisation it takes to obtain'). Natural defocus never",
+                        "goes up a tier, and no mutation ever reaches the compression tier T4 (netherite_block),",
+                        "which the precipitation rite is the only source of. Must match on both sides.",
+                        "0 disables the exception entirely.")
+                .defineInRange("guide_up_tier_chance", 0.1, 0.0, 1.0);
         WILD_AUTO_INCLUDE = builder
                 .comment("Automatically add every full-cube block without a block entity to the wild pool,",
                         "so the big pool is never accidentally tiny. Turn off to keep the wild pool limited",

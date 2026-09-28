@@ -19,7 +19,7 @@ import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
  * <b>哪些东西属于本类、哪些不属于</b>：
  * <ul>
  *   <li>属于：一次解析里所有<b>静态</b>输入——世界种子、周期长度、阶段划分、每阶段概率、大池概率、
- *       阶段3语义锁定强度、引导完备度折半、候选体训练点数。它们只在配置变更时变，改一次全部重发即可。</li>
+ *       阶段3语义锁定强度、引导完备度折半、引导跨级概率、候选体训练点数。它们只在配置变更时变，改一次全部重发即可。</li>
  *   <li>不属于：随游戏进程连续变化的量——末日天数、观测者是否在线、调试时钟（{@code SyncWorldDataPacket}），
  *       以及随玩家行为变化的量——原型机效果、方块诞生周期（{@code SyncRegionDataPacket}）。
  *       它们各有自己的同步通道，见 {@code PROXYAI.md §8}。</li>
@@ -45,7 +45,12 @@ public record MutationSettings(
          * 它决定<b>池的成员</b>，因此也决定每一个目标——两端必须同值。
          * 2026-09-30 之前它不在快照里，两端各读自己的配置（BACKLOG `P0-7`）。
          */
-        boolean wildAutoInclude) {
+        boolean wildAutoInclude,
+        /**
+         * {@code guide_up_tier_chance}：引导 / 催化下允许"跨一级"的概率（{@code DESIGN.md} §13.9）。
+         * 它进入 {@link MutationHelper#resolve}，所以必须跟着快照走——否则两端会算出不同的目标。
+         */
+        double upTierChance) {
 
     /**
      * 从<b>本端配置</b>构造快照。服务端调用它得到权威值；客户端只在单人/集成服务器场景下用它兜底
@@ -64,7 +69,8 @@ public record MutationSettings(
                 FocalDecayConfig.WILD_CHANCE.get(),
                 FocalDecayConfig.SEMANTIC_LOCK_STAGE3_STRENGTH.get(),
                 FocalDecayConfig.GUIDED_STAGE3_HALVE.get(),
-                FocalDecayConfig.WILD_AUTO_INCLUDE.get());
+                FocalDecayConfig.WILD_AUTO_INCLUDE.get(),
+                FocalDecayConfig.GUIDE_UP_TIER_CHANCE.get());
         // 池成员也走同一份取值（它决定每一个目标，两端必须同值）。
         MutationIndexes.setWildAutoInclude(settings.wildAutoInclude());
         return settings;
@@ -108,7 +114,7 @@ public record MutationSettings(
     public MutationSettings withChance(double chance) {
         return new MutationSettings(worldSeed, baseInterval, stageSystem, stage2Day, stage3Day,
                 chance, chance, chance, wildChance, semanticLockStage3, guidedStage3Halve,
-                wildAutoInclude);
+                wildAutoInclude, upTierChance);
     }
 
     /** 当前阶段。 */

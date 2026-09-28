@@ -2,6 +2,7 @@ package com.zhizhiwang.focal_decay.mutation.pool;
 
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
+import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
@@ -39,7 +40,9 @@ import net.minecraft.world.level.block.state.properties.StairsShape;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
@@ -366,11 +369,26 @@ public final class MutationAudit {
                 + bench(index, source, pos, seed, 0.01) + " ns");
         out.add("[selftest]   chance=0.01, stairs + state transfer: "
                 + bench(index, Blocks.OAK_STAIRS, pos, seed, 0.01) + " ns");
+        // tier 护栏的代价：<b>同一进程里</b>前后各测一次。拿"历史上某次运行的数字"当基线会把
+        // 机器负载与 JIT 状态的变化一起算到护栏头上，而这条 A/B 把两者分开；
+        // 跨运行的 A/B 仍然可用（{@code -Dfocaldecay.abNoTier=true} 让 gateDisabled 一开始就是 true）。
+        Tiers.setGateDisabledForTest(true);
+        long gateOffFast;
+        long gateOffSlow;
+        try {
+            gateOffFast = bench(index, source, pos, seed, 1.0);
+            gateOffSlow = bench(index, source, pos, seed, 0.01);
+        } finally {
+            Tiers.setGateDisabledForTest(false);
+        }
+        out.add("[selftest]   same with the tier gate OFF (in-process A/B): chance=1.00 "
+                + gateOffFast + " ns, chance=0.01 " + gateOffSlow + " ns");
         out.addAll(mapperStressTest(index));
         out.addAll(itemMutationSelfTest(index));
         out.addAll(modelDataInvariantSelfTest());
         out.addAll(entityProtectionSelfTest(index));
         out.addAll(syncSelfTest(level, pos));
+        out.addAll(tierSelfTest(index));
         return out;
     }
 
@@ -584,7 +602,7 @@ public final class MutationAudit {
 
         // ---- 1. 快照的线格式必须逐字段往返 ----
         MutationSettings decoded = decode(settings);
-        out.add("[sync] settings packet round-trip (12 fields): "
+        out.add("[sync] settings packet round-trip (13 fields): "
                 + (decoded.equals(settings) ? "PASS" : "FAIL\n  sent=" + settings + "\n  read=" + decoded));
 
         // 逐字段比对有个盲区：手写编解码<b>漏搬一个字段</b>时，两边都会落到该字段的默认值上，
@@ -598,13 +616,28 @@ public final class MutationAudit {
                 settings.stage2Day(), settings.stage3Day(), settings.chanceStage1(),
                 settings.chanceStage2(), settings.chanceStage3(), settings.wildChance(),
                 settings.semanticLockStage3(), settings.guidedStage3Halve(),
-                !settings.wildAutoInclude());
+                !settings.wildAutoInclude(), settings.upTierChance());
         boolean movesWithField = !decode(flipped).equals(settings);
         out.add("[sync] settings packet actually carries wild_auto_include"
                 + " (flipping it changes the decoded value): "
                 + (movesWithField ? "PASS" : "FAIL (field is not encoded - both sides would silently default)"));
         out.add("[sync]   (wild_auto_include is " + settings.wildAutoInclude()
                 + ", which decides wild pool membership and therefore every target)");
+
+        // 同一个盲区对本轮新增的字段同样成立：漏搬时两端会各自退回默认值，
+        // 而"跨级概率"两端不同 = 两端对同一格给出不同的目标。
+        MutationSettings flippedTier = new MutationSettings(
+                settings.worldSeed(), settings.baseInterval(), settings.stageSystem(),
+                settings.stage2Day(), settings.stage3Day(), settings.chanceStage1(),
+                settings.chanceStage2(), settings.chanceStage3(), settings.wildChance(),
+                settings.semanticLockStage3(), settings.guidedStage3Halve(),
+                settings.wildAutoInclude(), settings.upTierChance() + 0.25);
+        boolean upTierMoves = !decode(flippedTier).equals(settings);
+        out.add("[sync] settings packet actually carries guide_up_tier_chance"
+                + " (flipping it changes the decoded value): "
+                + (upTierMoves ? "PASS" : "FAIL (field is not encoded - both sides would silently default)"));
+        out.add("[sync]   (guide_up_tier_chance is " + settings.upTierChance()
+                + ", the only way a guided mutation may reach one tier above its source)");
 
         // 原型机摘要也走手写编解码（bioActive / candidateComplete 由 int 改成 boolean 时最容易串位）
         SyncRegionDataPacket.PrototypeData prototype = new SyncRegionDataPacket.PrototypeData(
@@ -1316,6 +1349,150 @@ public final class MutationAudit {
     }
 
     /** 以 chance = 1 抽取一个周期（必中，因此样本数与周期数相等）。 */
+    /** tier 自测的采样周期数（每个源方块）。 */
+    private static final int TIER_SAMPLE_PERIODS = 128;
+
+    /**
+     * tier 护栏自测（2026-09-28，{@code DESIGN.md} §13.9 / 评审文档 §3.1–§3.3）。
+     * <p>
+     * 三条断言，缺一条这个功能就不成立：
+     * <ol>
+     *   <li><b>tier 表的关键格符合设计表</b>——染色块是 T1、玻璃是 T0、铁块 = 铁矿 + 1、
+     *       下界合金块是唯一的 T4。这张表<b>就是</b>设计本身，所以逐格钉住（改一格就红）；</li>
+     *   <li><b>自然失焦只降不升</b>：跨多个源方块 × {@value #TIER_SAMPLE_PERIODS} 个周期，
+     *       没有任何目标超过 {@code min(源 tier, 3)}；</li>
+     *   <li><b>它的控制组</b>：把护栏关掉，同一批样本<b>必须</b>真的出现越级。
+     *       没有这一条，第 2 条可能是<b>空断言</b>——"池里本来就没有越级目标"与"护栏生效"
+     *       在日志上完全一样（都是 0 次越级）。这正是 {@code PITFALLS.md} §8
+     *       "给断言留一条控制组"那条教训的又一次应用。</li>
+     * </ol>
+     */
+    private static List<String> tierSelfTest(MutationIndex index) {
+        List<String> out = new ArrayList<>();
+        BlockPos pos = BlockPos.ZERO;
+        long seed = 20260928L;
+
+        Map<Block, Integer> want = new LinkedHashMap<>();
+        want.put(Blocks.STONE, 0);              // 挖就有
+        want.put(Blocks.GLASS, 0);              // 烧一下就有（不需要出门）
+        want.put(Blocks.IRON_ORE, 1);           // 石镐门槛
+        want.put(Blocks.COPPER_ORE, 1);
+        want.put(Blocks.WHITE_CONCRETE, 1);     // 染色：要染料
+        want.put(Blocks.TERRACOTTA, 1);         // 只在恶地生成
+        want.put(Blocks.WHITE_WOOL, 1);         // 要养羊
+        want.put(Blocks.OBSIDIAN, 1);           // 水 + 岩浆就能刷，按工具门槛虚高
+        want.put(Blocks.CUT_COPPER, 1);         // 原版工具门槛，保留（它本来就是装饰料）
+        want.put(Blocks.IRON_BLOCK, 2);         // 压缩 = 原矿 + 1
+        want.put(Blocks.RAW_IRON_BLOCK, 2);
+        want.put(Blocks.DIAMOND_ORE, 2);
+        want.put(Blocks.DIAMOND_BLOCK, 3);
+        want.put(Blocks.GOLD_BLOCK, 3);
+        want.put(Blocks.BEACON, 3);             // 挖着容易、得到很难：原版没有标签能表达
+        want.put(Blocks.ANCIENT_DEBRIS, 3);
+        want.put(Blocks.NETHERITE_BLOCK, Tiers.MAX_TIER);
+
+        String mismatch = null;
+        for (Map.Entry<Block, Integer> entry : want.entrySet()) {
+            int got = index.tier(entry.getKey());
+            if (got != entry.getValue()) {
+                mismatch = id(entry.getKey()) + " expected T" + entry.getValue() + " got T" + got;
+                break;
+            }
+        }
+        out.add("[tier] tier table matches the design (" + want.size() + " spot checks): "
+                + (mismatch == null ? "PASS" : "FAIL -> " + mismatch));
+        out.add("[tier]   histogram: " + index.tierHistogram());
+
+        List<String> topTier = new ArrayList<>();
+        for (Block block : BuiltInRegistries.BLOCK) {
+            if (index.tier(block) == Tiers.MAX_TIER) {
+                topTier.add(id(block));
+            }
+        }
+        out.add("[tier] T" + Tiers.MAX_TIER + " members (compressed form of a T3 ore; rite-only): " + topTier);
+
+        List<Block> sources = List.of(Blocks.STONE, Blocks.COBBLESTONE, Blocks.OAK_LOG, Blocks.WHITE_CONCRETE,
+                Blocks.TERRACOTTA, Blocks.OBSIDIAN, Blocks.IRON_ORE, Blocks.DIAMOND_ORE,
+                Blocks.ANCIENT_DEBRIS, Blocks.BEACON, Blocks.GLASS);
+        int samples = sources.size() * TIER_SAMPLE_PERIODS;
+        int violations = countTierViolations(index, sources, pos, seed);
+        out.add("[tier] no target exceeds min(source tier, " + Tiers.MAX_NATURAL_TIER + ") over "
+                + samples + " samples: " + (violations == 0 ? "PASS" : "FAIL (" + violations + ")"));
+
+        Tiers.setGateDisabledForTest(true);
+        int control;
+        try {
+            control = countTierViolations(index, sources, pos, seed);
+        } finally {
+            Tiers.setGateDisabledForTest(false);
+        }
+        out.add("[tier] control (gate off, same " + samples + " samples): " + control + " violations -> "
+                + (control > 0
+                        ? "PASS (the gate is what makes the line above true)"
+                        : "FAIL (vacuous: no cross-tier target is ever produced,"
+                          + " so the assertion above proves nothing)"));
+
+        // ---- 4. 唯一的例外条款：引导下可以跨一级，而且只跨一级 ----
+        // 用"必经"的参数（每周期必中 + 跨级概率 1）把这条路径逼到必然发生，断言就不依赖概率。
+        // 石头(T0) 引着 ore 概念走：跨级开着时必须出现 T1（煤），且永远不出现 T2 以上；
+        // 关掉之后必须一个 T1 都出不来 —— 这两条合起来才证明例外真的接通了、而且接到了该接的地方。
+        MutationSettings base = MutationSettings.fromConfig(seed);
+        GuidedBias oreBias = new GuidedBias(
+                index.tagged(ModTags.Blocks.mutationPool("ore").location().toString()), 1.0);
+        int reached = 0;
+        int overshoot = 0;
+        int blocked = 0;
+        for (long period = 0; period < TIER_SAMPLE_PERIODS; period++) {
+            Block target = MutationHelper.resolve(Blocks.STONE.defaultBlockState(), pos,
+                    upTierSettings(base, 1.0), 1, period, index, oreBias,
+                    MutationHelper.Protection.NONE, -1L).getBlock();
+            int tier = index.tier(target);
+            if (tier == 1) {
+                reached++;
+            } else if (tier > 1) {
+                overshoot++;
+            }
+        }
+        for (long period = 0; period < TIER_SAMPLE_PERIODS; period++) {
+            Block target = MutationHelper.resolve(Blocks.STONE.defaultBlockState(), pos,
+                    upTierSettings(base, 0.0), 1, period, index, oreBias,
+                    MutationHelper.Protection.NONE, -1L).getBlock();
+            if (index.tier(target) >= 1) {
+                blocked++;
+            }
+        }
+        out.add("[tier] guided up-tier exception (forced on): reached T1 in " + reached
+                + "/" + TIER_SAMPLE_PERIODS + ", overshot past T1 in " + overshoot + " -> "
+                + (reached > 0 && overshoot == 0 ? "PASS" : "FAIL (must reach exactly one tier)"));
+        out.add("[tier] same samples with the exception off: " + blocked
+                + " targets at T1 or above -> "
+                + (blocked == 0 ? "PASS" : "FAIL (the exception is not wired)"));
+
+        return out;
+    }
+
+    /** 只改"跨级概率"与"每周期必中"，用于把例外条款逼到必然发生（{@code withChance} 不动跨级概率）。 */
+    private static MutationSettings upTierSettings(MutationSettings base, double upTierChance) {
+        return new MutationSettings(base.worldSeed(), base.baseInterval(), base.stageSystem(),
+                base.stage2Day(), base.stage3Day(), 1.0, 1.0, 1.0, base.wildChance(),
+                base.semanticLockStage3(), base.guidedStage3Halve(), base.wildAutoInclude(), upTierChance);
+    }
+
+    /** 数"目标比源更文明"的样本数。判据自己算（{@code min(源, 3)}），不依赖护栏是否开着。 */
+    private static int countTierViolations(MutationIndex index, List<Block> sources, BlockPos pos, long seed) {
+        int violations = 0;
+        for (Block source : sources) {
+            int sourceTier = Math.min(index.tier(source), Tiers.MAX_NATURAL_TIER);
+            for (long period = 0; period < TIER_SAMPLE_PERIODS; period++) {
+                BlockState target = sample(index, source, pos, seed, period);
+                if (index.tier(target.getBlock()) > sourceTier) {
+                    violations++;
+                }
+            }
+        }
+        return violations;
+    }
+
     private static BlockState sample(MutationIndex index, Block source, BlockPos pos, long seed, long period) {
         return sample(index, source.defaultBlockState(), pos, seed, period);
     }

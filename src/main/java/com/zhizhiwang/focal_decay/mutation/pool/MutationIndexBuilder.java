@@ -159,11 +159,15 @@ public final class MutationIndexBuilder {
             }
         }
 
+        // ---- tier（获得门槛）----
+        // 与其它字段一样在构建期摊平成 byte[]：运行时只读，不碰标签。
+        byte[] tier = Tiers.build(registry);
+
         FocalDecay.LOGGER.info("[focal_decay] mutation index[{}]: {} pools, wild={} blocks (+{} auto),"
-                        + " {} sources (+{} extra), {} slices dropped",
+                        + " {} sources (+{} extra), {} slices dropped, tier {}",
                 dimension.location(), poolIds.size(), wild.total(), autoIncluded,
-                sourceCount, extraCount, droppedSlices);
-        return new MutationIndex(shapeClasses, wild, local, source, immune, poolIds);
+                sourceCount, extraCount, droppedSlices, Tiers.histogram(tier));
+        return new MutationIndex(shapeClasses, wild, local, source, tier, immune, poolIds);
     }
 
     /** 语义池发现：{@code focal_decay:mutation_pool/*}，排除大池，按标签 ID 定序。 */

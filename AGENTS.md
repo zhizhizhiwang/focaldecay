@@ -215,7 +215,7 @@ INNER_EOF
 > [`docs/VERIFY-device-matrix.md`](docs/VERIFY-device-matrix.md) §9。
 
 跑 `selftest` 时**不要只看有没有 FAIL 行**：还要确认每一段的输出都在
-（`grep -cE '\[(selftest|sync|anchor|entity|break|model|recipe)\]' run/logs/latest.log`）。
+（`grep -cE '\[(selftest|sync|tier|anchor|entity|break|model|recipe)\]' run/logs/latest.log`）。
 一段抛异常时命令层会打 `SECTION CRASHED … FAIL`，但**旧版本会把后面的段整段吞掉**，
 而"没有输出"和"通过"在肉眼扫日志时长得一样。
 

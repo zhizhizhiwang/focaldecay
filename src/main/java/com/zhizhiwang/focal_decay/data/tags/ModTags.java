@@ -41,6 +41,19 @@ public final class ModTags {
         public static final TagKey<Block> ANCHOR_PROTOTYPE_IMMUNE =
                 BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "anchor_prototype_immune"));
 
+        // ---- tier（获得门槛，2026-09-28，见 Tiers 与 DESIGN.md §13.9）----
+        /**
+         * tier 覆盖标签：{@code focal_decay:tier_override/t<0..3>}。
+         * 命中即以该档为准，不再套用工具门槛与压缩 +1。T4 没有覆盖标签——它只由压缩规则产生。
+         */
+        public static TagKey<Block> tierOverride(int tier) {
+            return BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "tier_override/t" + tier));
+        }
+
+        /** 压缩形态的补充名单：{@code c:storage_blocks/*} 没覆盖到的压缩块（石英族、紫水晶块）。 */
+        public static final TagKey<Block> COMPRESSED_EXTRA =
+                BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "compressed_extra"));
+
         /** 突变池标签：{@code focal_decay:mutation_pool/<name>}。 */
         public static TagKey<Block> mutationPool(String name) {
             return BlockTags.create(ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "mutation_pool/" + name));

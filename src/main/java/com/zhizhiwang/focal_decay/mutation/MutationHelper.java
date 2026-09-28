@@ -4,6 +4,7 @@ import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
 import com.zhizhiwang.focal_decay.mutation.pool.ShapeClasses;
+import com.zhizhiwang.focal_decay.mutation.pool.Tiers;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -85,7 +86,8 @@ public final class MutationHelper {
     public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed, long periodIndex,
                                      MutationIndex index, double chance, GuidedBias bias,
                                      Protection protection, long birthPeriod) {
-        return resolveInternal(source, pos, worldSeed, chance, FocalDecayConfig.WILD_CHANCE.get(), periodIndex,
+        return resolveInternal(source, pos, worldSeed, chance, FocalDecayConfig.WILD_CHANCE.get(),
+                FocalDecayConfig.GUIDE_UP_TIER_CHANCE.get(), periodIndex,
                 index, bias, protection, birthPeriod);
     }
 
@@ -100,12 +102,23 @@ public final class MutationHelper {
                                      long periodIndex, MutationIndex index, GuidedBias bias,
                                      Protection protection, long birthPeriod) {
         return resolveInternal(source, pos, settings.worldSeed(), settings.blockChance(stage),
-                settings.wildChance(), periodIndex, index, bias, protection, birthPeriod);
+                settings.wildChance(), settings.upTierChance(), periodIndex, index, bias, protection, birthPeriod);
     }
 
+    /**
+     * 解析主循环（两端的唯一实现）。
+     * <p>
+     * <b>tier 护栏</b>（2026-09-28，{@code DESIGN.md} §13.9）：命中之后还要过一道"只降不升"的判定，
+     * 越级的目标按<b>未命中</b>处理（继续回扫），因此累积语义不变。上限在进循环前算一次——
+     * 它只依赖源方块、位置、种子与周期，与回扫到第几步无关。
+     * <p>
+     * 唯一的升档例外是引导/催化下的 {@code upTierChance}，骰子走<b>独立随机流</b>，
+     * 所以打开/关闭护栏不会扰动"抽哪个目标"这条主流（见 {@link Tiers#UP_TIER_SALT}）。
+     */
     private static BlockState resolveInternal(BlockState source, BlockPos pos, long worldSeed, double chance,
-                                              double wildChance, long periodIndex, MutationIndex index,
-                                              GuidedBias bias, Protection protection, long birthPeriod) {
+                                              double wildChance, double upTierChance, long periodIndex,
+                                              MutationIndex index, GuidedBias bias, Protection protection,
+                                              long birthPeriod) {
         if (protection.hard() || chance <= 0.0 || index == null || index.isEmpty()) {
             return source;
         }
@@ -145,6 +158,12 @@ public final class MutationHelper {
         double softChance = protection.softChance();
         boolean biased = bias != null && bias.active(shapeClass);
         int conceptCount = biased ? bias.pool().count(shapeClass) : 0;
+        // tier 护栏的上限：只降不升，加上"引导下有小概率跨一级"。A/B 开关打开时直接放开，
+        // 于是除护栏之外的行为与改动前逐位相同（骰子走独立流，不消耗主流）。
+        int maxTargetTier = Tiers.gateDisabled()
+                ? Tiers.MAX_TIER
+                : Tiers.maxTargetTier(index.tier(sourceBlock),
+                        biased && rollUpTier(pos, worldSeed, periodIndex, upTierChance));
 
         long span = periodIndex - fromPeriod + 1;
         int cap = (int) Math.min(span, CUMULATIVE_SCAN_CAP);
@@ -191,10 +210,29 @@ public final class MutationHelper {
             } else {
                 target = wild.get(shapeClass, MutationRandom.nextInt(state, wildCount));
             }
+            // tier 护栏：越级的目标不算命中，继续回扫（等价于"这个周期没有合法目标"）。
+            if (index.tier(target) > maxTargetTier) {
+                continue;
+            }
             // 抽到自己也是合法结果（自环），与原实现的"抽中即定格"语义一致，不再重抽。
             return MutationStateMapper.get().map(source, target);
         }
         return source;
+    }
+
+    /**
+     * "引导下跨一级"的骰子（纯函数）。
+     * <p>
+     * 用 {@link Tiers#UP_TIER_SALT} 异或种子开一条<b>独立</b>随机流：主流的每一步都决定目标选取，
+     * 若跨级判定也从主流取一步，那么"打开 tier 护栏"会连带改变所有已存在世界的方块外观，
+     * A/B 也就无法把护栏本身与随机流位移分开。
+     */
+    private static boolean rollUpTier(BlockPos pos, long worldSeed, long periodIndex, double chance) {
+        if (chance <= 0.0) {
+            return false;
+        }
+        long state = MutationRandom.seed(pos, worldSeed ^ Tiers.UP_TIER_SALT, periodIndex);
+        return MutationRandom.toDouble(MutationRandom.next(state)) < chance;
     }
 
     /** SplitMix64 雪崩混合（保留旧入口，王座结构与 tools/structuregen/ThronePos.java 依赖它）。 */

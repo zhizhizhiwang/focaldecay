@@ -4,6 +4,7 @@ import com.zhizhiwang.focal_decay.FocalDecay;
 import com.zhizhiwang.focal_decay.block.ModBlocks;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.data.PackOutput;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -44,6 +45,7 @@ public class ModBlockTagsProvider extends BlockTagsProvider {
         shapePools();
         colorPools();
         concepts();
+        tiers();
     }
 
     /** 玻璃板没有原版"panes"标签，只能列清单；形态类与池共用这份清单。 */
@@ -535,5 +537,65 @@ public class ModBlockTagsProvider extends BlockTagsProvider {
         tag(ModTags.Blocks.CONCEPT_WOOL)
                 .addTag(BlockTags.WOOL)
                 .addTag(BlockTags.WOOL_CARPETS);
+    }
+
+    // ------------------------------------------------------------------
+    // tier（获得门槛）
+    // ------------------------------------------------------------------
+
+    /** 16 个染料颜色名（与 {@code c:dyed/<色>} 一致）。 */
+    private static final String[] DYE_COLORS = {
+            "white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray",
+            "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"
+    };
+
+    /**
+     * tier 覆盖（2026-09-28，{@code DESIGN.md} §13.9；方案见
+     * {@code docs/REVIEW-gameplay-spine.md} §3.3）。
+     * <p>
+     * 只有这几类需要手写，其余全部由 {@link com.zhizhiwang.focal_decay.mutation.pool.Tiers}
+     * 从"原版工具门槛 + 压缩形态 +1"推出。手写的判据只有一个：
+     * <b>工具门槛表达不了"获得它的文明门槛"的那些方块</b>。
+     * <ul>
+     *   <li><b>T1 · 要出门或要养东西</b>：染色方块（{@code c:dyed/*}，染料来自花/仙人掌/墨囊）、
+     *       陶瓦（含未染色那条，只在恶地生成）、羊毛与地毯（要养羊）、
+     *       黑曜石一族（水 + 岩浆就能刷，按工具门槛是 T3，虚高）。</li>
+     *   <li><b>T2/T3 · 挖着容易、得到很难的合成品</b>：铁砧（31 个铁）、末影箱、附魔台、
+     *       磁石（要下界合金锭）、信标（要下界之星）、潮涌核心、龙蛋。
+     *       原版<b>没有任何标签</b>能表达"获得门槛高但挖它不要镐子"，所以只能手写。</li>
+     * </ul>
+     * <b>刻意不覆盖的两类</b>：
+     * <ul>
+     *   <li><b>铜装饰留在 T1</b>：它确实只需要石镐，而"有铜之后就是纯装饰料"只是观感问题，
+     *       不是"提前拿到后期物品"。给它单独降级会与"装饰方块不要全放 T0"的取向相反。</li>
+     *   <li><b>下界 / 末地材料维持 T0</b>：那里的画风由<b>维度池</b>保证
+     *       （{@code poolForDimension}），不需要 tier 再管一遍。</li>
+     * </ul>
+     */
+    private void tiers() {
+        var tier1 = tag(ModTags.Blocks.tierOverride(1));
+        for (String color : DYE_COLORS) {
+            // 跨命名空间的通用标签必须用 addOptionalTag：写成必需引用时，
+            // 缺它的数据包会让整个标签加载失败。
+            tier1.addOptionalTag(ResourceLocation.fromNamespaceAndPath("c", "dyed/" + color));
+        }
+        tier1.addTag(BlockTags.TERRACOTTA)
+                .addTag(BlockTags.WOOL)
+                .addTag(BlockTags.WOOL_CARPETS)
+                .add(Blocks.OBSIDIAN, Blocks.CRYING_OBSIDIAN, Blocks.RESPAWN_ANCHOR);
+
+        tag(ModTags.Blocks.tierOverride(2))
+                .add(Blocks.ANVIL, Blocks.CHIPPED_ANVIL, Blocks.DAMAGED_ANVIL,
+                        Blocks.ENDER_CHEST, Blocks.ENCHANTING_TABLE, Blocks.BELL);
+
+        tag(ModTags.Blocks.tierOverride(3))
+                .add(Blocks.BEACON, Blocks.CONDUIT, Blocks.DRAGON_EGG, Blocks.LODESTONE);
+
+        // 压缩形态的补充：NeoForge 的 c:storage_blocks/* 没有覆盖到石英族与紫水晶块。
+        // 其余"4~9 倍压缩"的廉价材料（雪块/瓜/干海带之类）刻意不列——它们不构成
+        // "提前拿到后期物品"，而 tier 表越短越容易被复核。
+        tag(ModTags.Blocks.COMPRESSED_EXTRA)
+                .add(Blocks.QUARTZ_BLOCK, Blocks.SMOOTH_QUARTZ, Blocks.QUARTZ_BRICKS,
+                        Blocks.QUARTZ_PILLAR, Blocks.CHISELED_QUARTZ_BLOCK, Blocks.AMETHYST_BLOCK);
     }
 }

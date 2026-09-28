@@ -24,7 +24,7 @@ public final class ModNetwork {
      * 而"客户端发一个服务端不认识的包"是很差的失败方式（连接挂了但原因埋在日志里）。
      * 1 → 2：新增 C→S 的 {@link RequestRegionDataPacket}（BACKLOG P0-5）。
      */
-    public static final String PROTOCOL_VERSION = "2";
+    public static final String PROTOCOL_VERSION = "3";
 
     private ModNetwork() {
     }

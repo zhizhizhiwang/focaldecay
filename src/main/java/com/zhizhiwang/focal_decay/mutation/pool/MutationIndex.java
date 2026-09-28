@@ -45,6 +45,11 @@ public final class MutationIndex {
     private final ClassifiedPool wild;
     private final Block[][] local;
     private final boolean[] source;
+    /**
+     * tier（获得门槛），按注册表 id 索引（2026-09-28）。构建期由 {@link Tiers} 摊平，
+     * 运行时只做一次 {@code byte[]} 读——护栏在"命中之后"，所以这条读比形态类那条冷得多。
+     */
+    private final byte[] tier;
     private final Set<Block> immune;
     private final List<String> poolTagIds;
     /** 动态标签池（引导模型的概念标签等）的惰性缓存；只在模型装载/换模时访问，不在扫描热路径上。 */
@@ -56,11 +61,12 @@ public final class MutationIndex {
     private volatile Item[] itemPool;
 
     MutationIndex(ShapeClasses shapeClasses, ClassifiedPool wild, Block[][] local, boolean[] source,
-                  Set<Block> immune, List<String> poolTagIds) {
+                  byte[] tier, Set<Block> immune, List<String> poolTagIds) {
         this.shapeClasses = shapeClasses;
         this.wild = wild;
         this.local = local;
         this.source = source;
+        this.tier = tier;
         this.immune = immune;
         this.poolTagIds = List.copyOf(poolTagIds);
     }
@@ -69,7 +75,7 @@ public final class MutationIndex {
     public static MutationIndex empty() {
         ShapeClasses shapeClasses = ShapeClasses.empty();
         return new MutationIndex(shapeClasses, ClassifiedPool.empty("", shapeClasses),
-                new Block[0][], new boolean[0], Set.of(), List.of());
+                new Block[0][], new boolean[0], new byte[0], Set.of(), List.of());
     }
 
     public ShapeClasses shapeClasses() {
@@ -120,6 +126,20 @@ public final class MutationIndex {
     public boolean isSource(Block block) {
         int id = BuiltInRegistries.BLOCK.getId(block);
         return id >= 0 && id < source.length && source[id];
+    }
+
+    /**
+     * tier（获得门槛）：0 最低，{@link Tiers#MAX_TIER} = 压缩形态。
+     * 未知/越界一律回 0——那种方块不会是源（{@link #isSource} 为假），也就进不了护栏判定。
+     */
+    public int tier(Block block) {
+        int id = BuiltInRegistries.BLOCK.getId(block);
+        return id >= 0 && id < tier.length ? tier[id] : 0;
+    }
+
+    /** 各档成员数的一行摘要（诊断/自测用，非热路径）。 */
+    public String tierHistogram() {
+        return Tiers.histogram(tier);
     }
 
     /** 永久豁免集合（{@code mutation_immune}）：既不做源也不做目标。 */

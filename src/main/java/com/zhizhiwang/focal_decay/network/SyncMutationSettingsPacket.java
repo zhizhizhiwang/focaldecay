@@ -34,7 +34,7 @@ public record SyncMutationSettingsPacket(MutationSettings settings) implements C
     public static final Type<SyncMutationSettingsPacket> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "sync_mutation_settings"));
 
-    // 12 个分量超过 StreamCodec.composite 的重载上限，手写编解码（与 SyncRegionDataPacket 同一做法）
+    // 13 个分量超过 StreamCodec.composite 的重载上限，手写编解码（与 SyncRegionDataPacket 同一做法）
     public static final StreamCodec<FriendlyByteBuf, SyncMutationSettingsPacket> STREAM_CODEC = StreamCodec.of(
             SyncMutationSettingsPacket::encode, SyncMutationSettingsPacket::new);
 
@@ -51,7 +51,8 @@ public record SyncMutationSettingsPacket(MutationSettings settings) implements C
                 buf.readDouble(),
                 buf.readDouble(),
                 buf.readBoolean(),
-                buf.readBoolean()));
+                buf.readBoolean(),
+                buf.readDouble()));
     }
 
     private static void encode(FriendlyByteBuf buf, SyncMutationSettingsPacket packet) {
@@ -68,6 +69,7 @@ public record SyncMutationSettingsPacket(MutationSettings settings) implements C
         buf.writeDouble(s.semanticLockStage3());
         buf.writeBoolean(s.guidedStage3Halve());
         buf.writeBoolean(s.wildAutoInclude());
+        buf.writeDouble(s.upTierChance());
     }
 
     @Override
