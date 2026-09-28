@@ -205,11 +205,13 @@ INNER_EOF
 > 必须逐行确认：
 > ```bash
 > ALSOFT_DRIVERS=null ./gradlew.bat runClient -Dmixin.debug.verbose=true
-> grep -c "Preparing focal_decay.mixins.json" run/logs/debug.log        # 期望 1（=9 个，0 错误）
+> grep -c "Preparing focal_decay.mixins.json" run/logs/debug.log        # 期望 1（配置只加载一次）
 > grep -oE "Mixing [A-Za-z.]+ from focal_decay.mixins.json into [A-Za-z.$]+" run/logs/debug.log
 > ```
-> 注意**进世界之前只看得到 6 个**：`MultiPlayerGameModeMixin` / `SectionCompilerMixin` /
-> `RenderChunkRegionAccessor` 的目标类要进世界才加载。完整的已验证清单与判读见
+> **进世界之后应当数到 12 条 `Mixing`**（3 个 common + 9 个 client，2026-09-28 实测全中）。
+> 注意 `MultiPlayerGameModeMixin` / `SectionCompilerMixin` / `RenderChunkRegionAccessor`
+> 的目标类要进世界才加载，所以**进世界之前只数得到 9 条**。
+> 完整的已验证清单与判读见
 > [`docs/VERIFY-device-matrix.md`](docs/VERIFY-device-matrix.md) §9。
 
 跑 `selftest` 时**不要只看有没有 FAIL 行**：还要确认每一段的输出都在
@@ -337,7 +339,7 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 | 为什么当初这么设计 | `DESIGN.md` 各章的"为什么"段落 + 进度里对应的根因分析 |
 | 某个注册名 / 标识符 | [`docs/PITFALLS.md`](docs/PITFALLS.md) §11 |
 | 还没定案的设计问题 | [`docs/DESIGN.md`](docs/DESIGN.md) §14 |
-| 待拍板的方案评审 | 暂无（`REVIEW-break-path.md` 已拍板并实施，保留为决策记录） |
+| 待拍板的方案评审 | [`docs/REVIEW-gameplay-spine.md`](docs/REVIEW-gameplay-spine.md)（玩法主轴：定向失焦，2026-09-28 开启，**§4 的 7 个点待拍板**）；已拍板保留的记录：[`docs/REVIEW-break-path.md`](docs/REVIEW-break-path.md) |
 | **实机要验什么、怎么验** | [`docs/VERIFY-device-matrix.md`](docs/VERIFY-device-matrix.md)（每项含步骤 / 期望 / 观测点 / 判定，文末有结果登记表） |
 | A/B 回归开关 | [`AGENTS.md`](#4-验证清单改完必须过) §4 末尾（`-Dfocaldecay.abOldBreakPipeline=true`） |
 | 客户端诊断读数 | `/focaldecay clientstats`（扫描成本、幽灵条目、负缓存、队列深度） |
@@ -353,6 +355,6 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 客户端观测性已补齐（`/focaldecay clientstats`）。
 剩余未验：§4.4（2 小时挂机，只做了 30 分钟）。
 剩余：`P0-1` 锚固化（等 §14.1 拍板）、`P1-1b` 实体突变范围过滤、`P1-2`（拍板）、
-`P1-5`（观测性已就绪，优化未做）、`P1-7`，以及 `P1-3` 的余项。
+`P1-5`（增量队列已做；2026-09-28 实测**推翻了它的验收前提**，见 §S）、`P1-7`，以及 `P1-3` 的余项。
 **`P1-6` 的 16 个子项已全部处理完**（14 项修复 + 2 项作者拍板保留现状）。
-玩法上最大的缺口是"观察没有产出"（详见 `DESIGN.md` §14.6）。
+玩法上最大的缺口是"观察没有产出"（详见 `DESIGN.md` §14.6）。方向已进入评审：见 [`docs/REVIEW-gameplay-spine.md`](docs/REVIEW-gameplay-spine.md)（BACKLOG `P2-7`，2026-09-28 开启）。
