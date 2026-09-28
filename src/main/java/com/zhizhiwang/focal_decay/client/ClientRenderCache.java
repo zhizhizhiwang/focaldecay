@@ -176,6 +176,18 @@ public final class ClientRenderCache {
     private final LongAdder scanResolves = new LongAdder();
     /** {@code scanSection} 的累计墙钟时间（纳秒）。 */
     private final LongAdder scanNanos = new LongAdder();
+    /**
+     * 扫描队列为空的 tick 数（<b>P1-5</b> 的核心证据）。
+     * <p>
+     * 旧实现下这个数**恒为 0**：队列一空就整体重建，扫描器从不空闲。
+     * 现在它应当占据大部分 tick——静止不动时接近 100%，走动时随"新看到的体积"下降。
+     * 这是"优化真的生效了"唯一可观测的判据（每 tick 的 {@code scanNanos} 看不出这件事）。
+     */
+    private final LongAdder idleTicks = new LongAdder();
+    /** 因为"新进入视野"而入队的节数（P1-5：走动的代价应当与它成正比，而不是与总视野）。 */
+    private final LongAdder sectionsAdded = new LongAdder();
+    /** 因为"真实方块变了"而入队的节数（P1-5 的正确性来源，见 {@link #onBlockChanged}）。 */
+    private final LongAdder sectionsRescanned = new LongAdder();
 
     /** SectionPos.asLong()：当前存在幽灵方块的节。 */
     private final Set<Long> activeSections = ConcurrentHashMap.newKeySet();
@@ -183,6 +195,46 @@ public final class ClientRenderCache {
     private final ConcurrentHashMap<Long, Integer> sectionCounts = new ConcurrentHashMap<>();
     /** 待扫描节队列（按到玩家距离升序）。 */
     private final Queue<Long> pendingSections = new ArrayDeque<>();
+    /**
+     * 已经排进过队列的节（<b>P1-5</b>）。
+     * <p>
+     * 这张表是"扫描器不要重复劳动"的关键：队列排空之后不再整体重建，
+     * 而是只把<b>新进入视野</b>的节补进来。判断"新"就靠这个集合。
+     * <p>
+     * 与 {@link #pendingSections} 一起在 {@code clearCache()} 里清空
+     * （那时所有幽灵都作废，必须重新扫一遍）。
+     */
+    private final Set<Long> queuedSections = ConcurrentHashMap.newKeySet();
+    /**
+     * 需要重新扫描的节：它们里面的<b>真实方块变了</b>（别的玩家挖/放、爆炸、流体）。
+     * <p>
+     * 为什么必须有它：幽灵是"真实方块的函数"，而真实方块的变化只有两种到达方式——
+     * ① 玩家自己挖/放（走 {@code InteractionHandler}，那两边都会处理）；
+     * ② <b>别人</b>改的、或爆炸/流体改的，客户端只会在 {@code ClientLevel#setBlock} 里看到。
+     * 没有这条通知，一个已经扫描过的节里新出现的候选方块就<b>永远不会</b>被扫到，
+     * 表现为"别人放了块玻璃在我旁边，但幽灵没更新"——所以{@code AccessibilityChangeMixin}
+     * 把 {@code setBlock} 接到这里。
+     * <p>
+     * 与 {@link #queuedSections} 的区别：那张是"已经排过队"，这张是"需要再排一次"。
+     */
+    private final Set<Long> rescansNeeded = ConcurrentHashMap.newKeySet();
+    /**
+     * 本轮 {@link #addVisibleSections} 枚举到的节（<b>P1-5</b>）。
+     * <p>
+     * 存在的唯一理由：发现"上一轮在视野内、这一轮不在了"的节，并把它们从
+     * {@link #queuedSections} 里<b>忘掉</b>。为什么必须忘：
+     * <blockquote>
+     * 区块离开视野后会被卸载。它重新加载时内容<b>可能已经变了</b>（服务端在这期间改过、
+     * 或者干脆是别的存档内容）。如果 {@code queuedSections} 还记着"这一节扫过了"，
+     * 它就<b>永远不会</b>被重新扫描 —— 表现为"走远再回来，那一带的幽灵没了"。
+     * </blockquote>
+     * 这正是"用一张永久记账代替每次重扫"这类优化最容易漏的地方：
+     * <b>记账的有效期必须覆盖所有让它失效的事件，而"卸载/重载"是其中之一。</b>
+     * <p>
+     * 只在主线程读写（{@code addVisibleSections} 由 {@code scanSurfaces} 调用），
+     * 用普通 {@code HashSet} 即可。
+     */
+    private final Set<Long> visibleLastPass = new HashSet<>();
     /** 各维度的保护区域镜像（由 SyncRegionData/Prototype/BirthPeriod 三个包共同维护）。 */
     private final ClientRegionData regions = new ClientRegionData();
 
@@ -518,7 +570,21 @@ public final class ClientRenderCache {
      */
     public record ScanStats(long sections, long positions, long resolves, long cpuNanos,
                             int ghostEntries, int ghostSections, int cachedDecisions,
-                            int queuedSections, long staleInvalidations) {
+                            int queuedSections, long staleInvalidations,
+                            long idleTicks, long sectionsAdded, long sectionsRescanned) {
+
+        /**
+         * 扫描器空闲的 tick 占比（0~1）。
+         * <p>
+         * <b>这是 P1-5 的验收数字</b>：优化前恒为 0（队列一空就整体重建），
+         * 优化后静止时应当接近 1。分母用"有幽灵的 tick"近似（{@code sections > 0} 自上次 reset 起），
+         * 所以它是个粗指标——但它要回答的问题很粗："到底闲下来了没有"。
+         */
+        public double idleShare() {
+            long busy = sections;                 // 每个被扫描的节 ≈ 一个 tick 的工作
+            long total = busy + idleTicks;
+            return total == 0 ? 0.0 : (double) idleTicks / total;
+        }
 
         /** 平均每个位置的 CPU 纳秒。−1 表示量不到。 */
         public double nanosPerPosition() {
@@ -534,7 +600,8 @@ public final class ClientRenderCache {
     public ScanStats scanStats() {
         return new ScanStats(scanSections.sum(), scanPositions.sum(), scanResolves.sum(),
                 scanNanos.sum(), targetCache.size(), activeSections.size(), evaluated.size(),
-                pendingSections.size(), staleInvalidations.sum());
+                pendingSections.size(), staleInvalidations.sum(),
+                idleTicks.sum(), sectionsAdded.sum(), sectionsRescanned.sum());
     }
 
     /** 清掉扫描埋点（不动缓存本身）：让"调完设置后重新量一段"有意义。 */
@@ -543,6 +610,9 @@ public final class ClientRenderCache {
         scanPositions.reset();
         scanResolves.reset();
         scanNanos.reset();
+        idleTicks.reset();
+        sectionsAdded.reset();
+        sectionsRescanned.reset();
     }
 
     /**
@@ -761,23 +831,85 @@ public final class ClientRenderCache {
         if (mc.player == null) {
             return;
         }
+        // ⚠️ P1-5（2026-09-26）：这里**不再**"队列空了就整体重建"。
+        //
+        // 旧行为是 pendingSections 一空就 rebuildScanQueue（把视野内约 500 个节全部重新排队），
+        // 于是扫描器**从不空闲**：实测 8 视距下约 2.11M 位置/秒、连续运行，
+        // 而其中绝大多数格子与上一次扫描相比什么都没变。实测判读见
+        // VERIFY-device-matrix.md §4.6，设计背景见 BACKLOG P1-5。
+        //
+        // 现在的分工：
+        //   - **新进入视野**的节由 addVisibleSections 增量补入（每 tick 都调，很便宜：
+        //     它只做 17×17 列 × 13 层的坐标枚举与集合查询，不做任何方块读取）；
+        //   - **真实方块变过**的节由 rescansNeeded 补入（setBlock 通知）；
+        //   - 其余情况扫描器**空闲**——那正是省下来的部分。
+        BlockPos center = mc.player.blockPosition();
+        addVisibleSections(level, center);
+
+        // 把"需要重扫"的节并进队列。先移除再入队：这样即使它已经在队列里也不会重复。
+        if (!rescansNeeded.isEmpty()) {
+            for (long key : rescansNeeded) {
+                if (queuedSections.add(key)) {
+                    pendingSections.add(key);
+                    sectionsRescanned.increment();
+                }
+            }
+            rescansNeeded.clear();
+        }
+
         if (pendingSections.isEmpty()) {
-            rebuildScanQueue(level, mc.player.blockPosition());
+            // 空闲：本 tick 没有任何需要（重）扫的节。旧实现永远走不到这里。
+            idleTicks.increment();
+            return;
         }
         int budget = SCAN_SECTION_BUDGET;
         while (budget-- > 0 && !pendingSections.isEmpty()) {
             long sectionKey = pendingSections.poll();
+            queuedSections.remove(sectionKey);
             if (scanSection(level, sectionKey, settings)) {
                 markSectionDirty(SectionPos.of(sectionKey));
             }
         }
     }
 
+    /**
+     * 某个节里的真实方块变了（{@code ClientLevel#setBlock} 的通知口，见 P1-5）。
+     * <p>
+     * 只记"这个节需要重扫"，不做任何方块读取或缓存修改——它可能从网络线程被调用，
+     * 而这个集合是并发的，{@code scanSurfaces} 会在主线程上把它并进队列。
+     * <p>
+     * <b>不在这里立刻丢弃缓存条目</b>：那条路要改 {@code targetCache}/活跃节计数，
+     * 需要 {@code sectionLock}，而且会与编译线程抢锁。让扫描器处理更简单也更安全
+     * （扫描器本来就会用 {@code entry.real != real} 把过期条目丢掉）。
+     */
+    public void onBlockChanged(BlockPos pos) {
+        rescansNeeded.add(SectionPos.asLong(pos));
+    }
+
     /** 重建扫描队列：加载范围内、视锥可见、非空区块节，按距离升序。 */
-    private void rebuildScanQueue(ClientLevel level, BlockPos center) {
-        pendingSections.clear();
+    /**
+     * 把<b>新进入视野</b>的节补进扫描队列（<b>P1-5</b>：增量，不重建）。
+     * <p>
+     * 旧实现是 {@code rebuildScanQueue}：{@code pendingSections.clear()} 之后把视野内所有节
+     * 重新排一遍。它每 ~2 秒发生一次（队列被排空的速度），于是扫描器从不空闲。
+     * 现在改成增量：
+     * <ul>
+     *   <li>已经从队列出去过的节用 {@link #queuedSections} 记住，<b>不再重复入队</b>
+     *       ——它的幽灵仍然有效（有效期的输入没变），重扫它是纯浪费；</li>
+     *   <li>真正需要重扫的节走 {@link #rescansNeeded}（真实方块变了）与
+     *       {@code clearCache()}（有效期输入变了）；</li>
+     *   <li>相机移动只会让<b>新</b>的一圈节进来，于是每次移动的代价与"新看到的体积"成正比，
+     *       而不是与"总视野"成正比。</li>
+     * </ul>
+     * <b>这个函数每 tick 都跑</b>，所以它必须便宜：只做坐标枚举与集合查询，
+     * 唯一的方块侧调用是 {@code chunk.getSections()} 与 {@code hasOnlyAir()}。
+     * 那比"每格读一次方块状态再判候选"便宜三四个数量级。
+     */
+    private void addVisibleSections(ClientLevel level, BlockPos center) {
         Frustum f = frustum;
         SectionPos centerSection = SectionPos.of(center);
+        // 本轮枚举到的节。与上一轮比较，差集 = "离开了视野"的节（见 visibleLastPass 的说明）。
+        Set<Long> visibleNow = new HashSet<>();
         int radius = Math.min(
                 Math.max(2, FocalDecayConfig.MAX_RENDER_DISTANCE.get()),
                 MAX_SCAN_CHUNK_RADIUS
@@ -809,17 +941,40 @@ public final class ClientRenderCache {
                     ))) {
                         continue;
                     }
+                    long key = sec.asLong();
+                    visibleNow.add(key);
+                    if (queuedSections.contains(key)) {
+                        continue; // 已经排过队且仍然有效（见方法注释）：不重复入队
+                    }
                     long ddx = sec.x() - centerSection.x();
                     long ddy = sec.y() - centerSection.y();
                     long ddz = sec.z() - centerSection.z();
-                    entries.add(new long[]{sec.asLong(), ddx * ddx + ddy * ddy + ddz * ddz});
+                    entries.add(new long[]{key, ddx * ddx + ddy * ddy + ddz * ddz});
                 }
             }
         }
+        // 新增的节按"到玩家的距离"升序排：近距离的先扫，玩家的观感更好。
+        // 已经排过的节不参与这次排序（它们在队列里的相对顺序保持原样），
+        // 所以这里只排"这一轮新看到的那一圈"——数量很小，排序代价可以忽略。
         entries.sort(Comparator.comparingLong(e -> e[1]));
         for (long[] entry : entries) {
-            pendingSections.add(entry[0]);
+            if (queuedSections.add(entry[0])) {
+                pendingSections.add(entry[0]);
+                sectionsAdded.increment();
+            }
         }
+
+        // 忘掉已经离开视野的节。下一轮它们若重新进入视野（区块重载），会被当作"新节"重新排队
+        // ——那一节的内容在卸载期间可能已经变了，必须重扫。见 visibleLastPass 的说明。
+        if (!visibleLastPass.isEmpty()) {
+            for (long key : visibleLastPass) {
+                if (!visibleNow.contains(key)) {
+                    queuedSections.remove(key);
+                }
+            }
+        }
+        visibleLastPass.clear();
+        visibleLastPass.addAll(visibleNow);
     }
 
     /** 扫描一个区块节：只保留暴露面候选方块的目标缓存，返回是否有变化（需要重编译）。 */
@@ -1120,6 +1275,15 @@ public final class ClientRenderCache {
             evaluated.clear();
             activeSections.clear();
             sectionCounts.clear();
+            // ⚠️ P1-5：队列也必须一起重置。
+            // 这些调用点的语义是"所有幽灵都作废"（周期边界 / 标签变化 / 快照变化 / 换维度），
+            // 而 queuedSections 记的是"已经扫过且有效"——作废之后那个前提不成立了，
+            // 所以必须忘记它，让下一轮把整个视野重新排一遍（这是**正确性**要求，不是优化）。
+            // pendingSections 也清掉：里面排着的节即将被重新加入，留着会重复。
+            pendingSections.clear();
+            queuedSections.clear();
+            rescansNeeded.clear();
+            visibleLastPass.clear(); // 同上：作废之后"上一轮视野"这个参照也失效了
         }
     }
 

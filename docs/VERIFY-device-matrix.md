@@ -480,9 +480,22 @@ ALSOFT_DRIVERS=null ./gradlew.bat runClientSecond
 >    所以 8 视距下掉帧是可以预期的。
 >
 > **结论与下一步**：`P1-5` 的优化方向现在明确了——**让扫描器在"没有变化"时停下来**，
-> 而不是去优化每位置的成本（那个已经很好，473 ns）。具体做法（草稿）：
-> 给区块节加一个"自上次扫描以来有没有变化"的标记，只重扫脏节；
-> 相机移动跨区块时按增量加入新节，而不是整体重建队列。
+> 而不是去优化每位置的成本（那个已经很好，473 ns）。
+>
+> **2026-09-26 已按这个方向实现**（事件驱动的增量队列，经过见 `progress/2026Q4.md` §S）。
+> 验收命令：
+> ```bash
+> /focaldecay clientstats reset     # 归零，然后静止不动 30 秒
+> /focaldecay clientstats
+> ```
+> 看第三行 `[clientstats] P1-5 idleShare=… idleTicks=… addedByView=… rescannedByBlockChange=…`：
+> - **优化前 `idleShare` 恒为 0**（队列一空就整体重建，扫描器从不空闲）；
+> - 优化后**静止时应当接近 1.0**；走动时下降（那是 `addedByView` 在涨，属正常）；
+> - 别人放/挖方块时 `rescannedByBlockChange` 应当 +1（那是正确性来源，见下）。
+>
+> **另外必须验的一条（新增）**：走远到能把某片区域卸载、再走回来 →
+> 那一带的幽灵应当**正常重新出现**。这条守的是"用一张永久记账代替每次重扫"最容易漏的地方：
+> 卸载/重载会让记账失效（详见 `ClientRenderCache#visibleLastPass` 的说明）。
 
 ### 4.6 附：怎么复现这两个读数
 

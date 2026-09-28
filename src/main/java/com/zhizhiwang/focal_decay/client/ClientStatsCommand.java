@@ -86,6 +86,11 @@ public final class ClientStatsCommand {
                                 + " queuedSections=%d staleMidPeriod=%d",
                         stats.ghostEntries(), stats.ghostSections(), stats.cachedDecisions(),
                         stats.queuedSections(), stats.staleInvalidations()),
+                // P1-5 的验收行：优化前 idleShare 恒为 0（队列一空就整体重建）。
+                String.format(
+                        "[clientstats] P1-5 idleShare=%.2f idleTicks=%d addedByView=%d rescannedByBlockChange=%d",
+                        stats.idleShare(), stats.idleTicks(), stats.sectionsAdded(),
+                        stats.sectionsRescanned()),
         };
     }
 
