@@ -941,8 +941,11 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
 
 - **tier 的语义 = 获得它的文明门槛**，默认取原版 `needs_*_tool`
   （T0 无门槛 / T1 `needs_stone_tool` / T2 `needs_iron_tool` / T3 `needs_diamond_tool`），
-  另加**覆盖标签**修代理失真的地方。实测的失真清单见评审文档 §3.1
-  （`needs_stone_tool` 的 84 条里有 **76 条是廉价铜装饰**；`beacon` 不在任何 `needs_*_tool` 里）。
+  另加**覆盖标签**修代理失真的地方。需要人维护的只有**四条**（完整名单见评审文档 §3.3）：
+  ① 铜装饰 76 条降到 T0；② 染色装饰 / 陶瓦 / 羊毛提到 T1；③ 黑曜石那一类降到 T1；
+  ④ 信标这类"挖着容易、得到很难"的合成品提到 T2/T3（原版**没有**能表达这件事的标签）。
+  实测依据：`needs_stone_tool` 的 84 条里有 **76 条是廉价铜装饰**，
+  而 `beacon` 在三个 `needs_*_tool` 里**命中 0 次**。其余各层全部由现成标签推出。
 - **自然失焦只降不升**：`tier(target) ≤ tier(source)`。于是失焦**永远不产矿**，
   而矿脉会自己烂掉（钻石矿 → 金矿）——这既是新的恐怖来源，也让**语义锁定第一次有了非抽象的用途**。
 - **唯一的小概率例外**：引导 / 催化下**有 10% 的概率跨一级**（配置项 `guide_up_tier_chance`，默认 `0.1`），
