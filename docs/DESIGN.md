@@ -958,6 +958,11 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
   羊毛与地毯（羊 + 剪刀）全部提到 T1；**玻璃留在 T0**（沙 + 熔炉，不需要出门）。
   标签清单与实测见评审文档 §3.2。
 - **概念不拆**：`focal_decay:concept/ore` 保持统一，tier 过滤在**解析时按源**施加（"概念按源分层"）。
+- **下界 / 末地不按 tier 处理**（2026-09-28 定案）：氛围由**维度池**承担，而这条**已经实现**——
+  `ModTags.Blocks.poolForDimension` 让下界与末地各自换掉整个大池
+  （`wild_nether` 45 条全是下界方块 / `wild_end` 6 条全是末地物），语义邻域也另有
+  `mutation_pool/nether` 与 `mutation_pool/end`；**主世界不管**。
+  实测与判读见评审文档 §3.4（那里同时记着 `end_stone` 只可能经**引导路径**进入主世界）。
 
 ### 13.10 知识 → 能力
 
@@ -1101,6 +1106,7 @@ visible(pos) = protection.hard() ? anchored(pos, anchorPeriod) : resolve(...)
 | **沉降仪式** | 消耗**一个训练好的模型**，在半径 R 内生成一球该概念的方块（对标血魔法的坠星仪式）。重聚焦后仍可做，代价增加 |
 | **火种** | 点燃催化域的专用道具（§13.8；具体形态待定，见 `REVIEW-gameplay-spine.md` P-6） |
 | **tier（获得门槛）** | "要多少文明才能拿到它"，默认取原版 `needs_*_tool`，由覆盖标签修正。自然失焦**只降不升**（§13.9） |
+| **维度池** | 大池与语义邻域都按维度分开（`poolForDimension` → `wild_nether` / `wild_end`）。下界与末地的失焦因此只产本维度方块，氛围不靠 tier 维持（§13.9） |
 | **概念按源分层** | 概念保持统一，但被 tier 规则按**源方块**过滤（石头 + `ore` 概念 ⇒ 池里只剩 T0 成员） |
 | **概念漂移（R3）** | 阶段 3 起引导池按 `drift = 0.5 × t²` 混入邻近概念：模型没变弱，是它的词被重新解释了（§14.3） |
 | **词汇表** | R1 的说法：玩家能说的概念只能来自他收集过的样本。**没有菜单，只有词汇表** |
