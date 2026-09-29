@@ -21,6 +21,17 @@ public final class ModItems {
             ITEMS.registerSimpleBlockItem("observer_core", ModBlocks.OBSERVER_CORE);
     public static final DeferredItem<BlockItem> THRONE_BLOCK =
             ITEMS.registerSimpleBlockItem("throne_block", ModBlocks.THRONE_BLOCK);
+    public static final DeferredItem<BlockItem> SEMANTIC_CATALYST =
+            ITEMS.registerSimpleBlockItem("semantic_catalyst", ModBlocks.SEMANTIC_CATALYST);
+
+    /**
+     * 火种：点在催化剂上，把一片区域的失焦从概率变成必然。
+     * <p>
+     * 代价取<b>耐久</b>而不是某种新资源：耐久是玩家已经会读的一条信息，
+     * 不需要为它再解释一套数值（设计里写的是"消耗耐久或充能"，这里取前者）。
+     */
+    public static final DeferredItem<Item> IGNITER =
+            ITEMS.register("igniter", () -> new Item(new Item.Properties().durability(64)));
 
     // 观测模型。
     // ⚠️ 每一件都必须在注册时带上默认 ObserverModelData：创造栏/JEI/`/give` 拿到的物品不会经过

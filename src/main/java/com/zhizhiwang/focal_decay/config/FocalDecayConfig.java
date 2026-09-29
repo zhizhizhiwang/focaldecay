@@ -37,6 +37,9 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.DoubleValue WILD_CHANCE;
     public static final ModConfigSpec.BooleanValue WILD_AUTO_INCLUDE;
     public static final ModConfigSpec.DoubleValue GUIDE_UP_TIER_CHANCE;
+    public static final ModConfigSpec.IntValue CATALYST_DURATION_PERIODS;
+    public static final ModConfigSpec.IntValue CATALYST_RING_WIDTH;
+    public static final ModConfigSpec.DoubleValue CATALYST_SPILL_BONUS;
     public static final ModConfigSpec.BooleanValue ANCHOR_NORMALIZE_RANGE;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_CAPACITY;
     public static final ModConfigSpec.IntValue TRAINING_ENERGY_COST;
@@ -126,6 +129,21 @@ public final class FocalDecayConfig {
                         "own semantic pools. 0 = purely local drift (a stone block only ever becomes stone-like),",
                         "1 = the old behaviour (everything draws from one big pool). Must match on both sides:")
                 .defineInRange("wild_chance", 0.25, 0.0, 1.0);
+        CATALYST_DURATION_PERIODS = builder
+                .comment("How many mutation periods a Semantic Catalyst stays lit (20 periods = 100 seconds at the",
+                        "default interval). The field forces every candidate block in range to mutate once per",
+                        "period, so this is 'how long the wave lasts', not 'how strong it is'.")
+                .defineInRange("catalyst_duration_periods", 20, 1, 6000);
+        CATALYST_RING_WIDTH = builder
+                .comment("Thickness (in blocks) of the spill shell outside a lit catalyst: that ring gets its",
+                        "wild_chance raised by catalyst_spill_bonus. This is the cost of directing defocus --",
+                        "you decide what the centre becomes, not what the surroundings become.")
+                .defineInRange("catalyst_ring_width", 8, 0, 64);
+        CATALYST_SPILL_BONUS = builder
+                .comment("Added to wild_chance inside the spill shell (0-1). 0 means directing defocus is free,",
+                        "which is not the intent; the shell is what keeps a base from being both factory and",
+                        "fortress at the same time.")
+                .defineInRange("catalyst_spill_bonus", 0.25, 0.0, 1.0);
         GUIDE_UP_TIER_CHANCE = builder
                 .comment("Chance (0-1) that a GUIDED or CATALYSED mutation is allowed to reach one tier above its",
                         "source block (tier = 'how much civilisation it takes to obtain'). Natural defocus never",

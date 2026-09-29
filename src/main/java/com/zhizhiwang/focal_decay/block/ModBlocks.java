@@ -11,6 +11,15 @@ public final class ModBlocks {
     public static final DeferredBlock<TrainingTerminalBlock> TRAINING_TERMINAL = BLOCKS.register("training_terminal", TrainingTerminalBlock::new);
     public static final DeferredBlock<ObserverCoreBlock> OBSERVER_CORE = BLOCKS.register("observer_core", ObserverCoreBlock::new);
     public static final DeferredBlock<ThroneBlock> THRONE_BLOCK = BLOCKS.register("throne_block", ThroneBlock::new);
+    /**
+     * 语义催化剂（2026-09-29，玩法主轴 P2-7 第③步）。
+     * <p>
+     * <b>刻意与原型机分开</b>：原型机是"稳定"装置（保护一片区域），催化剂是"点火"装置
+     * （把一片区域的失焦从概率变成必然）。两者的方块、合成与心理位置都不同，
+     * 但它们共用同一条区域效果同步管线——复用管线是对的，复用一个方块不是。
+     */
+    public static final DeferredBlock<CatalystBlock> SEMANTIC_CATALYST =
+            BLOCKS.register("semantic_catalyst", CatalystBlock::new);
 
     // ---- 仅用于自测的探针方块（BACKLOG P0-4，作者 2026-09-25 裁定允许注册） ----
     // 刻意**不**配套 BlockItem、不进创造栏、没有配方：玩家在正常游戏里拿不到它们，

@@ -395,6 +395,7 @@ public final class MutationAudit {
         out.addAll(tierSelfTest(index));
         out.addAll(qCurveSelfTest(index));
         out.addAll(catalysisSelfTest(index));
+        out.addAll(catalystRegistrySelfTest(level, pos));
         out.addAll(dimensionPoolSelfTest());
         return out;
     }
@@ -1598,6 +1599,39 @@ public final class MutationAudit {
             }
         }
         return strays;
+    }
+
+    /**
+     * 催化域登记表的端到端自测（2026-09-29）：走真实的 {@link MutationPoolManager}，
+     * 而不是只测纯函数。
+     * <p>
+     * 纯函数自测能证明"规则写对了"，这一条证明的是<b>接线对了</b>——方块实体登记之后，
+     * 解析路径问得到的答案是不是同一个，以及清掉之后还剩下什么。
+     * 自测结束必须把自己登记的那片域清掉：它会让附近方块必中，
+     * 留在世界上等于给开发存档埋一颗雷（而且下一次 selftest 会读到上一次的残留）。
+     */
+    private static List<String> catalystRegistrySelfTest(ServerLevel level, BlockPos pos) {
+        List<String> out = new ArrayList<>();
+        MutationPoolManager manager = MutationPoolManager.get(level);
+        BlockPos center = pos.offset(40, 0, 0);
+        long now = MutationEventHandler.displayPeriodIndex(level);
+        manager.setCatalystField(level, center, new Catalysis.Field(center, 2, 1, now + 5, 0.3));
+        boolean live;
+        try {
+            live = manager.catalysisAt(center, now).forced()
+                    && manager.catalysisAt(center.offset(2, 0, 0), now).forced()
+                    && !manager.catalysisAt(center.offset(3, 0, 0), now).forced()
+                    && Math.abs(manager.catalysisAt(center.offset(3, 0, 0), now).wildBonus() - 0.3) < 1.0e-9
+                    && !manager.catalysisAt(center.offset(4, 0, 0), now).isActive()
+                    && !manager.catalysisAt(center, now + 6).isActive();
+        } finally {
+            manager.setCatalystField(level, center, null);
+        }
+        out.add("[catalysis] the live registry answers through the same rules (r=2, shell=1, until=+5): "
+                + (live ? "PASS" : "FAIL"));
+        out.add("[catalysis] the field is gone after cleanup (selftest leaves no state behind): "
+                + (!manager.catalysisAt(center, now).isActive() ? "PASS" : "FAIL"));
+        return out;
     }
 
     /** 催化域自测的采样周期数。 */

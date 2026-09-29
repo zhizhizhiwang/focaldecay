@@ -22,6 +22,8 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.TRAINING_TERMINAL.get());
                         output.accept(ModItems.OBSERVER_CORE.get());
                         output.accept(ModItems.THRONE_BLOCK.get());
+                        output.accept(ModItems.SEMANTIC_CATALYST.get());
+                        output.accept(ModItems.IGNITER.get());
                         output.accept(ModItems.OBSERVER_MODEL_BLANK.get());
                         output.accept(ModItems.SEMANTIC_LOCK_MODEL.get());
                         output.accept(ModItems.GUIDED_MUTATION_MODEL.get());

@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "minecraft:blaze_powder"
+    },
+    "F": {
+      "item": "minecraft:flint"
+    },
+    "S": {
+      "item": "minecraft:flint_and_steel"
+    }
+  },
+  "pattern": [
+    "BFB",
+    "FSF",
+    "BFB"
+  ],
+  "result": {
+    "count": 1,
+    "id": "focal_decay:igniter"
+  }
+}

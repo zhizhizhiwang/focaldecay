@@ -23,6 +23,10 @@ public final class ModBlockEntities {
             BLOCK_ENTITY_TYPES.register("observer_core", () ->
                     BlockEntityType.Builder.of(ObserverCoreBlockEntity::new, ModBlocks.OBSERVER_CORE.get()).build(null));
 
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<CatalystBlockEntity>> SEMANTIC_CATALYST =
+            BLOCK_ENTITY_TYPES.register("semantic_catalyst", () ->
+                    BlockEntityType.Builder.of(CatalystBlockEntity::new, ModBlocks.SEMANTIC_CATALYST.get()).build(null));
+
     private ModBlockEntities() {
     }
 }

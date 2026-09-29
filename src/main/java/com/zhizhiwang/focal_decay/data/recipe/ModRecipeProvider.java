@@ -45,6 +45,30 @@ public class ModRecipeProvider extends RecipeProvider {
                 .unlockedBy("has_observer_model_blank", has(ModItems.OBSERVER_MODEL_BLANK.get()))
                 .save(recipeOutput);
 
+        // ---- 语义催化剂：A Q A / Q O Q / A Q A (A=紫水晶块 Q=石英块 O=原型) ----
+        // 与原型机（8 铁块 + 4 末影之眼）刻意拉开：催化剂是"点火"，应当比"保护"更早拿到，
+        // 否则玩家在很长一段时间里只有引信没有火柴（R1 的动词从"引导"开始就要能用）。
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.SEMANTIC_CATALYST.get())
+                .pattern("AQA")
+                .pattern("QOQ")
+                .pattern("AQA")
+                .define('A', Items.AMETHYST_BLOCK)
+                .define('Q', Items.QUARTZ_BLOCK)
+                .define('O', ModItems.OBSERVER_MODEL_BLANK.get())
+                .unlockedBy("has_observer_model_blank", has(ModItems.OBSERVER_MODEL_BLANK.get()))
+                .save(recipeOutput);
+
+        // ---- 火种：B F B / F S F / B F B (B=烈焰粉 F=燧石 S=打火石) ----
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.IGNITER.get())
+                .pattern("BFB")
+                .pattern("FSF")
+                .pattern("BFB")
+                .define('B', Items.BLAZE_POWDER)
+                .define('F', Items.FLINT)
+                .define('S', Items.FLINT_AND_STEEL)
+                .unlockedBy("has_blaze_powder", has(Items.BLAZE_POWDER))
+                .save(recipeOutput);
+
         // ---- 训练终端：C R C / E B E / C O C (C=铜块 R=红石粉 E=末影之眼 B=书 O=原型) ----
         ShapedRecipeBuilder.shaped(RecipeCategory.MISC, ModItems.TRAINING_TERMINAL.get())
                 .pattern("CRC")
