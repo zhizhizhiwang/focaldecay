@@ -17,6 +17,7 @@ import com.zhizhiwang.focal_decay.mutation.MutationSettings;
 import com.zhizhiwang.focal_decay.mutation.MutationStateMapper;
 import com.zhizhiwang.focal_decay.network.SyncClientViewPacket;
 import com.zhizhiwang.focal_decay.network.SyncMutationSettingsPacket;
+import com.zhizhiwang.focal_decay.network.SyncCatalystFieldPacket;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
@@ -1668,6 +1669,97 @@ public final class MutationAudit {
         }
         out.add("[catalysis] both entries agree while a field is active (" + CATALYSIS_SAMPLES
                 + " samples): " + (mismatch == 0 ? "PASS" : "FAIL (" + mismatch + ")"));
+        out.addAll(catalysisFieldSelfTest());
+        return out;
+    }
+
+    /**
+     * 催化域的<b>几何与有效期</b>自测（2026-09-29，{@code DESIGN.md} §13.8）。
+     * <p>
+     * 这些判据两端共用同一个纯函数（{@code Catalysis.Field#at}），所以"算得一样"是结构保证；
+     * 这里要钉住的是<b>规则本身</b>有没有被写反：
+     * 域内必中且不带 spill、域外一圈只有 spill、更远什么都没有、过期之后什么都不剩。
+     * <p>
+     * 改坐标/半径/有效期就能让任意一条变红——判据是逐点的等式，不是"大概在范围内"。
+     */
+    private static List<String> catalysisFieldSelfTest() {
+        List<String> out = new ArrayList<>();
+        BlockPos center = new BlockPos(0, 64, 0);
+        // 半径 4、spill 圈厚 2、有效到 100 期、溢出差 0.5
+        Catalysis.Field field = new Catalysis.Field(center, 4, 2, 100L, 0.5);
+
+        Catalysis atCenter = field.at(center, 50L);
+        Catalysis atEdge = field.at(new BlockPos(4, 64, 0), 50L);
+        Catalysis inRing = field.at(new BlockPos(6, 64, 0), 50L);
+        Catalysis outside = field.at(new BlockPos(7, 64, 0), 50L);
+        Catalysis expired = field.at(center, 101L);
+        Catalysis lastPeriod = field.at(center, 100L);
+        // 垂直方向单独验一遍：切比雪夫距离是三维的，只判 x/z 会在上下各漏一圈。
+        // ⚠️ 边界要手算清楚（第一版就写错了）：r=4、壳厚 2 ⇒ dy=4 仍在必中区，dy=6 落在壳里，
+        //    dy=7 才是外面。"上面那格应该什么都没有"用的是 dy=7，不是 dy=6。
+        Catalysis aboveForced = field.at(new BlockPos(0, 68, 0), 50L);
+        Catalysis aboveRing = field.at(new BlockPos(0, 70, 0), 50L);
+        Catalysis aboveOutside = field.at(new BlockPos(0, 71, 0), 50L);
+
+        boolean geometryOk = atCenter.forced() && atCenter.wildBonus() == 0.0
+                && atEdge.forced()
+                && !inRing.forced() && Math.abs(inRing.wildBonus() - 0.5) < 1.0e-9
+                && !outside.isActive()
+                && !expired.isActive() && lastPeriod.forced()
+                && aboveForced.forced()
+                && !aboveRing.forced() && Math.abs(aboveRing.wildBonus() - 0.5) < 1.0e-9
+                && !aboveOutside.isActive();
+        out.add("[catalysis] field geometry (force inside r=4, spill in the 2-block shell, nothing beyond;"
+                + " verified on the vertical axis too) and expiry at the synced period: "
+                + (geometryOk ? "PASS" : "FAIL"));
+
+        Catalysis.Field inactive = new Catalysis.Field(center, 4, 2, -1L, 0.5);
+        out.add("[catalysis] a field with until < 0 is inert (that is how removal is encoded): "
+                + (!inactive.at(center, 0L).isActive() && !inactive.at(center, Long.MIN_VALUE).isActive()
+                        ? "PASS" : "FAIL"));
+
+        // 重叠与顺序无关：服务端按登记顺序遍历、客户端按"整表 + 增量到达顺序"遍历，两者不保证一致。
+        // ⚠️ 两个域的中心必须离得够远，"同时落在两边的壳里"才可能存在（第一版把中心放在 3 格外，
+        //    而 r=4 时那个位置已经被其中一片<b>必中</b>覆盖，于是"取最大 spill"根本没被触发）。
+        //    r=1、壳厚 2、中心相距 4 ⇒ 中点 (2,·,·) 到两边都是 2，正好同时在两个壳里。
+        Catalysis.Field narrowA = new Catalysis.Field(new BlockPos(0, 64, 0), 1, 2, 100L, 0.5);
+        Catalysis.Field narrowB = new Catalysis.Field(new BlockPos(4, 64, 0), 1, 2, 100L, 0.9);
+        Catalysis bothShells = Catalysis.at(List.of(narrowA, narrowB), new BlockPos(2, 64, 0), 50L);
+        Catalysis forcedWins = Catalysis.at(List.of(narrowA, narrowB), new BlockPos(0, 64, 0), 50L);
+        Catalysis reversedShells = Catalysis.at(List.of(narrowB, narrowA), new BlockPos(2, 64, 0), 50L);
+        Catalysis reversedForced = Catalysis.at(List.of(narrowB, narrowA), new BlockPos(0, 64, 0), 50L);
+        boolean mergeOk = !bothShells.forced() && Math.abs(bothShells.wildBonus() - 0.9) < 1.0e-9
+                && forcedWins.forced()
+                && bothShells.equals(reversedShells) && forcedWins.equals(reversedForced);
+        out.add("[catalysis] overlapping fields merge order-independently"
+                + " (max spill in the shells, forced wins inside): " + (mergeOk ? "PASS" : "FAIL")
+                + " [shells spill=" + bothShells.wildBonus() + " forced=" + bothShells.forced() + "]");
+
+        // 数据包：往返 + 逐字段翻转。equals 往返测不出"漏搬一个字段"（两边都会落到默认值），
+        // 所以每个字段各造一个"只改它"的变体，解码之后必须与原件不同。
+        SyncCatalystFieldPacket packet = new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 999L, 0.4);
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        SyncCatalystFieldPacket.STREAM_CODEC.encode(buf, packet);
+        SyncCatalystFieldPacket read = SyncCatalystFieldPacket.STREAM_CODEC.decode(buf);
+        out.add("[catalysis] catalyst field packet round-trip: "
+                + (read.equals(packet) ? "PASS" : "FAIL -> " + read));
+
+        int collapsed = 0;
+        for (SyncCatalystFieldPacket variant : List.of(
+                new SyncCatalystFieldPacket(Level.NETHER, 4321L, 8, 3, 999L, 0.4),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4322L, 8, 3, 999L, 0.4),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 9, 3, 999L, 0.4),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 4, 999L, 0.4),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 1000L, 0.4),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 999L, 0.5))) {
+            FriendlyByteBuf one = new FriendlyByteBuf(Unpooled.buffer());
+            SyncCatalystFieldPacket.STREAM_CODEC.encode(one, variant);
+            if (SyncCatalystFieldPacket.STREAM_CODEC.decode(one).equals(packet)) {
+                collapsed++;
+            }
+        }
+        out.add("[catalysis] every field of that packet is really encoded (6 single-field variants): "
+                + (collapsed == 0 ? "PASS" : "FAIL (" + collapsed + " collapsed)"));
         return out;
     }
 

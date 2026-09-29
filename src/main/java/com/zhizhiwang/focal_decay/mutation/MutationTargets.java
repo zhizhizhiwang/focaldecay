@@ -51,6 +51,7 @@ public final class MutationTargets {
                 periodIndex, index,
                 manager.getGuidedBias(pos, state, stage),
                 manager.protectionInfo(pos, state, stage, settings),
-                manager.getBlockBirthPeriod(pos));
+                manager.getBlockBirthPeriod(pos),
+                manager.catalysisAt(pos, periodIndex));
     }
 }

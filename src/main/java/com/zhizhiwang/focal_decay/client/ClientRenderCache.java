@@ -8,6 +8,7 @@ import com.zhizhiwang.focal_decay.network.RequestRegionDataPacket;
 import com.zhizhiwang.focal_decay.network.SyncClientViewPacket;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import com.zhizhiwang.focal_decay.mutation.AnchorNormalizeProfiler;
+import com.zhizhiwang.focal_decay.mutation.Catalysis;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationSettings;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
@@ -760,6 +761,19 @@ public final class ClientRenderCache {
      * <p>
      * 只清理这个位置，不做整表扫描：放置/破坏方块是高频操作，而整表扫描是 O(幽灵数) 的。
      */
+    /**
+     * 收到<b>单条</b>催化域变化（{@code until < 0} 表示清除）。
+     * <p>
+     * 与诞生周期一样属于"解析输入变了"，所以受影响的幽灵要丢掉重画；
+     * 但催化改变的是整片区域的"是否发生"，所以整区重扫由周期边界与扫描器自然接手——
+     * 这里只负责让镜像跟上，别让两端算出不同的世界。
+     */
+    public void applyCatalystField(ResourceKey<Level> dimension, long packedPos, int radius, int ringWidth,
+                                   long until, double spill) {
+        BlockPos pos = BlockPos.of(packedPos);
+        regions.applyCatalystField(dimension, pos, new Catalysis.Field(pos, radius, ringWidth, until, spill));
+    }
+
     public void applyBirthPeriod(ResourceKey<Level> dimension, long packedPos, long period) {
         BlockPos pos = BlockPos.of(packedPos);
         regions.applyBirthPeriod(dimension, pos, period);
@@ -1059,11 +1073,12 @@ public final class ClientRenderCache {
             return original;
         }
         int stage = settings.stage(worldDays);
-        return MutationHelper.resolve(original, pos, settings, stage,
-                settings.displayPeriod(level.getGameTime(), clockSpeed, clockOffset), index,
+        long period = settings.displayPeriod(level.getGameTime(), clockSpeed, clockOffset);
+        return MutationHelper.resolve(original, pos, settings, stage, period, index,
                 ClientRegionData.guidedBias(guided, pos, original, stage, settings.guidedStage3Halve()),
                 regions.protectionInfo(level.dimension(), pos, original, stage, settings),
-                regions.blockBirthPeriod(level.dimension(), pos));
+                regions.blockBirthPeriod(level.dimension(), pos),
+                regions.catalysis(level.dimension(), pos, period));
     }
 
     /**

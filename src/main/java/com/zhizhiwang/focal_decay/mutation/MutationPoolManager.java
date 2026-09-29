@@ -202,6 +202,42 @@ public class MutationPoolManager extends SavedData {
      * 但客户端只关心它是否大于 0。摘要里发的正是"是否生效"，所以比较摘要恰好等于比较
      * "客户端看到的东西"，不会退化成每刻一包。
      */
+    /**
+     * 当前生效/待生效的催化域（{@code DESIGN.md} §13.8 的"形式一"）。
+     * <p>
+     * <b>刻意不落盘</b>：一片域只活几十个周期，服务器重启丢掉它是合理的——
+     * 它不是世界状态，是一次正在发生的事件（理由见 {@link Catalysis.Field}）。
+     * 于是这里用一张普通 map，不参与 {@code save}/{@code load}。
+     */
+    private final Map<BlockPos, Catalysis.Field> catalystFields = new HashMap<>();
+
+    /**
+     * 登记或清除一片催化域（{@code field.until() < 0} 表示清除），并广播给该维度的客户端。
+     * <p>
+     * 客户端必须知道它——催化改的是"是否发生"，一端知道一端不知道就变成
+     * "服务端改了世界、客户端还在画原来的样子"（§3.2 的最坏形态）。
+     */
+    public void setCatalystField(ServerLevel level, BlockPos pos, Catalysis.Field field) {
+        BlockPos key = pos.immutable();
+        if (field == null || field.until() < 0) {
+            if (catalystFields.remove(key) != null) {
+                ModNetwork.sendCatalystField(level, key, null);
+            }
+            return;
+        }
+        if (!field.equals(catalystFields.put(key, field))) {
+            ModNetwork.sendCatalystField(level, key, field);
+        }
+    }
+
+    /** 该位置此刻受到的催化（{@code period} 用调用方那一端的显示刻）。 */
+    public Catalysis catalysisAt(BlockPos pos, long period) {
+        if (catalystFields.isEmpty()) {
+            return Catalysis.NONE;
+        }
+        return Catalysis.at(List.copyOf(catalystFields.values()), pos, period);
+    }
+
     public void updatePrototypeEffect(ServerLevel level, BlockPos pos, ItemStack modelStack) {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
         prototypeEffectsView = null; // 内部列表变了：丢弃不可变视图缓存

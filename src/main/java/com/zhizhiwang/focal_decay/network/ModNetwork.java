@@ -23,8 +23,10 @@ public final class ModNetwork {
      * 协议版本。**加了包就要改**：NeoForge 会按它做连接期校验，
      * 而"客户端发一个服务端不认识的包"是很差的失败方式（连接挂了但原因埋在日志里）。
      * 1 → 2：新增 C→S 的 {@link RequestRegionDataPacket}（BACKLOG P0-5）。
+     * 2 → 3：{@code MutationSettings} 增加"引导跨级概率"字段（P2-7 第①步）。
+     * 3 → 4：新增 S→C 的 {@link SyncCatalystFieldPacket}（P2-7 第③步）。
      */
-    public static final String PROTOCOL_VERSION = "3";
+    public static final String PROTOCOL_VERSION = "4";
 
     private ModNetwork() {
     }
@@ -42,6 +44,8 @@ public final class ModNetwork {
         registrar.playToClient(SyncRegionDataPacket.TYPE, SyncRegionDataPacket.STREAM_CODEC, SyncRegionDataPacket::handle);
         registrar.playToClient(SyncPrototypePacket.TYPE, SyncPrototypePacket.STREAM_CODEC, SyncPrototypePacket::handle);
         registrar.playToClient(SyncBirthPeriodPacket.TYPE, SyncBirthPeriodPacket.STREAM_CODEC, SyncBirthPeriodPacket::handle);
+        registrar.playToClient(SyncCatalystFieldPacket.TYPE, SyncCatalystFieldPacket.STREAM_CODEC,
+                SyncCatalystFieldPacket::handle);
         registrar.playToClient(SyncWorldDataPacket.TYPE, SyncWorldDataPacket.STREAM_CODEC, SyncWorldDataPacket::handle);
         registrar.playToClient(ThroneRitualPacket.TYPE, ThroneRitualPacket.STREAM_CODEC, ThroneRitualPacket::handle);
         registrar.playToClient(ObserverCoreActivatePacket.TYPE, ObserverCoreActivatePacket.STREAM_CODEC,
@@ -53,6 +57,22 @@ public final class ModNetwork {
      * <p>
      * 登录与换维度都要发：客户端在收到它之前不渲染任何幽灵（宁可看不到，也不能看错）。
      */
+    /**
+     * 把一片催化域的变化发给该维度的所有客户端（{@code field == null} 表示清除）。
+     * <p>
+     * 与诞生周期/原型机的增量同一套路数：单点变化只发一条，整表留给登录与换维度。
+     * 这是 §3.2 意义上<b>必须</b>同步的那类输入——客户端不知道催化域时，
+     * 它画的失焦与服务端实际执行的会整片不一致。
+     */
+    public static void sendCatalystField(ServerLevel level, BlockPos pos,
+                                         com.zhizhiwang.focal_decay.mutation.Catalysis.Field field) {
+        SyncCatalystFieldPacket packet = field == null
+                ? new SyncCatalystFieldPacket(level.dimension(), pos.asLong(), 0, 0, -1L, 0.0)
+                : new SyncCatalystFieldPacket(level.dimension(), pos.asLong(), field.radius(), field.ringWidth(),
+                        field.until(), field.spill());
+        PacketDistributor.sendToPlayersInDimension(level, packet);
+    }
+
     public static void sendMutationSettings(ServerPlayer player) {
         PacketDistributor.sendToPlayer(player, new SyncMutationSettingsPacket(
                 MutationSettings.fromConfig(player.server.overworld().getSeed())));

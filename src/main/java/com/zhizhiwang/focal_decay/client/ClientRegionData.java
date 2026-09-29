@@ -1,6 +1,7 @@
 package com.zhizhiwang.focal_decay.client;
 
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
+import com.zhizhiwang.focal_decay.mutation.Catalysis;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
@@ -45,14 +46,23 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 final class ClientRegionData {
 
-    /** 某个维度收到的区域数据（原型机列表 + 方块诞生周期）。 */
+    /**
+     * 某个维度收到的区域数据（原型机列表 + 方块诞生周期 + 催化域）。
+     * <p>
+     * 构造函数刻意<b>只有一个三参版本</b>：加上催化域时，如果留一个两参重载，
+     * 已有的四处 {@code new RegionData(...)} 会静默丢掉催化域——
+     * "别人动了一下原型机，我的催化域就没了"。让编译器把这些点全部指出来。
+     */
     private static final class RegionData {
         final List<ClientPrototype> prototypes;
         final Map<BlockPos, Long> birthPeriods;
+        final Map<BlockPos, Catalysis.Field> catalystFields;
 
-        RegionData(List<ClientPrototype> prototypes, Map<BlockPos, Long> birthPeriods) {
+        RegionData(List<ClientPrototype> prototypes, Map<BlockPos, Long> birthPeriods,
+                   Map<BlockPos, Catalysis.Field> catalystFields) {
             this.prototypes = List.copyOf(prototypes);
             this.birthPeriods = Map.copyOf(birthPeriods);
+            this.catalystFields = Map.copyOf(catalystFields);
         }
     }
 
@@ -139,7 +149,7 @@ final class ClientRegionData {
             }
         }
 
-        byDimension.put(dimension, new RegionData(prototypeList, incoming));
+        byDimension.put(dimension, new RegionData(prototypeList, incoming, Map.of()));
         regionVersion++; // 派生缓存（guidedModels）失效
         snapshotReceived.add(dimension);
         return changed;
@@ -156,7 +166,8 @@ final class ClientRegionData {
                         SyncRegionDataPacket.PrototypeData data) {
         // 整表还没到就先建一份空的：增量与整表的到达顺序不保证（区块加载发生在登录流程中），
         // 丢掉一条增量就等于"客户端永远少知道一个保护范围"。整表到达时整体替换，不会残留。
-        RegionData old = byDimension.computeIfAbsent(dimension, key -> new RegionData(List.of(), Map.of()));
+        RegionData old = byDimension.computeIfAbsent(dimension,
+                key -> new RegionData(List.of(), Map.of(), Map.of()));
         BlockPos pos = BlockPos.of(packedPos);
         List<ClientPrototype> prototypes = new ArrayList<>(old.prototypes.size() + 1);
         for (ClientPrototype prototype : old.prototypes) {
@@ -167,7 +178,7 @@ final class ClientRegionData {
         if (present && data != null) {
             prototypes.add(toClientPrototype(data));
         }
-        byDimension.put(dimension, new RegionData(prototypes, old.birthPeriods));
+        byDimension.put(dimension, new RegionData(prototypes, old.birthPeriods, old.catalystFields));
         regionVersion++;
     }
 
@@ -177,14 +188,15 @@ final class ClientRegionData {
      * 丢掉它会让客户端把一个"刚被放下的方块"当成世界原生方块，从而显示一个服务端不会执行的目标。
      */
     void applyBirthPeriod(ResourceKey<Level> dimension, BlockPos pos, long period) {
-        RegionData old = byDimension.computeIfAbsent(dimension, key -> new RegionData(List.of(), Map.of()));
+        RegionData old = byDimension.computeIfAbsent(dimension,
+                key -> new RegionData(List.of(), Map.of(), Map.of()));
         Map<BlockPos, Long> births = new HashMap<>(old.birthPeriods);
         if (period < 0) {
             births.remove(pos);
         } else {
             births.put(pos, period);
         }
-        byDimension.put(dimension, new RegionData(old.prototypes, births));
+        byDimension.put(dimension, new RegionData(old.prototypes, births, old.catalystFields));
         regionVersion++;
     }
 
@@ -195,6 +207,34 @@ final class ClientRegionData {
      * 在不同存档里是同一个，只清数据不清标记会让新世界以为自己已经收到过快照，
      * 于是<b>永远不请求重发</b>——正好造成"客户端一直用错数据"的静默状态。
      */
+    /**
+     * 单条催化域变化（{@code until < 0} 表示清除）。
+     * <p>
+     * 与诞生周期同一条增量通道的理由相同：域是<b>短命</b>的，而它一旦缺失，
+     * 客户端看到的失焦就会与服务端不一致（催化改的正是"是否发生"）。
+     */
+    void applyCatalystField(ResourceKey<Level> dimension, BlockPos pos, Catalysis.Field field) {
+        RegionData old = byDimension.computeIfAbsent(dimension,
+                key -> new RegionData(List.of(), Map.of(), Map.of()));
+        Map<BlockPos, Catalysis.Field> fields = new HashMap<>(old.catalystFields);
+        if (field == null || field.until() < 0) {
+            fields.remove(pos);
+        } else {
+            fields.put(pos, field);
+        }
+        byDimension.put(dimension, new RegionData(old.prototypes, old.birthPeriods, fields));
+        regionVersion++;
+    }
+
+    /** 该位置此刻受到的催化（客户端用自己那一端的显示刻）。 */
+    Catalysis catalysis(ResourceKey<Level> dimension, BlockPos pos, long period) {
+        RegionData data = dimension == null ? null : byDimension.get(dimension);
+        if (data == null || data.catalystFields.isEmpty()) {
+            return Catalysis.NONE;
+        }
+        return Catalysis.at(List.copyOf(data.catalystFields.values()), pos, period);
+    }
+
     void clear() {
         byDimension.clear();
         snapshotReceived.clear();
