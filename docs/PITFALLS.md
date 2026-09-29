@@ -40,6 +40,12 @@ jstack <pid>                # 直接看 "Render thread" 的栈
 **流程固定为：关客户端 → 编译 → 重开。**
 
 ### 1.4 Shell、编码与行尾
+- **看构建产物要按时间排（`ls -lat`），不要按名字**（2026-09-29 新增）。
+  版本号不是定长字符串：`focal_decay-1.0.10.jar` 在字典序里排在 `focal_decay-1.0.6.jar` **前面**，
+  于是 `ls build/libs | tail -1` 会永远显示旧的那一个——本次据此误判了一次"构建没产出 jar"，
+  又跑了一遍构建去查一个不存在的问题。
+  判据：`ls -lat build/libs | head`，或者直接
+  `test -f "build/libs/focal_decay-$(grep ^mod_version gradle.properties | cut -d= -f2).jar" && echo OK`。
 - **日志字符串一律 ASCII**。中文写进日志会按 GBK 落盘、按 UTF-8 读就成了乱码，
   而乱码会掩盖关键线索（真实案例：乱码掩盖了 `creative=true` 这个决定性信息）。
 - 历史文件（如 `.gitignore`）是 GBK，改它们要显式用 cp936 读写，
