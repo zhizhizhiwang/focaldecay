@@ -173,6 +173,11 @@ public final class MutationAudit {
         lines.add("[mutation] reachable=" + reachable.size()
                 + " localEdges=" + localEdges + " wildEdges=" + wildEdges);
         lines.add("[mutation] wild slice sizes: " + wildSlices(index));
+        // tier 分布与"每个形态类的 tier 跨度"（2026-09-29，DESIGN.md §13.9）。
+        // 后者是这张表最容易出错的地方：一个形态类里同时出现 T0 和 T4，
+        // 就意味着"只降不升"在这个族里几乎不设防（跨度越大，能被换到的东西越离谱）。
+        lines.add("[mutation] tier histogram: " + index.tierHistogram());
+        lines.add("[mutation] tier span per shape class: " + tierSpans(index));
         // 有源但没有入边的方块：只能变出去、不会被变回来。单向不等于冻结（它自己仍能继续变），
         // 但如果数量异常大，通常意味着池划分把某个形态族孤立了。
         int noInbound = 0;
@@ -268,6 +273,35 @@ public final class MutationAudit {
             }
             sb.append(shapes.name(shapeClass)).append('=').append(index.wild().count(shapeClass)).append(' ');
         }
+        return sb.toString().trim();
+    }
+
+    /**
+     * 每个形态类的 tier 跨度（最小档 - 最大档），按跨度降序、再按名字定序。
+     * <p>
+     * 打印它是给人<b>复核</b>的，不是断言：跨度本身可以合理（例如 cube 族横跨 T0..T4，
+     * 因为所有方块都在里面）。真正要看的信号是"某个本该同档的族出现了意外的差距"——
+     * 那通常意味着有一批方块的 tier 判错了（铜装饰、压缩形态、合成品都栽过）。
+     */
+    private static String tierSpans(MutationIndex index) {
+        ShapeClasses shapes = index.shapeClasses();
+        Map<String, int[]> spans = new TreeMap<>();
+        for (Block block : BuiltInRegistries.BLOCK) {
+            if (!index.isSource(block)) {
+                continue;
+            }
+            int shapeClass = index.shapeClass(block);
+            if (shapeClass == ShapeClasses.NONE) {
+                continue;
+            }
+            int tier = index.tier(block);
+            int[] span = spans.computeIfAbsent(shapes.name(shapeClass), key -> new int[]{tier, tier});
+            span[0] = Math.min(span[0], tier);
+            span[1] = Math.max(span[1], tier);
+        }
+        StringBuilder sb = new StringBuilder();
+        spans.forEach((name, span) -> sb.append(name).append("=T").append(span[0])
+                .append("..T").append(span[1]).append(' '));
         return sb.toString().trim();
     }
 
