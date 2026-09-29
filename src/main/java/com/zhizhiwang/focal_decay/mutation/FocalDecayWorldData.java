@@ -28,6 +28,15 @@ public class FocalDecayWorldData extends SavedData {
     public static final int BIT_FRAGMENT_ROSE = 1;
     public static final int BIT_FRAGMENT_42MS = 1 << 1;
     public static final int BIT_FRAGMENT_CHENG = 1 << 2;
+    /**
+     * 一次性的"规则揭示"位（2026-09-29）：首次练出一个有概念的可引导模型时，
+     * 告诉玩家"概念由你喂进去的样本决定"这条<b>规则</b>——它教规则，不教答案，
+     * 而且玩家自己摸出来要很久（{@code DESIGN.md} §13.10）。
+     * <p>
+     * 复用同一个位图纯粹是因为机制相同（test-and-set + 落盘）；字段名里的
+     * "Fragment" 是历史，键名 {@code GrantedFragments} 更不能改（存档兼容）。
+     */
+    public static final int BIT_CONCEPT_RULE = 1 << 3;
 
     private long days;
     private long partialTicks;

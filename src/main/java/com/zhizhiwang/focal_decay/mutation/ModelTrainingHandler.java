@@ -3,6 +3,7 @@ package com.zhizhiwang.focal_decay.mutation;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.item.ObserverModelItem;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndexes;
 import com.zhizhiwang.focal_decay.structure.ThroneStructure;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.InteractionHand;
@@ -159,9 +160,26 @@ public final class ModelTrainingHandler {
             serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(
                     -2, 0, syncSlotFor(serverPlayer, hand), held));
         }
-        player.displayClientMessage(Component.translatable(
+        // 训练过程中的"概念可见"（2026-09-29，DESIGN.md §13.10）：每记录一个方块就顺带报出
+        // "这些样本目前指向哪个概念、完备度多少、还差多少"。R1「词汇即样本」能被学会的前提
+        // 就是这句话——在此之前玩家只有练完那一刻才知道自己练出来的是什么。
+        //
+        // 代价：GuidedConcept.resolve 会遍历一次标签表（内部有池缓存），
+        // 而右键收集是人手速率，所以这条不进热路径（PITFALLS §10）。
+        Component message = Component.translatable(
                 block ? "message.focal_decay.training_target_block" : "message.focal_decay.training_target_entity",
-                displayName), true);
+                displayName);
+        if (block && ObserverModelData.TYPE_TRAINING.equals(data.type())
+                && player.level() instanceof ServerLevel serverLevel) {
+            GuidedConcept.Concept hinted =
+                    GuidedConcept.resolve(updated, MutationIndexes.get(serverLevel.dimension()));
+            if (hinted.valid()) {
+                message = Component.translatable("message.focal_decay.training_target_concept",
+                        displayName, GuidedConcept.displayName(hinted.tagId()),
+                        Math.round(hinted.q() * 100), hinted.trainedBlocks(), hinted.trainableSize());
+            }
+        }
+        player.displayClientMessage(message, true);
         return true;
     }
 

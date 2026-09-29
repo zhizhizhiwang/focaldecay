@@ -49,8 +49,7 @@ public final class FocalDecayConfig {
     public static final ModConfigSpec.BooleanValue BIO_STABILIZE_ENTITIES;
     public static final ModConfigSpec.DoubleValue SEMANTIC_LOCK_STAGE3_STRENGTH;
     public static final ModConfigSpec.IntValue GUIDED_MIN_TRAINED;
-    public static final ModConfigSpec.DoubleValue GUIDED_Q_MULTIPLIER;
-    public static final ModConfigSpec.DoubleValue GUIDED_Q_CAP;
+    public static final ModConfigSpec.IntValue GUIDED_Q_SIZE_CAP;
     public static final ModConfigSpec.BooleanValue GUIDED_STAGE3_HALVE;
     public static final ModConfigSpec.IntValue THRONE_RITUAL_SECONDS;
     public static final ModConfigSpec.IntValue THRONE_RITUAL_WAVE_INTERVAL_SECONDS;
@@ -199,12 +198,14 @@ public final class FocalDecayConfig {
                 .comment("Minimum distinct trained targets inside a concept for the Guided Model to have any effect."
                         + " Fewer counts as an incomplete classification (q = 0).")
                 .defineInRange("guided_min_trained", 2, 1, 64);
-        GUIDED_Q_MULTIPLIER = builder
-                .comment("Multiplier applied to the Guided Model's concept coverage when computing q.")
-                .defineInRange("guided_q_multiplier", 1.0, 0.0, 10.0);
-        GUIDED_Q_CAP = builder
-                .comment("Upper cap (0-1) for the Guided Model's q after the multiplier.")
-                .defineInRange("guided_q_cap", 1.0, 0.0, 1.0);
+        GUIDED_Q_SIZE_CAP = builder
+                .comment("Upper bound on how many concept members a Guided Model must record for q = 100%.",
+                        "q follows a convex curve sqrt(recorded / required): recording half of a concept already",
+                        "gives about 70%, while 100% still needs all of it. 'required' is the number of concept",
+                        "members that actually have an item (blocks without a BlockItem, e.g. frosted_ice, can never",
+                        "be recorded and would otherwise put a ceiling below 100%), capped by this value so that",
+                        "very large concepts such as ore stay completable.")
+                .defineInRange("guided_q_size_cap", 32, 1, 256);
         GUIDED_STAGE3_HALVE = builder
                 .comment("Whether stage 3 halves the Guided Model's q (effect decay).")
                 .define("guided_stage3_halve", true);

@@ -105,6 +105,21 @@ public class TrainingTerminalBlockEntity extends BlockEntity implements MenuProv
                 player.displayClientMessage(Component.translatable(
                         "message.focal_decay.training_concept_result",
                         GuidedConcept.displayName(concept), Math.round(q * 100)), true);
+                // 明细：分子 / 需要 / 该概念共几种 / 解锁到哪一档。
+                // "需要"与"共几种"必须分开显示——两者不等的那些成员（霜冰那类）永远凑不齐，
+                // 玩家看不见它就会以为"还差一种"而白找（2026-09-29，DESIGN.md §13.10）。
+                player.displayClientMessage(Component.translatable(
+                        "message.focal_decay.training_concept_detail",
+                        resolved.trainedBlocks(), resolved.trainableSize(), resolved.conceptSize(),
+                        GuidedConcept.unlockFor(q).displayName()), false);
+                // 一次性规则揭示：每个存档一次，教"概念由样本决定"这条规则（不揭示答案）。
+                if (level instanceof ServerLevel serverLevel) {
+                    FocalDecayWorldData worldData = FocalDecayWorldData.get(serverLevel.getServer());
+                    if (worldData.grantFragmentOnce(FocalDecayWorldData.BIT_CONCEPT_RULE)) {
+                        player.displayClientMessage(
+                                Component.translatable("message.focal_decay.concept_rule"), false);
+                    }
+                }
             } else {
                 player.displayClientMessage(Component.translatable(
                         "message.focal_decay.training_concept_invalid",

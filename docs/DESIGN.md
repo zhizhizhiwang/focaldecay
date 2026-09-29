@@ -294,7 +294,10 @@ public final class MutationIndex {          // mutation/pool/MutationIndex.java
     2. **目标偏向**：概念内成员抽中突变时，以概率 q 从概念邻域选目标，以 1−q 回退全局池（对应原文"依旧是苹果，有些时候是另外的东西"）。
     3. q 只作用于**目标选择**，不改变阶段突变骰子（概率/周期/种子不变）。
     4. 累积语义不变：引导后的目标同样参与 `cumulativeTarget` 回退扫描，"变了的就变了"。
-  - **完备度 q**：`q = clamp(|trainedTargets ∩ 概念邻域| / |概念邻域|, 0, 1)`；少于 `guided_min_trained`（默认 2）视为残缺分类，q 归零；可配置倍率 `guided_q_multiplier` 与上限 `guided_q_cap`；阶段3 q 减半（§6.5，可配置）。
+  - **完备度 q**（2026-09-29 改，见 §13.10）：`q = sqrt(已记录 / 需要)` —— **上凸曲线**。
+    "已记录"只算概念里**拿得到**的成员（没有 `BlockItem` 的方块永远凑不齐，如霜冰），
+    "需要" = 该数按 `guided_q_size_cap`（默认 32）封顶；少于 `guided_min_trained`（默认 2）视为残缺分类，q 归零。
+    阶段3 q 减半（§6.5，可配置）。
 - 实现机制仍复用 `MutationPoolManager`（中心 = 原型机位置，半径 = 模型半径，概念 = 固化标签）：
   - 服务端：`getGuidedBias(pos, state, stage)` 按上述规则判定"概念邻域（q 分支）或常规分支（1−q 分支）"。
   - **概念邻域与成员判定在效果登记时就预计算好**（`PrototypeEffect` 里存 `ClassifiedPool` + `Set<Block> trained`）：
@@ -707,7 +710,7 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
   - 候选观测者：`candidate_required_points`（**顶点**/100% 线，默认 100）、`candidate_fragment_points`（单枚碎片注入**点数**，默认 10，实际百分比按增益折算）、`candidate_copy_gain`（每点增益，按复制代数取值，默认 `[1.0, 0.7, 0.5]` —— 2026-09-17 取代原 `total_stability_copy_train_penalty`：副本的代价体现在"每点涨得慢"，而不是"顶点更高"）
   - 训练终端：训练所需能量/时长（**FE 默认消耗 0，单模组不启用**）、空白模型记录数量上限、经验瓶回退开关、训练交互冷却
   - 生物稳定模型：生命值→能量换算、`bioEnergy` 消耗速率、阶段3双倍消耗开关、范围内实体稳定开关
-  - 引导模型：`guided_min_trained`（最少有效训练数，默认 2）、`guided_q_multiplier` / `guided_q_cap`（q 倍率与上限）、`guided_stage3_halve`（阶段3 q 减半开关，默认开）
+  - 引导模型：`guided_min_trained`（最少有效训练数，默认 2）、`guided_q_size_cap`（q 的分母上限，默认 32）、`guided_stage3_halve`（阶段3 q 减半开关，默认开）
   - 王座仪式：仪式时长（默认 3~5 分钟，33 分钟为可选上限）、波次强度/间隔、所需物品
 
 ### 9.2 数据生成
@@ -1105,7 +1108,7 @@ visible(pos) = protection.hard() ? anchored(pos, anchorPeriod) : resolve(...)
 | **观测者基座（原型机）** | `anchor_prototype`。现场唯一可部署的稳定装置，插入观测模型后生效 |
 | **观测模型 / OBSR** | 可插入基座的模型物品，五种型号 + 候选观测者。数据存 `ObserverModelData` 组件 |
 | **概念（concept）** | 引导模型训练完成后固化的语义标签（`focal_decay:concept/*` 或原版标签） |
-| **完备度 q** | 引导模型对概念的指认完备程度，决定偏向概念邻域的概率 |
+| **完备度 q** | 引导模型对概念的指认完备程度。`q = sqrt(已记录 / 需要)`（上凸：记一半就有 70.7%，但 100% 要记完）；"需要" = 该概念里**拿得到**的成员数，按 `guided_q_size_cap` 封顶。四个门槛各给一个新动词，见 §13.10 |
 | **语义锁定 / 硬保护 / 软保护** | 保护形态：完全不动 / 阶段 1-2 的锁定 / 阶段 3 的"每周期掷守住骰" |
 | **重聚焦（refocus）** | 观测者核心上线、失焦终止 |
 | **候选观测者（OBSR-3）** | 主线道具：**一个模型承载多个独立的训练进度**（多概念 `q`）。达标后可在核心处安装为"新观测者"，**不再作为普通防御模型**（§13.6） |

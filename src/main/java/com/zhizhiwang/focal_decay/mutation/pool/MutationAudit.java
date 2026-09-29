@@ -4,6 +4,7 @@ import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
+import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
 import com.zhizhiwang.focal_decay.mutation.InteractionHandler;
 import com.zhizhiwang.focal_decay.mutation.ModelTrainingHandler;
@@ -389,6 +390,7 @@ public final class MutationAudit {
         out.addAll(entityProtectionSelfTest(index));
         out.addAll(syncSelfTest(level, pos));
         out.addAll(tierSelfTest(index));
+        out.addAll(qCurveSelfTest(index));
         return out;
     }
 
@@ -1349,6 +1351,67 @@ public final class MutationAudit {
     }
 
     /** 以 chance = 1 抽取一个周期（必中，因此样本数与周期数相等）。 */
+    /**
+     * q 曲线与四个门槛的自测（2026-09-29，{@code DESIGN.md} §13.10）。
+     * <p>
+     * 断言全部对着<b>手算的期望值</b>比，所以把实现改回线性曲线、或把门槛挪一位，
+     * 它们立刻 FAIL——这就是它们的 A/B，不需要额外的开关：
+     * <pre>
+     * 记录一半 → sqrt(0.5) = 70.7%（设计里那句"30 个练 15 个有 70%"）
+     * 记录全部 → 100%（但"全部"是"需要"那么多，不是"该概念一共多少种"）
+     * 少于最小训练数 → 0（一个方块不构成概念）
+     * </pre>
+     */
+    private static List<String> qCurveSelfTest(MutationIndex index) {
+        List<String> out = new ArrayList<>();
+
+        boolean curveOk = near(GuidedConcept.computeQ(15, 30), Math.sqrt(0.5))
+                && near(GuidedConcept.computeQ(2, 4), Math.sqrt(0.5))
+                && near(GuidedConcept.computeQ(30, 30), 1.0)
+                && near(GuidedConcept.computeQ(1, 30), 0.0);
+        out.add("[q] convex curve q = sqrt(recorded / required)"
+                + " (half recorded -> 70.7%, all recorded -> 100%, below min trained -> 0): "
+                + (curveOk ? "PASS" : "FAIL -> half=" + GuidedConcept.computeQ(15, 30)
+                        + " all=" + GuidedConcept.computeQ(30, 30)
+                        + " belowMin=" + GuidedConcept.computeQ(1, 30)));
+
+        // 封顶：分母 = min(可训练成员, guided_q_size_cap)。成员数是 cap 两倍的分类也只要求 cap 个。
+        int cap = FocalDecayConfig.GUIDED_Q_SIZE_CAP.get();
+        boolean capOk = near(GuidedConcept.computeQ(cap, cap * 2), 1.0)
+                && GuidedConcept.computeQ(cap - 1, cap * 2) < 1.0;
+        out.add("[q] size cap " + cap + " keeps large concepts completable (ore has 30+ members): "
+                + (capOk ? "PASS" : "FAIL"));
+
+        boolean ladderOk = GuidedConcept.UNLOCK_THRESHOLDS.length == GuidedConcept.Unlock.values().length
+                && GuidedConcept.unlockFor(0.0) == GuidedConcept.Unlock.NONE
+                && GuidedConcept.unlockFor(0.24) == GuidedConcept.Unlock.NONE
+                && GuidedConcept.unlockFor(0.25) == GuidedConcept.Unlock.SEE
+                && GuidedConcept.unlockFor(0.50) == GuidedConcept.Unlock.CATALYSE
+                && GuidedConcept.unlockFor(0.75) == GuidedConcept.Unlock.RITE
+                && GuidedConcept.unlockFor(0.99) == GuidedConcept.Unlock.RITE
+                && GuidedConcept.unlockFor(1.0) == GuidedConcept.Unlock.DICTATE;
+        out.add("[q] four thresholds, each granting a verb"
+                + " (0.25 see / 0.50 catalyse / 0.75 rite / 1.00 dictate): "
+                + (ladderOk ? "PASS" : "FAIL"));
+
+        // 拿不到的成员不计入分母：minecraft:ice 一共 4 种，其中霜冰没有 BlockItem
+        // （只能靠冰霜行者取得），所以"需要"只有 3。不排除它，这个概念的 q 就永远停在 75%
+        // —— 这正是作者 2026-09-29 点名的那个例子。
+        ClassifiedPool ice = index.tagged("minecraft:ice");
+        int iceTotal = ice.total();
+        int iceTrainable = GuidedConcept.trainableCount(ice);
+        out.add("[q] untrainable members leave the denominator (minecraft:ice): total=" + iceTotal
+                + " trainable=" + iceTrainable + " -> "
+                + (iceTotal == 4 && iceTrainable == 3 ? "PASS" : "FAIL (expected total=4 trainable=3)"));
+        out.add("[q]   (frosted_ice has no BlockItem; without Frost Walker it cannot be recorded at all)");
+        return out;
+    }
+
+    /** 浮点相等（曲线是 sqrt，误差只可能来自实现写错，所以容差取得极小）。 */
+    private static boolean near(double a, double b) {
+        return Math.abs(a - b) < 1.0e-9;
+    }
+
     /** tier 自测的采样周期数（每个源方块）。 */
     private static final int TIER_SAMPLE_PERIODS = 128;
 

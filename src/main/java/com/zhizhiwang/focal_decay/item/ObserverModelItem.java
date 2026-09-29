@@ -154,6 +154,11 @@ public class ObserverModelItem extends Item {
                                 GuidedConcept.displayName(data.concept()),
                                 Math.round(data.stabilityStrength() * 100))
                         .withStyle(ChatFormatting.AQUA));
+                // 解锁档：q 的四个门槛各给一个新动词（DESIGN.md §13.10），
+                // 所以工具提示要能一眼看出"这个模型现在能做什么"，而不是一个百分比。
+                tooltipComponents.add(Component.translatable("tooltip.focal_decay.guided_unlock",
+                                GuidedConcept.unlockFor(data.stabilityStrength()).displayName())
+                        .withStyle(ChatFormatting.DARK_AQUA));
             }
         }
         if (Screen.hasShiftDown()) {

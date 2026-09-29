@@ -11,6 +11,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 
 import java.util.ArrayList;
@@ -67,14 +68,87 @@ public final class GuidedConcept {
     /** 兜底候选标签的成员数上限：超过视为"过于泛化"，排除。 */
     private static final int MAX_FALLBACK_CONCEPT_SIZE = 64;
 
-    /** 概念解析结果：概念标签 ID（"" = 无有效概念）+ 完备度 q + 统计。 */
-    public record Concept(String tagId, double q, int trainedBlocks, int conceptSize) {
+    /**
+     * 概念解析结果。
+     *
+     * @param tagId         概念标签 ID（{@code ""} = 无有效概念）
+     * @param q             完备度，见 {@link #computeQ}
+     * @param trainedBlocks 落在该概念里、<b>且拿得到</b>的已记录目标数（分子）
+     * @param conceptSize   该概念的<b>全部</b>成员数（诊断用；界面上"该概念共 N 种"用的是它）
+     * @param trainableSize 其中拿得到的成员数，即封顶前的分母。界面必须照实显示这个数：
+     *                      霜冰那类没有 {@code BlockItem} 的方块永远凑不齐，
+     *                      玩家看不见它就会以为"还差一种"而白找
+     */
+    public record Concept(String tagId, double q, int trainedBlocks, int conceptSize, int trainableSize) {
         public boolean valid() {
             return !tagId.isEmpty() && q > 0.0;
         }
+
+        /** 该完备度解锁到哪一档（见 {@link #unlockFor}）。 */
+        public Unlock unlock() {
+            return unlockFor(q);
+        }
     }
 
-    public static final Concept INVALID = new Concept("", 0.0, 0, 0);
+    public static final Concept INVALID = new Concept("", 0.0, 0, 0, 0);
+
+    /**
+     * q 的四个门槛（2026-09-29，{@code DESIGN.md} §13.10）：
+     * 每一级给一个<b>新的动词</b>，而不是一个更大的数字。
+     * <p>
+     * 判据用<b>存下来的 q</b>（玩家的理解），不是 {@link #effectiveQ 效果期 q}——
+     * 阶段 3 的效果衰减砍的是"引导有多灵"，不该把已经学会的东西收回去。
+     */
+    public enum Unlock {
+        /** 还没有概念。 */
+        NONE("concept.focal_decay.unlock_none", "recorded"),
+        /** 看得见：该概念下的漂移在画面上被标出来。 */
+        SEE("concept.focal_decay.unlock_see", "visible"),
+        /** 让它变：可点火催化域。 */
+        CATALYSE("concept.focal_decay.unlock_catalyse", "can catalyse"),
+        /** 让它产出：可做沉降仪式。 */
+        RITE("concept.focal_decay.unlock_rite", "can perform the rite"),
+        /** 说了算：点火时可点名概念里的某一种方块。 */
+        DICTATE("concept.focal_decay.unlock_dictate", "can dictate the target");
+
+        private final String langKey;
+        private final String fallback;
+
+        Unlock(String langKey, String fallback) {
+            this.langKey = langKey;
+            this.fallback = fallback;
+        }
+
+        public String langKey() {
+            return langKey;
+        }
+
+        public Component displayName() {
+            return Component.translatableWithFallback(langKey, fallback);
+        }
+
+        public boolean atLeast(Unlock other) {
+            return ordinal() >= other.ordinal();
+        }
+    }
+
+    /** 门槛，下标与 {@link Unlock} 的序号一一对应（自测会断言两者同长）。 */
+    public static final double[] UNLOCK_THRESHOLDS = {0.0, 0.25, 0.50, 0.75, 1.0};
+
+    /**
+     * q → 解锁档（纯函数，带 0.5% 容差：界面显示的百分比是四舍五入的，
+     * 玩家看到 100% 时实际值允许差一丝）。
+     */
+    public static Unlock unlockFor(double q) {
+        Unlock best = Unlock.NONE;
+        Unlock[] all = Unlock.values();
+        for (int i = 0; i < UNLOCK_THRESHOLDS.length && i < all.length; i++) {
+            if (q + 5.0e-3 >= UNLOCK_THRESHOLDS[i]) {
+                best = all[i];
+            }
+        }
+        return best;
+    }
 
     private GuidedConcept() {
     }
@@ -126,17 +200,20 @@ public final class GuidedConcept {
             if (size == 0) {
                 continue;
             }
+            // 分子与分母同口径：都只算"拿得到"的成员。否则记录到霜冰会出现
+            // "已记录 4 / 需要 3" 这种自相矛盾的显示（而且它还白占了分数）。
             int trainedIn = 0;
             for (Block block : trained) {
-                if (members.contains(block)) {
+                if (members.contains(block) && isTrainable(block)) {
                     trainedIn++;
                 }
             }
             if (trainedIn <= 0) {
                 continue;
             }
-            double coverage = (double) trainedIn / size;
-            Concept candidate = new Concept(tag.location().toString(), computeQ(trainedIn, coverage), trainedIn, size);
+            int trainable = trainableCount(members);
+            Concept candidate = new Concept(tag.location().toString(), computeQ(trainedIn, trainable),
+                    trainedIn, size, trainable);
             if (best == null || better(candidate, best)) {
                 best = candidate;
             }
@@ -151,13 +228,56 @@ public final class GuidedConcept {
         return a.tagId().compareTo(b.tagId()) < 0;
     }
 
-    /** 完备度：少于最小训练数视为残缺分类 q=0；否则 coverage × 倍率，封顶。 */
-    public static double computeQ(int trainedInConcept, double coverage) {
+    /**
+     * 完备度 q（2026-09-29 改，{@code DESIGN.md} §13.10）：<b>上凸曲线</b>
+     * {@code q = sqrt(已记录 / 需要)}。
+     * <p>
+     * <b>为什么上凸</b>：30 个成员里记录 15 个就该有 70%（{@code sqrt(0.5) = 0.707}），
+     * 但 100% 仍然要求把整个概念记完。于是"早解锁来得快、最后一截很长"——
+     * q ≥ 0.25 只要 6% 的成员，q = 1.0 要 100%。线性曲线会让前期太慢（记录下来没手感）、
+     * 后期太快（最后几十个百分点毫无意义）。
+     * <p>
+     * <b>分母的两端补偿</b>（作者 2026-09-29 定案，起因是"霜冰只能靠冰霜行者获得，
+     * 不补偿则 ice 概念的 q 永远停在 75%"）：
+     * <ol>
+     *   <li>排除没有 {@code BlockItem} 的成员（{@link #isTrainable}）——它们凑不齐，
+     *       留在分母里等于给概念设了一个够不到的天花板；</li>
+     *   <li>再按 {@code guided_q_size_cap} 封顶——大概念（{@code ore} 有三十多种成员）
+     *       否则永远练不满，而主线要用它。</li>
+     * </ol>
+     * 少于 {@code guided_min_trained} 个目标仍视为残缺分类（q = 0）：一个方块不构成概念。
+     *
+     * @param trainedInConcept 落在概念里、且拿得到的已记录目标数（分子）
+     * @param trainableSize    该概念里拿得到的成员数（分母，封顶前的原始值）
+     */
+    public static double computeQ(int trainedInConcept, int trainableSize) {
         if (trainedInConcept < FocalDecayConfig.GUIDED_MIN_TRAINED.get()) {
             return 0.0;
         }
-        double q = coverage * FocalDecayConfig.GUIDED_Q_MULTIPLIER.get();
-        return Math.max(0.0, Math.min(FocalDecayConfig.GUIDED_Q_CAP.get(), q));
+        int required = Math.min(Math.max(trainableSize, 1), FocalDecayConfig.GUIDED_Q_SIZE_CAP.get());
+        double fraction = Math.min((double) trainedInConcept / required, 1.0);
+        return Math.sqrt(fraction);
+    }
+
+    /**
+     * 能不能被"记录"进概念：没有对应物品的方块（霜冰、基岩、刷怪笼…）不该计入分母。
+     * <p>
+     * 判据用 {@code Block#asItem()}——方块没有 {@code BlockItem} 时它返回 {@code Items.AIR}
+     * （{@code PITFALLS.md} §2 那条"用它构造 ItemStack 会得到空栈"的同一个来源）。
+     */
+    public static boolean isTrainable(Block block) {
+        return block.asItem() != Items.AIR;
+    }
+
+    /** 一个池里"拿得到"的成员数。只在训练完成/界面计算时调用，不在热路径上。 */
+    public static int trainableCount(ClassifiedPool members) {
+        int count = 0;
+        for (Block block : members.flat()) {
+            if (isTrainable(block)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /** 效果期完备度：阶段 3 按配置减半（服务端与客户端共用，保证预览一致）。 */
