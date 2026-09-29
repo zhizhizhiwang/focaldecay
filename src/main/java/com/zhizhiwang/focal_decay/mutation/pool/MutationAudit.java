@@ -1654,22 +1654,37 @@ public final class MutationAudit {
         MutationPoolManager manager = MutationPoolManager.get(level);
         BlockPos center = pos.offset(40, 0, 0);
         long now = MutationEventHandler.displayPeriodIndex(level);
+        MutationIndex index = MutationIndexes.get(level.dimension());
         manager.setCatalystField(level, center,
                 new Catalysis.Field(center, 2, 1, now + 5, 0.3, "focal_decay:concept/ore", 0.75));
         boolean live;
+        boolean biased;
         try {
-            live = !manager.catalysisAt(center, now).isActive()
-                    && !manager.catalysisAt(center.offset(2, 0, 0), now).isActive()
-                    && !manager.catalysisAt(center.offset(3, 0, 0), now).forced()
-                    && Math.abs(manager.catalysisAt(center.offset(3, 0, 0), now).wildBonus() - 0.3) < 1.0e-9
+            Catalysis inside = manager.catalysisAt(center, now);
+            Catalysis edge = manager.catalysisAt(center.offset(2, 0, 0), now);
+            Catalysis shell = manager.catalysisAt(center.offset(3, 0, 0), now);
+            live = inside.forced() && !inside.climb() && inside.chanceBonus() == 0.0
+                    && edge.forced()
+                    && !shell.forced() && Math.abs(shell.chanceBonus() - 0.3) < 1.0e-9
+                    && Math.abs(shell.wildBonus() - 0.3) < 1.0e-9
                     && !manager.catalysisAt(center.offset(4, 0, 0), now).isActive()
                     && !manager.catalysisAt(center, now + 6).isActive();
+            // 引导管线的接线（2026-09-29 第三轮恢复）：域内的石头（不是概念成员）必须拿得到
+            // 概念偏向，而壳里拿不到——否则"必中 + 概念落点"里少了一半，域内会按大池乱抽。
+            BlockState stone = Blocks.STONE.defaultBlockState();
+            GuidedBias inner = manager.catalystBiasAt(center, now, index, stone);
+            GuidedBias inShell = manager.catalystBiasAt(center.offset(3, 0, 0), now, index, stone);
+            biased = inner.active(index.shapeClass(Blocks.STONE))
+                    && inShell == GuidedBias.NONE;
         } finally {
             manager.setCatalystField(level, center, null);
         }
-        out.add("[catalysis] the live registry answers through the same rules (nothing inside r=2,"
-                + " spill in the 1-block shell, inert after until): "
+        out.add("[catalysis] the live registry answers through the same rules (forced inside r=2 without"
+                + " the up-tier licence, spill on both channels in the 1-block shell, inert after until): "
                 + (live ? "PASS" : "FAIL"));
+        out.add("[catalysis] the live registry hands the field's concept to the resolver inside, and"
+                + " withholds it in the shell (the cost must not be a reward): "
+                + (biased ? "PASS" : "FAIL"));
         out.add("[catalysis] the field is gone after cleanup (selftest leaves no state behind): "
                 + (!manager.catalysisAt(center, now).isActive() ? "PASS" : "FAIL"));
         return out;
@@ -1700,7 +1715,9 @@ public final class MutationAudit {
         ClassifiedPool oreMembers = index.tagged(oreConcept);
         BlockState stone = Blocks.STONE.defaultBlockState();
         Catalysis.Field field = new Catalysis.Field(pos, 4, 2, 1_000L, 0.3, oreConcept, 1.0);
-        GuidedBias bias = field.biasFor(index, stone);
+        // climb = true：这一条测的就是<b>点火那一次</b>（石头要能被解释成铁矿）。
+        GuidedBias bias = field.biasFor(index, stone, true);
+        Catalysis firing = new Catalysis(true, 0.0, 0.0, true);
 
         int t1 = 0;
         int t0 = 0;
@@ -1708,7 +1725,7 @@ public final class MutationAudit {
         int outsideConcept = 0;
         for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
             Block target = MutationHelper.resolve(stone, pos, upTierOnly(base, 0.0), 1, period, index,
-                    bias, MutationHelper.Protection.NONE, -1L, new Catalysis(true, 0.0)).getBlock();
+                    bias, MutationHelper.Protection.NONE, -1L, firing).getBlock();
             int tier = index.tier(target);
             if (tier == 1) {
                 t1++;
@@ -1742,7 +1759,7 @@ public final class MutationAudit {
         int namedAtHalf = 0;
         for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
             Block target = MutationHelper.resolve(stone, pos, upTierOnly(base, 0.0), 1, period, index,
-                    half, MutationHelper.Protection.NONE, -1L, new Catalysis(true, 0.0)).getBlock();
+                    half, MutationHelper.Protection.NONE, -1L, firing).getBlock();
             if (oreMembers.contains(target)) {
                 namedAtHalf++;
             }
@@ -1750,6 +1767,46 @@ public final class MutationAudit {
         out.add("[catalysis] q still decides how often the concept wins (q=0.5 -> named "
                 + namedAtHalf + "/" + CATALYSIS_SAMPLES + "): "
                 + (namedAtHalf > CATALYSIS_SAMPLES / 5 && namedAtHalf < CATALYSIS_SAMPLES * 4 / 5 ? "PASS" : "FAIL"));
+
+        // ===== 点火之后的<b>持续</b>阶段（2026-09-29 第三轮裁定）=====
+        // 源用点火刚写出来的那一档（铁矿 = T1），域内的必中仍然在，但落点被锁在源自己那一档。
+        // 两条断言成对：只把 climb 打开，就必须真的越级——否则前一条可能只是"什么都没抽到"。
+        BlockState oreSource = Blocks.IRON_ORE.defaultBlockState();
+        int sourceTier = index.tier(oreSource.getBlock());
+        GuidedBias steady = field.biasFor(index, oreSource, false);      // 持续阶段
+        GuidedBias climbing = field.biasFor(index, oreSource, true);     // 对照：只改这一个开关
+        int steadyTargets = 0;
+        int steadyAbove = 0;
+        int climbingAbove = 0;
+        for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
+            Block held = MutationHelper.resolve(oreSource, pos, upTierOnly(base, 0.0), 1, period, index,
+                    steady, MutationHelper.Protection.NONE, -1L,
+                    new Catalysis(true, 0.0, 0.0, false)).getBlock();
+            if (held != oreSource.getBlock()) {
+                steadyTargets++;
+            }
+            if (index.tier(held) > sourceTier) {
+                steadyAbove++;
+            }
+            Block climbed = MutationHelper.resolve(oreSource, pos, upTierOnly(base, 0.0), 1, period, index,
+                    climbing, MutationHelper.Protection.NONE, -1L,
+                    new Catalysis(true, 0.0, 0.0, true)).getBlock();
+            if (index.tier(climbed) > sourceTier) {
+                climbingAbove++;
+            }
+        }
+        out.add("[catalysis] the sustained field keeps forcing but stops climbing tiers (source "
+                + id(Blocks.IRON_ORE) + " T" + sourceTier + "): targets=" + steadyTargets
+                + " aboveSource=" + steadyAbove + " -> "
+                + (steadyTargets > 0 && steadyAbove == 0 ? "PASS" : "FAIL"));
+        // ⚠️ targets 一定<b>小于</b> 128，这不是缺陷：锁档之后的池子里就包含源方块自己，
+        //    而"抽到自己"是合法结果（自环，与原实现"抽中即定格"的语义一致）。
+        //    第一版把验收写成 targets == 128，实测 115 —— 又是一次"上限没先算"。
+        out.add("[catalysis]   (targets < " + CATALYSIS_SAMPLES + " is expected: the tier-locked pool holds the"
+                + " source itself and a self-loop is a legal outcome)");
+        out.add("[catalysis]   (control: flipping ONLY the up-tier licence lets it climb -"
+                + " aboveSource=" + climbingAbove + " -> " + (climbingAbove > 0 ? "PASS" : "FAIL")
+                + "; that is why mining a block you just created no longer upgrades it)");
         return out;
     }
 
@@ -1888,46 +1945,71 @@ public final class MutationAudit {
         // 与实测基线比较，并且用"落点一定不是源方块"的引导池消掉自环，把"必中"钉成精确等式。
         ClassifiedPool ore = index.tagged(ModTags.Blocks.mutationPool("ore").location().toString());
         GuidedBias oreBias = new GuidedBias(ore, 1.0);
+        Catalysis firing = new Catalysis(true, 0.0, 0.0, true);
 
         int plainHits = countHits(index, source, pos, base, Catalysis.NONE, oreBias);
-        int forcedHits = countHits(index, source, pos, base, new Catalysis(true, 0.0), oreBias);
+        int forcedHits = countHits(index, source, pos, base, firing, oreBias);
         out.add("[catalysis] forcing makes every period yield a target ("
                 + CATALYSIS_SAMPLES + " periods on " + id(source) + ", guided by ore so there is no self-loop):"
                 + " plain=" + plainHits + " forced=" + forcedHits + " -> "
                 + (forcedHits == CATALYSIS_SAMPLES && plainHits < CATALYSIS_SAMPLES ? "PASS" : "FAIL"));
         out.add("[catalysis]   (plain is the CUMULATIVE rate of the backscan window, not the 1%/period roll)");
 
-        // spill 圈：只改"从哪儿抽"，不改"抽不抽"。判据是精确等式——
-        // 命中骰子用的是同一条随机流，spill 只影响它之后的"局部/大池"分支，
-        // 所以在"落点一定不是源方块"的引导下，两者的命中数必须一模一样。
-        int spillHits = countHits(index, source, pos, base, new Catalysis(false, 0.75), oreBias);
-        int movedBySpill = countTargetMoves(index, source, pos, base,
-                new Catalysis(true, 0.0), new Catalysis(true, 0.75));
-        out.add("[catalysis] spill bonus moves the draw (local <-> wild) without changing whether it happens:"
-                + " plain=" + plainHits + " spill=" + spillHits + " targetsMoved=" + movedBySpill + " -> "
-                + (spillHits == plainHits && movedBySpill > CATALYSIS_SAMPLES / 10 ? "PASS" : "FAIL"));
+        // spill 圈：两条通道都要有，而且必须分得开（2026-09-29 第三轮裁定）。
+        //   - 命中率通道：域外真的更容易失焦（作者实机反馈："只改落点等于没有代价"）；
+        //   - 落点通道：命中之后更多从大池抽，也就是更不受控。
+        // 判据是三条曲线的<b>关系</b>，不是绝对值：只加落点时命中数必须与基线<b>完全相等</b>
+        // （证明命中骰子用的是同一条随机流、且它确实没被碰），两条都加时才必须更多。
+        Catalysis wildOnly = new Catalysis(false, 0.0, 0.75, false);
+        // "两条通道"这条断言里的域内催化必须<b>从真实的域壳里取</b>，不能手搓一个 Catalysis：
+        // 手搓的绕过了 {@code Field.at}，于是 A/B 开关（它改的正是 Field.at 的输出）
+        // 会漏过这条断言——第一次跑 A/B 就是这样，只有几何那条红了。
+        Catalysis.Field ringField = new Catalysis.Field(pos, 0, 1, 100L, 0.75, "", 0.0);
+        Catalysis ring = ringField.at(pos.offset(1, 0, 0), 50L);
+        // 落点通道那一半必须<b>不带引导</b>地测：带 q=1.0 的引导时"局部/大池"分支根本不会被走到，
+        // 断言会变成一句空话（这也是一条"测试路径没落到"的老坑）。
+        int noBiasPlain = countHits(index, source, pos, base, Catalysis.NONE);
+        int noBiasWildOnly = countHits(index, source, pos, base, wildOnly);
+        int spillHits = countHits(index, source, pos, base, ring, oreBias);
+        int movedBySpill = countTargetMoves(index, source, pos, base, firing,
+                new Catalysis(true, 0.75, 0.75, false));
+        out.add("[catalysis] the spill ring pays on BOTH channels ("
+                + CATALYSIS_SAMPLES + " periods; the ring's own Catalysis comes from Field#at):"
+                + " unguided plain=" + noBiasPlain
+                + " wildOnly=" + noBiasWildOnly + " (must be equal - the draw channel never touches the roll)"
+                + "; guided plain=" + plainHits + " ring=" + spillHits + " (must grow - the chance channel) -> "
+                + (noBiasWildOnly == noBiasPlain && spillHits > plainHits ? "PASS" : "FAIL"));
+        out.add("[catalysis] spill bonus moves the draw (local <-> wild) as well: targetsMoved="
+                + movedBySpill + " -> " + (movedBySpill > CATALYSIS_SAMPLES / 10 ? "PASS" : "FAIL"));
 
-        int insideT1 = countAboveTier(index, source, pos, upTierOnly(base, 1.0), new Catalysis(true, 0.0), 0);
-        int insideAboveT1 = countAboveTier(index, source, pos, upTierOnly(base, 1.0), new Catalysis(true, 0.0), 1);
-        int spillAboveT0 = countAboveTier(index, source, pos, upTierOnly(base, 1.0), new Catalysis(false, 1.0), 0);
-        out.add("[catalysis] up-tier exception applies inside the field only:"
-                + " inside reaching T1=" + insideT1 + ", inside above T1=" + insideAboveT1
+        int insideT1 = countAboveTier(index, source, pos, upTierOnly(base, 1.0), firing, 0);
+        int insideAboveT1 = countAboveTier(index, source, pos, upTierOnly(base, 1.0), firing, 1);
+        int spillAboveT0 = countAboveTier(index, source, pos, upTierOnly(base, 1.0),
+                new Catalysis(false, 1.0, 1.0, false), 0);
+        // 点火之后的持续阶段：必中还在，但越级已经收回（这是"挖一块不再升一档"的那把锁）。
+        int steadyAboveT0 = countAboveTier(index, source, pos, upTierOnly(base, 1.0),
+                new Catalysis(true, 0.0, 0.0, false), 0);
+        out.add("[catalysis] up-tier exception is the ignition's alone:"
+                + " firing reaching T1=" + insideT1 + ", firing above T1=" + insideAboveT1
+                + ", sustained above T0=" + steadyAboveT0
                 + ", spill above T0=" + spillAboveT0 + " -> "
-                + (insideT1 > 0 && insideAboveT1 == 0 && spillAboveT0 == 0 ? "PASS" : "FAIL"));
+                + (insideT1 > 0 && insideAboveT1 == 0 && steadyAboveT0 == 0 && spillAboveT0 == 0
+                        ? "PASS" : "FAIL"));
 
         // 两端一致：同一次催化在两个入口（本端配置 / 同步快照）下必须给出同一个方块。
         int mismatch = 0;
         MutationSettings snapshot = decode(base);
+        Catalysis mixed = new Catalysis(true, 0.4, 0.4, true);
         for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
-            BlockState viaConfig = resolveWith(index, source, pos, base, period, new Catalysis(true, 0.4));
-            BlockState viaSnapshot = resolveWith(index, source, pos, snapshot, period, new Catalysis(true, 0.4));
+            BlockState viaConfig = resolveWith(index, source, pos, base, period, mixed);
+            BlockState viaSnapshot = resolveWith(index, source, pos, snapshot, period, mixed);
             if (viaConfig != viaSnapshot) {
                 mismatch++;
             }
         }
         out.add("[catalysis] both entries agree while a field is active (" + CATALYSIS_SAMPLES
                 + " samples): " + (mismatch == 0 ? "PASS" : "FAIL (" + mismatch + ")"));
-        out.addAll(catalysisFieldSelfTest());
+        out.addAll(catalysisFieldSelfTest(index));
         return out;
     }
 
@@ -1940,7 +2022,7 @@ public final class MutationAudit {
      * <p>
      * 改坐标/半径/有效期就能让任意一条变红——判据是逐点的等式，不是"大概在范围内"。
      */
-    private static List<String> catalysisFieldSelfTest() {
+    private static List<String> catalysisFieldSelfTest(MutationIndex index) {
         List<String> out = new ArrayList<>();
         BlockPos center = new BlockPos(0, 64, 0);
         // 半径 4、spill 圈厚 2、有效到 100 期、溢出差 0.5
@@ -1959,18 +2041,25 @@ public final class MutationAudit {
         Catalysis aboveRing = field.at(new BlockPos(0, 70, 0), 50L);
         Catalysis aboveOutside = field.at(new BlockPos(0, 71, 0), 50L);
 
-        // 域内<b>不再</b>持续必中（点火是一次事件，写入用的那一次是显式构造的 Catalysis）：
-        // 所以域内三个点都必须是"什么都没有"，只有壳里才有 spill。
-        boolean geometryOk = !atCenter.isActive() && !atEdge.isActive() && !aboveForced.isActive()
-                && !inRing.forced() && Math.abs(inRing.wildBonus() - 0.5) < 1.0e-9
+        // 域内 = 持续必中（且<b>不带</b>越级许可：那一档只在点火那一刻发出去）；
+        // 壳里 = 两条代价通道都有，但没有必中、也没有越级。
+        boolean insideForced = atCenter.forced() && !atCenter.climb()
+                && atCenter.chanceBonus() == 0.0 && atCenter.wildBonus() == 0.0
+                && atEdge.forced() && aboveForced.forced();
+        boolean shellSpill = !inRing.forced() && Math.abs(inRing.chanceBonus() - 0.5) < 1.0e-9
+                && Math.abs(inRing.wildBonus() - 0.5) < 1.0e-9
                 && inRing.isActive() // 壳里有 spill，所以是活着的
+                && !aboveRing.forced() && Math.abs(aboveRing.chanceBonus() - 0.5) < 1.0e-9
+                && Math.abs(aboveRing.wildBonus() - 0.5) < 1.0e-9;
+        boolean geometryOk = insideForced && shellSpill
                 && !outside.isActive()
-                && !expired.isActive() && !lastPeriod.isActive()
-                && !aboveRing.forced() && Math.abs(aboveRing.wildBonus() - 0.5) < 1.0e-9
+                && !expired.isActive()
+                // 有效期是<b>闭区间</b>：到 until 那一刻域还在（域内在必中），下一期才什么都没有。
+                && lastPeriod.forced()
                 && !aboveOutside.isActive();
-        out.add("[catalysis] field geometry (nothing inside r=4, spill in the 2-block shell only,"
-                + " nothing beyond; verified on the vertical axis too) and expiry at the synced period: "
-                + (geometryOk ? "PASS" : "FAIL"));
+        out.add("[catalysis] field geometry (forced inside r=4 without the up-tier licence, spill on both"
+                + " channels in the 2-block shell only, nothing beyond; verified on the vertical axis too)"
+                + " and expiry at the synced period: " + (geometryOk ? "PASS" : "FAIL"));
 
         Catalysis.Field inactive = new Catalysis.Field(center, 4, 2, -1L, 0.5, "", 0.0);
         out.add("[catalysis] a field with until < 0 is inert (that is how removal is encoded): "
@@ -1987,12 +2076,19 @@ public final class MutationAudit {
         Catalysis inside = Catalysis.at(List.of(narrowA, narrowB), new BlockPos(0, 64, 0), 50L);
         Catalysis reversedShells = Catalysis.at(List.of(narrowB, narrowA), new BlockPos(2, 64, 0), 50L);
         Catalysis reversedInside = Catalysis.at(List.of(narrowB, narrowA), new BlockPos(0, 64, 0), 50L);
-        boolean mergeOk = !bothShells.forced() && Math.abs(bothShells.wildBonus() - 0.9) < 1.0e-9
-                && !inside.isActive()
+        boolean mergeOk = !bothShells.forced() && Math.abs(bothShells.chanceBonus() - 0.9) < 1.0e-9
+                && Math.abs(bothShells.wildBonus() - 0.9) < 1.0e-9
+                && inside.forced()
                 && bothShells.equals(reversedShells) && inside.equals(reversedInside);
         out.add("[catalysis] overlapping fields merge order-independently"
-                + " (max spill in the shells; nothing at the centre): " + (mergeOk ? "PASS" : "FAIL")
-                + " [shells spill=" + bothShells.wildBonus() + " centre=" + inside.isActive() + "]");
+                + " (max spill in the shells, the centre is forced by its own field): "
+                + (mergeOk ? "PASS" : "FAIL")
+                + " [shells spill=" + bothShells.wildBonus() + " centre forced=" + inside.forced() + "]");
+
+        // 域内的概念落点（{@code Catalysis#biasAt}）：这是"必中"的另一半——
+        // 没有它，域内会按局部/大池抽，点火刚写出来的矿会被下一次重抽吃掉。
+        // 三条一起钉：只在必中区给偏向、池子锁在源自己那一档（不越级）、多片域按 q 决胜且与顺序无关。
+        out.addAll(catalysisBiasSelfTest(index, field, center));
 
         // 数据包：往返 + 逐字段翻转。equals 往返测不出"漏搬一个字段"（两边都会落到默认值），
         // 所以每个字段各造一个"只改它"的变体，解码之后必须与原件不同。
@@ -2022,6 +2118,76 @@ public final class MutationAudit {
         }
         out.add("[catalysis] every field of that packet is really encoded (8 single-field variants): "
                 + (collapsed == 0 ? "PASS" : "FAIL (" + collapsed + " collapsed)"));
+        return out;
+    }
+
+    /**
+     * 域内<b>概念落点</b>的纯函数自测（2026-09-29 第三轮恢复的那一半）。
+     * <p>
+     * 这些判据两端共用同一个纯函数（{@code Catalysis#biasAt}），所以"算得一样"是结构保证；
+     * 这里钉的是<b>规则本身</b>有没有被写反：
+     * <ol>
+     *   <li><b>只有必中区给偏向</b>：石头不是矿物概念的成员，域内也必须拿得到偏向
+     *       （点火＝点名）；壳里与过期之后一律没有（代价不能变成奖励）；</li>
+     *   <li><b>池子锁在源自己那一档</b>：源是 T1 的矿时，池里不许出现高一档的成员——
+     *       这是"挖走刚写出来的矿不再升一档"的另一把锁（另一把是 {@code climb}）；</li>
+     *   <li><b>多片域按 q 决胜、与列表顺序无关</b>：服务端按登记顺序、客户端按到达顺序遍历。</li>
+     * </ol>
+     * 第一条的 A/B 由 <b>调用侧</b>提供：{@code MutationPoolManager#catalystBiasAt} 上的
+     * {@code -Dfocaldecay.abNoFieldBias=true} 用来证明"登记表真的把概念交出去了"那条断言会红；
+     * 第二条的 A/B 是 {@code catalystCommandSelfTest} 里那个"只翻转 {@code climb}"的对照；
+     * 本条内部不再另设开关——<b>纯函数测规则、登记表测接线</b>，两者的开关各自管一段。
+     */
+    private static List<String> catalysisBiasSelfTest(MutationIndex index, Catalysis.Field field,
+                                                      BlockPos center) {
+        List<String> out = new ArrayList<>();
+        BlockState stone = Blocks.STONE.defaultBlockState();
+        BlockState iron = Blocks.IRON_ORE.defaultBlockState();
+        int stoneShape = index.shapeClass(Blocks.STONE);
+        int ironShape = index.shapeClass(Blocks.IRON_ORE);
+
+        GuidedBias insideStone = Catalysis.biasAt(List.of(field), center, 50L, index, stone);
+        GuidedBias inShell = Catalysis.biasAt(List.of(field), new BlockPos(6, 64, 0), 50L, index, stone);
+        GuidedBias expired = Catalysis.biasAt(List.of(field), center, 101L, index, stone);
+        boolean naming = insideStone.active(stoneShape) && !insideStone.climb()
+                && inShell == GuidedBias.NONE && expired == GuidedBias.NONE;
+        out.add("[catalysis] the field names the outcome inside the forced box only: stone (not an ore"
+                + " concept member) is named inside, and nothing is named in the shell or after expiry: "
+                + (naming ? "PASS" : "FAIL"));
+
+        // "锁定在源自己那一档"：逐个数池子里的成员，不问它会不会被抽到（抽样测不出"池里没有"）。
+        GuidedBias insideIron = Catalysis.biasAt(List.of(field), center, 50L, index, iron);
+        int cap = Math.min(index.tier(Blocks.IRON_ORE), Tiers.MAX_NATURAL_TIER);
+        int poolSize = insideIron.active(ironShape) ? insideIron.pool().count(ironShape) : 0;
+        int poolAbove = 0;
+        int poolOffSource = 0;
+        if (poolSize > 0) {
+            for (int i = 0; i < poolSize; i++) {
+                Block member = insideIron.pool().get(ironShape, i);
+                if (index.tier(member) > cap) {
+                    poolAbove++;
+                }
+                if (index.shapeClass(member) != ironShape) {
+                    poolOffSource++;
+                }
+            }
+        }
+        out.add("[catalysis] the sustained field's pool stays at the source's own tier (source "
+                + id(Blocks.IRON_ORE) + " T" + index.tier(Blocks.IRON_ORE) + ", cap T" + cap + "): members="
+                + poolSize + " aboveCap=" + poolAbove + " wrongShape=" + poolOffSource + " -> "
+                + (poolSize > 0 && poolAbove == 0 && poolOffSource == 0 ? "PASS" : "FAIL"));
+
+        // 多片域：q 大者胜，且与顺序无关。
+        Catalysis.Field strong = new Catalysis.Field(center, 4, 2, 100L, 0.5, "focal_decay:concept/ore", 0.9);
+        Catalysis.Field weak = new Catalysis.Field(center.offset(1, 0, 0), 4, 2, 100L, 0.5,
+                "focal_decay:concept/ore", 0.4);
+        GuidedBias forward = Catalysis.biasAt(List.of(strong, weak), center, 50L, index, stone);
+        GuidedBias backward = Catalysis.biasAt(List.of(weak, strong), center, 50L, index, stone);
+        boolean arbitration = forward.pool() == backward.pool() && forward.q() == backward.q()
+                && forward.climb() == backward.climb() && Math.abs(forward.q() - 0.9) < 1.0e-9;
+        out.add("[catalysis] overlapping fields pick the stronger concept (q=0.9 beats q=0.4)"
+                + " order-independently: " + (arbitration ? "PASS" : "FAIL")
+                + " [q=" + forward.q() + "]");
         return out;
     }
 

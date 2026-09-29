@@ -131,16 +131,24 @@ public final class MutationHelper {
      * 唯一的升档例外是引导/催化下的 {@code upTierChance}，骰子走<b>独立随机流</b>，
      * 所以打开/关闭护栏不会扰动"抽哪个目标"这条主流（见 {@link Tiers#UP_TIER_SALT}）。
      * <p>
-     * <b>催化域</b>（{@link Catalysis}）在这里生效，且只改两件事：
-     * "是否发生"（{@link Catalysis#forced()} → 必中）与"大池概率"（{@link Catalysis#wildBonus()}）；
-     * 它<b>不改</b>落点公式——落点仍然由引导模型的概念 + q 决定。
+     * <b>催化域</b>（{@link Catalysis}）在这里生效，且只改三件事：
+     * "是否发生"（{@link Catalysis#forced()} → 必中，或 {@link Catalysis#chanceBonus()} → 提高命中率）、
+     * "大池概率"（{@link Catalysis#wildBonus()}）与"是否放行越级"（{@link Catalysis#climb()}）；
+     * 它<b>不改</b>落点公式——落点仍然由引导（模型的概念 + q）决定。
+     * <p>
+     * <b>三个"概率"不要混</b>（2026-09-29 的教训）：命中率（{@code chance}）、
+     * 命中之后走大池的比例（{@code wildChance}）、越级骰子（{@code upTierChance}）
+     * 是三件独立的事，说"提高概率"时必须点名是哪一个。催化域此前只动了第二个，
+     * 于是"域外更容易失焦"这个代价在 1% 命中率下几乎看不见（作者实机反馈）。
      */
     private static BlockState resolveInternal(BlockState source, BlockPos pos, long worldSeed, double chance,
                                               double wildChance, double upTierChance, long periodIndex,
                                               MutationIndex index, GuidedBias bias, Protection protection,
                                               long birthPeriod, Catalysis catalysis) {
-        // 催化只在这里改写两个输入，之后整条管线（含两端的预览）看到的都是改写后的值。
-        double effectiveChance = catalysis.forced() ? Catalysis.FORCED_CHANCE : chance;
+        // 催化只在这里改写三个输入，之后整条管线（含两端的预览）看到的都是改写后的值。
+        double effectiveChance = catalysis.forced()
+                ? Catalysis.FORCED_CHANCE
+                : Math.min(1.0, chance + catalysis.chanceBonus());
         double effectiveWild = Math.min(1.0, wildChance + catalysis.wildBonus());
         if (protection.hard() || effectiveChance <= 0.0 || index == null || index.isEmpty()) {
             return source;
@@ -183,15 +191,20 @@ public final class MutationHelper {
         int conceptCount = biased ? bias.pool().count(shapeClass) : 0;
         // tier 护栏的上限：只降不升，加上"引导下有小概率跨一级"。A/B 开关打开时直接放开，
         // 于是除护栏之外的行为与改动前逐位相同（骰子走独立流，不消耗主流）。
-        // 越级例外分两种（2026-09-29 依作者反馈改）：
-        //   - **催化域内是确定性的**：火本身就是"这次升级"的凭据。原来是逐周期掷 10%，
-        //     而每次更新的周期命中都会重抽一次落点，于是升级几乎立刻被下一次普通抽取覆盖——
-        //     作者的原话是"这次提升了下次还是按照没提升的抽取，整体还是在下降"，
-        //     那是**结构性**的，不是概率太低（提高概率也治不了被覆盖）。
-        //   - **域外（只有引导模型）仍掷骰**：那是背景性的影响，不该等于一张许可证。
-        // 两种情况都封顶在 T3：T4（下界合金块）永远只能靠沉降仪式。
-        boolean forcedUpTier = catalysis.forced();
-        boolean upTierEligible = biased || forcedUpTier;
+        // 越级例外分三种（2026-09-29 依作者两轮反馈改）：
+        //   - **点火那一次是确定性的**（{@code climb = true}）：火本身就是"这次升级"的凭据。
+        //     原来是逐周期掷 10%，而每次更新的周期命中都会重抽一次落点，于是升级几乎立刻被
+        //     下一次普通抽取覆盖——作者的原话是"这次提升了下次还是按照没提升的抽取，
+        //     整体还是在下降"，那是**结构性**的，不是概率太低（提高概率也治不了被覆盖）。
+        //   - **点火之后的持续域内允许掷骰**（背景引导，{@code bias.climb()}）：
+        //     与原型机的背景引导同一档待遇，小概率、不确定。
+        //   - **点火之后的持续域内不再确定越级**：这是作者第二轮裁定的落点——
+        //     "挖走刚写出来的铁矿就能拿到下一档"是一次点火变成升级机的根源，
+        //     而"每次升档要重新点一次火"是台阶链的骨架（{@code BACKLOG.md}）。
+        //     {@code Catalysis#biasFor} 同时把池子限制在源自己那一档，两道锁一起上。
+        // 三种情况都封顶在 T3：T4（下界合金块）永远只能靠沉降仪式。
+        boolean forcedUpTier = catalysis.climb();
+        boolean upTierEligible = forcedUpTier || (biased && bias.climb());
         int maxTargetTier = Tiers.gateDisabled()
                 ? Tiers.MAX_TIER
                 : Tiers.maxTargetTier(index.tier(sourceBlock),

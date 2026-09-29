@@ -88,6 +88,17 @@ neoForge {
             if (System.getProperty('focaldecay.abOldBreakPipeline') != null) {
                 systemProperty 'focaldecay.abOldBreakPipeline', System.getProperty('focaldecay.abOldBreakPipeline')
             }
+            // 催化域的两个 A/B 开关（2026-09-29 第三轮）：
+            //   abNoSpillChance=true → spill 圈不再提高命中率，
+            //     "the spill ring pays on BOTH channels" 必须 FAIL；
+            //   abNoFieldBias=true   → 域内不再有概念落点，
+            //     "the field names the outcome inside the forced box only" 必须 FAIL。
+            if (System.getProperty('focaldecay.abNoSpillChance') != null) {
+                systemProperty 'focaldecay.abNoSpillChance', System.getProperty('focaldecay.abNoSpillChance')
+            }
+            if (System.getProperty('focaldecay.abNoFieldBias') != null) {
+                systemProperty 'focaldecay.abNoFieldBias', System.getProperty('focaldecay.abNoFieldBias')
+            }
             if (System.getProperty('focaldecay.clientStatsSmoke') != null) {
                 systemProperty 'focaldecay.clientStatsSmoke', System.getProperty('focaldecay.clientStatsSmoke')
             }

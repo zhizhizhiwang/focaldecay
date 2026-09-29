@@ -238,6 +238,25 @@ public class MutationPoolManager extends SavedData {
         return Catalysis.at(List.copyOf(catalystFields.values()), pos, period);
     }
 
+    /**
+     * 催化域给这个位置的<b>引导偏向</b>（{@code DESIGN.md} §13.8）。
+     * <p>
+     * 这一条是"点火＝点名"的落点：原型机的引导是背景性的（只对概念内成员生效），
+     * 而观测者点了火，就是宣称这片区域归这个概念管——石头也按矿物来解释。
+     * 理由与实机反馈见 {@link Catalysis.Field#biasFor}；
+     * <b>只有必中区有偏向、且不允许越级</b>，理由见 {@link Catalysis#biasAt}。
+     * <p>
+     * A/B 开关（{@code -Dfocaldecay.abNoFieldBias=true}）：把这条偏向整个掐掉，
+     * 用来证明"域内的必中必须配概念落点"那条断言真的在测东西——
+     * 掐掉之后域内会按局部/大池抽，点火刚写出来的矿会被下一次重抽吃掉。
+     */
+    public GuidedBias catalystBiasAt(BlockPos pos, long period, MutationIndex index, BlockState source) {
+        if (catalystFields.isEmpty() || Catalysis.fieldBiasDisabledForTest()) {
+            return GuidedBias.NONE;
+        }
+        return Catalysis.biasAt(List.copyOf(catalystFields.values()), pos, period, index, source);
+    }
+
     public void updatePrototypeEffect(ServerLevel level, BlockPos pos, ItemStack modelStack) {
         prototypeEffects.removeIf(e -> e.center().equals(pos));
         prototypeEffectsView = null; // 内部列表变了：丢弃不可变视图缓存

@@ -198,7 +198,15 @@ INNER_EOF
 ```bash
 # 把挖掘路径换回重构前那套手工管线，[break] 的核心断言应当 FAIL
 ./gradlew.bat runServer -Dfocaldecay.abOldBreakPipeline=true
+
+# 催化域：spill 圈不再提高命中率 -> "pays on BOTH channels" 与几何断言应当 FAIL
+./gradlew.bat runServer -Dfocaldecay.abNoSpillChance=true
+
+# 催化域：登记表不再交出域内的概念 -> "hands the field's concept to the resolver" 应当 FAIL
+./gradlew.bat runServer -Dfocaldecay.abNoFieldBias=true
 ```
+> 两个新开关在 `build.gradle` 里各转发了一行（`JavaExec` 不继承命令行的 `-D`，
+> 上面那条 ⚠️ 说的就是这个坑）。
 
 > ⚠️ **客户端"起得来"不等于"mixin 生效"**。mixin 被跳过时游戏照样进得去，
 > 只是所有"按可见目标"的行为静默退回原版（表现是"模组好像没生效"），不会崩、不会报错。

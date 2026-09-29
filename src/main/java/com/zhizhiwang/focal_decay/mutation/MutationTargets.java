@@ -48,9 +48,11 @@ public final class MutationTargets {
         // 服务端各处直接读配置就会留下"两条取值路径"，而两条路径在局域网里会分叉。
         MutationSettings settings = MutationSettings.server(level.getSeed());
         Catalysis catalysis = manager.catalysisAt(pos, periodIndex);
-        // 点火之后这片地已经是"写出来的结果"，引导只在点火那一刻用过（field.biasFor）——
-        // 这里老老实实用在场原型机的背景引导，别让一次点火永久占用这片区域的落点。
-        GuidedBias bias = manager.getGuidedBias(pos, state, stage);
+        // 点火优先：域内的概念跳过"源必须属于概念"这道门（点火＝点名，见 Catalysis.Field#biasFor）。
+        // spill 圈不算——那是无法瞄准的漂移，维持原型机那种背景引导。
+        GuidedBias bias = catalysis.forced()
+                ? manager.catalystBiasAt(pos, periodIndex, index, state)
+                : manager.getGuidedBias(pos, state, stage);
         return MutationHelper.resolve(state, pos, settings, stage,
                 periodIndex, index,
                 bias,

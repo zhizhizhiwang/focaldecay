@@ -135,25 +135,30 @@ public final class FocalDecayConfig {
                         "period, so this is 'how long the wave lasts', not 'how strong it is'.")
                 .defineInRange("catalyst_duration_periods", 20, 1, 6000);
         CATALYST_RING_WIDTH = builder
-                .comment("Thickness (in blocks) of the spill shell outside a lit catalyst: that ring gets its",
-                        "wild_chance raised by catalyst_spill_bonus. This is the cost of directing defocus --",
-                        "you decide what the centre becomes, not what the surroundings become.")
+                .comment("Thickness (in blocks) of the spill shell outside a lit catalyst: that ring pays the",
+                        "price of directing defocus (catalyst_spill_bonus) -- you decide what the centre",
+                        "becomes, not what the surroundings become.")
                 .defineInRange("catalyst_ring_width", 8, 0, 64);
         CATALYST_SPILL_BONUS = builder
-                .comment("Added to wild_chance inside the spill shell (0-1). 0 means directing defocus is free,",
-                        "which is not the intent; the shell is what keeps a base from being both factory and",
-                        "fortress at the same time.")
+                .comment("The spill shell's price (0-1), added to BOTH of these for blocks in the ring:",
+                        "  - the per-cycle mutation chance (so the ring really does defocus more often), and",
+                        "  - wild_chance (so what it becomes is drawn from the big pool, i.e. uncontrolled).",
+                        "0 means directing defocus is free, which is not the intent: the shell is what keeps",
+                        "a base from being both factory and fortress at the same time.",
+                        "Note the ring is never guided and never goes up a tier -- it is junk, not free ore.")
                 .defineInRange("catalyst_spill_bonus", 0.25, 0.0, 1.0);
         GUIDE_UP_TIER_CHANCE = builder
-                .comment("Chance (0-1) that a GUIDED or CATALYSED mutation is allowed to reach one tier above its",
-                        "source block (tier = 'how much civilisation it takes to obtain'). Natural defocus never",
-                        "goes up a tier, and no mutation ever reaches the compression tier T4 (netherite_block),",
-                        "which the precipitation rite is the only source of. Must match on both sides.",
+                .comment("Chance (0-1) that a GUIDED mutation is allowed to reach one tier above its source block",
+                        "(tier = 'how much civilisation it takes to obtain'). Natural defocus never goes up a",
+                        "tier, and no mutation ever reaches the compression tier T4 (netherite_block), which the",
+                        "precipitation rite is the only source of. Must match on both sides.",
                         "0 disables the exception entirely.",
-                        "This only affects a prototype's background guidance: inside a LIT catalyst the exception",
-                        "is deterministic (the fire itself is the licence). NOTE: changing this default does not",
-                        "touch an existing config file - edit run/config/focal_decay-server.toml if you already ran",
-                        "the game once.")
+                        "This is the dice for BACKGROUND guidance (a prototype's model) and for the interior of a",
+                        "LIT catalyst after ignition. The ignition itself is deterministic (the fire is the",
+                        "licence, and that single step is the only way to climb a tier) -- so raising a tier",
+                        "costs one fire per step, not one mined block. NOTE: changing this default does not touch",
+                        "an existing config file - edit run/config/focal_decay-server.toml if you already ran the",
+                        "game once.")
                 .defineInRange("guide_up_tier_chance", 0.25, 0.0, 1.0);
         WILD_AUTO_INCLUDE = builder
                 .comment("Automatically add every full-cube block without a block entity to the wild pool,",

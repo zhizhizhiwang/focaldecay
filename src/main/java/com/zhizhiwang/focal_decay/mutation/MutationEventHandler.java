@@ -223,7 +223,9 @@ public class MutationEventHandler {
         MutationSettings settings = MutationSettings.server(level.getSeed());
         MutationIndex index = MutationIndexes.get(level.dimension());
         MutationPoolManager manager = MutationPoolManager.get(level);
-        Catalysis catalysis = new Catalysis(true, 0.0);
+        // 点火那一次是<b>唯一</b>允许越级的场合（climb=true）：石头要能被解释成铁矿，
+        // 这一档是火给的凭据，也是台阶链"一次火一档"的唯一来源。
+        Catalysis catalysis = new Catalysis(true, 0.0, 0.0, true);
 
         long[] counters = new long[3];
         BlockPos.betweenClosed(center.offset(-radius, -radius, -radius), center.offset(radius, radius, radius))
@@ -241,7 +243,7 @@ public class MutationEventHandler {
                         return;
                     }
                     counters[0]++;
-                    GuidedBias bias = field.biasFor(index, state);
+                    GuidedBias bias = field.biasFor(index, state, true);
                     BlockState target = MutationHelper.resolve(state, p, settings, stage, periodIndex, index,
                             bias, protection, manager.getBlockBirthPeriod(p), catalysis);
                     if (target != state) {

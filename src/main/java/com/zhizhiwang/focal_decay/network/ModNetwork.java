@@ -26,8 +26,11 @@ public final class ModNetwork {
      * 2 → 3：{@code MutationSettings} 增加"引导跨级概率"字段（P2-7 第①步）。
      * 3 → 4：新增 S→C 的 {@link SyncCatalystFieldPacket}（P2-7 第③步）。
      * 4 → 5：催化域带上"概念 + 完备度"（作者实机反馈 #4/#6：火要点名，否则插着的模型对落点毫无影响）。
+     * 5 → 6：域内改回"持续必中 + 概念落点（不越级）"、域外 spill 加进命中率（作者实机反馈第三轮：
+     *        "发生失焦的方块明显变少了"）。<b>报文格式没变，但同一片域解析出的结论变了</b>——
+     *        两端版本不一致时会静默算出不同的世界，这正是协议版本要挡的东西（§3.2）。
      */
-    public static final String PROTOCOL_VERSION = "5";
+    public static final String PROTOCOL_VERSION = "6";
 
     private ModNetwork() {
     }

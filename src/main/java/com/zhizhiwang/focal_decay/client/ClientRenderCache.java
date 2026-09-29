@@ -1113,8 +1113,10 @@ public final class ClientRenderCache {
         int stage = settings.stage(worldDays);
         long period = settings.displayPeriod(level.getGameTime(), clockSpeed, clockOffset);
         Catalysis catalysis = regions.catalysis(level.dimension(), pos, period);
-        // 与服务端逐字同一条规则：点火之后只剩域外那圈 spill，引导用原型机的背景引导。
-        GuidedBias bias = ClientRegionData.guidedBias(guided, pos, original, stage, settings.guidedStage3Halve());
+        // 与服务端逐字同一条规则：点火优先，域内跳过源门控；域外维持背景引导。
+        GuidedBias bias = catalysis.forced()
+                ? regions.catalystBias(level.dimension(), pos, period, index, original)
+                : ClientRegionData.guidedBias(guided, pos, original, stage, settings.guidedStage3Halve());
         return MutationHelper.resolve(original, pos, settings, stage, period, index,
                 bias,
                 regions.protectionInfo(level.dimension(), pos, original, stage, settings),
