@@ -227,20 +227,6 @@ final class ClientRegionData {
         regionVersion++;
     }
 
-    /**
-     * 催化域给这个位置的引导偏向（客户端用自己那一端的显示刻与自己的索引）。
-     * <p>
-     * 与服务端同一个纯函数（{@link Catalysis#biasAt}），所以"两端算得一样"是结构保证。
-     */
-    GuidedBias catalystBias(ResourceKey<Level> dimension, BlockPos pos, long period,
-                            MutationIndex index, BlockState source) {
-        RegionData data = dimension == null ? null : byDimension.get(dimension);
-        if (data == null || data.catalystFields.isEmpty()) {
-            return GuidedBias.NONE;
-        }
-        return Catalysis.biasAt(List.copyOf(data.catalystFields.values()), pos, period, index, source);
-    }
-
     /** 该位置此刻受到的催化（客户端用自己那一端的显示刻）。 */
     Catalysis catalysis(ResourceKey<Level> dimension, BlockPos pos, long period) {
         RegionData data = dimension == null ? null : byDimension.get(dimension);

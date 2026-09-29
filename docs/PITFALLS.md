@@ -214,6 +214,11 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 - **改 `data/` 下任何 Provider 之后必须跑 `.\gradlew.bat runData`**，产物在 `src/generated/resources`。
 - **数据文件不要靠"看起来对"**：跑 `.\gradlew.bat runServer` 让开发服务器加载一遍数据包，
   日志会直接给 codec 错误（例如 `No key spawn_overrides in MapLike`）。
+- **方块不掉落，先怀疑"有没有战利品表"**（2026-09-29 新增）：1.21 的方块掉落
+  完全由 `data/<ns>/loot_table/blocks/<id>.json` 决定，**没有那张表就是什么都不掉**——
+  没有"掉自己"的兜底。本项目战利品表一律手写，所以每加一个可破坏的方块都要**手动**补一张；
+  漏掉的症状是"方块没了、东西也没了"，而日志里一个字都没有。
+  `[loot]` 段把这件事变成了结构性断言（列出应该掉自己的方块，逐个问引擎要掉落物）。
 - **战利品表不能走数据生成**：`LootTableProvider.run()` 写盘时统一用原版 `LootTable.DIRECT_CODEC`
   重新编码，**自定义条件键会被静默丢弃**，所以战利品表一律手写。
 - **`neoforge:conditions` 不是 vanilla 战利品条件**。它是 NeoForge **数据包条件**（注册在 `CONDITION_SERIALIZERS`），
@@ -290,6 +295,12 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
   会被整体砍掉。
 
 ### 6.2 缓存的有效期要覆盖**全部**输入
+
+> **实例（2026-09-29）**：催化域的到达改变了域外那圈的 `wild_chance`，而客户端的
+> `applyCatalystField` 只更新了镜像、**没有作废幽灵缓存**（诞生周期那条路径一直有这一步）。
+> 后果不是"显示旧了"那么轻：客户端与服务端对同一格给出不同目标，玩家一右键，
+> "所见即所得"就把方块换成他没在看的那个。**加任何新的同步输入时，问一句
+> "它让哪些旧结论失效了"**——答案通常不只是一个坐标。
 "时间没过期"不等于"结论还成立"。
 - 幽灵是 `(真实方块, 位置, 种子, 周期)` 的函数，只判周期是不够的：
   玩家挖掉方块时周期没变，缓存里"石头显示成钻石矿"还在，而面剔除会拿它当"那里有块不透明方块"

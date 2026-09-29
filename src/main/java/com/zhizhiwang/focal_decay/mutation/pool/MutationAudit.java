@@ -434,6 +434,7 @@ public final class MutationAudit {
         out.addAll(catalystRegistrySelfTest(level, pos));
         out.addAll(catalystCommandSelfTest(index));
         out.addAll(catalystWriteSelfTest(level, pos, index));
+        out.addAll(lootSelfTest(level, pos));
         out.addAll(dimensionPoolSelfTest());
         return out;
     }
@@ -1657,8 +1658,8 @@ public final class MutationAudit {
                 new Catalysis.Field(center, 2, 1, now + 5, 0.3, "focal_decay:concept/ore", 0.75));
         boolean live;
         try {
-            live = manager.catalysisAt(center, now).forced()
-                    && manager.catalysisAt(center.offset(2, 0, 0), now).forced()
+            live = !manager.catalysisAt(center, now).isActive()
+                    && !manager.catalysisAt(center.offset(2, 0, 0), now).isActive()
                     && !manager.catalysisAt(center.offset(3, 0, 0), now).forced()
                     && Math.abs(manager.catalysisAt(center.offset(3, 0, 0), now).wildBonus() - 0.3) < 1.0e-9
                     && !manager.catalysisAt(center.offset(4, 0, 0), now).isActive()
@@ -1666,7 +1667,8 @@ public final class MutationAudit {
         } finally {
             manager.setCatalystField(level, center, null);
         }
-        out.add("[catalysis] the live registry answers through the same rules (r=2, shell=1, until=+5): "
+        out.add("[catalysis] the live registry answers through the same rules (nothing inside r=2,"
+                + " spill in the 1-block shell, inert after until): "
                 + (live ? "PASS" : "FAIL"));
         out.add("[catalysis] the field is gone after cleanup (selftest leaves no state behind): "
                 + (!manager.catalysisAt(center, now).isActive() ? "PASS" : "FAIL"));
@@ -1826,6 +1828,36 @@ public final class MutationAudit {
         return out;
     }
 
+    /**
+     * 掉落自测（2026-09-29，作者实机反馈"挖掘催化方块只掉模型不掉落方块"）。
+     * <p>
+     * 根因是<b>漏了战利品表</b>：1.21 里方块掉落完全由 {@code data/<ns>/loot_table/blocks/<id>.json}
+     * 决定，没有那张表就是<b>什么都不掉</b>（不像旧版本有"掉自己"的兜底）。而本项目的战利品表
+     * 一律手写（{@code LootTableProvider} 会用原版 codec 重新编码，自定义条件键会被静默丢弃，
+     * 见 PITFALLS §3），所以它就是一张容易被忘掉的手写清单。
+     * <p>
+     * 这条断言做成<b>结构性</b>的：把"应该掉自己"的方块列出来逐个问引擎要掉落物。
+     * 以后再加机器忘了写表，这里直接红——比"进游戏挖一下看看"可靠得多。
+     */
+    private static List<String> lootSelfTest(ServerLevel level, BlockPos pos) {
+        List<String> out = new ArrayList<>();
+        List<Block> machines = List.of(
+                ModBlocks.ANCHOR_PROTOTYPE.get(),
+                ModBlocks.TRAINING_TERMINAL.get(),
+                ModBlocks.SEMANTIC_CATALYST.get());
+        List<String> noDrop = new ArrayList<>();
+        for (Block machine : machines) {
+            boolean dropsSelf = Block.getDrops(machine.defaultBlockState(), level, pos, null).stream()
+                    .anyMatch(stack -> stack.is(machine.asItem()));
+            if (!dropsSelf) {
+                noDrop.add(id(machine));
+            }
+        }
+        out.add("[loot] every breakable machine drops itself (" + machines.size() + " checked): "
+                + (noDrop.isEmpty() ? "PASS" : "FAIL (no loot table) -> " + noDrop));
+        return out;
+    }
+
     /** 催化域自测的采样周期数。 */
     private static final int CATALYSIS_SAMPLES = 128;
 
@@ -1927,16 +1959,17 @@ public final class MutationAudit {
         Catalysis aboveRing = field.at(new BlockPos(0, 70, 0), 50L);
         Catalysis aboveOutside = field.at(new BlockPos(0, 71, 0), 50L);
 
-        boolean geometryOk = atCenter.forced() && atCenter.wildBonus() == 0.0
-                && atEdge.forced()
+        // 域内<b>不再</b>持续必中（点火是一次事件，写入用的那一次是显式构造的 Catalysis）：
+        // 所以域内三个点都必须是"什么都没有"，只有壳里才有 spill。
+        boolean geometryOk = !atCenter.isActive() && !atEdge.isActive() && !aboveForced.isActive()
                 && !inRing.forced() && Math.abs(inRing.wildBonus() - 0.5) < 1.0e-9
+                && inRing.isActive() // 壳里有 spill，所以是活着的
                 && !outside.isActive()
-                && !expired.isActive() && lastPeriod.forced()
-                && aboveForced.forced()
+                && !expired.isActive() && !lastPeriod.isActive()
                 && !aboveRing.forced() && Math.abs(aboveRing.wildBonus() - 0.5) < 1.0e-9
                 && !aboveOutside.isActive();
-        out.add("[catalysis] field geometry (force inside r=4, spill in the 2-block shell, nothing beyond;"
-                + " verified on the vertical axis too) and expiry at the synced period: "
+        out.add("[catalysis] field geometry (nothing inside r=4, spill in the 2-block shell only,"
+                + " nothing beyond; verified on the vertical axis too) and expiry at the synced period: "
                 + (geometryOk ? "PASS" : "FAIL"));
 
         Catalysis.Field inactive = new Catalysis.Field(center, 4, 2, -1L, 0.5, "", 0.0);
@@ -1951,15 +1984,15 @@ public final class MutationAudit {
         Catalysis.Field narrowA = new Catalysis.Field(new BlockPos(0, 64, 0), 1, 2, 100L, 0.5, "", 0.0);
         Catalysis.Field narrowB = new Catalysis.Field(new BlockPos(4, 64, 0), 1, 2, 100L, 0.9, "", 0.0);
         Catalysis bothShells = Catalysis.at(List.of(narrowA, narrowB), new BlockPos(2, 64, 0), 50L);
-        Catalysis forcedWins = Catalysis.at(List.of(narrowA, narrowB), new BlockPos(0, 64, 0), 50L);
+        Catalysis inside = Catalysis.at(List.of(narrowA, narrowB), new BlockPos(0, 64, 0), 50L);
         Catalysis reversedShells = Catalysis.at(List.of(narrowB, narrowA), new BlockPos(2, 64, 0), 50L);
-        Catalysis reversedForced = Catalysis.at(List.of(narrowB, narrowA), new BlockPos(0, 64, 0), 50L);
+        Catalysis reversedInside = Catalysis.at(List.of(narrowB, narrowA), new BlockPos(0, 64, 0), 50L);
         boolean mergeOk = !bothShells.forced() && Math.abs(bothShells.wildBonus() - 0.9) < 1.0e-9
-                && forcedWins.forced()
-                && bothShells.equals(reversedShells) && forcedWins.equals(reversedForced);
+                && !inside.isActive()
+                && bothShells.equals(reversedShells) && inside.equals(reversedInside);
         out.add("[catalysis] overlapping fields merge order-independently"
-                + " (max spill in the shells, forced wins inside): " + (mergeOk ? "PASS" : "FAIL")
-                + " [shells spill=" + bothShells.wildBonus() + " forced=" + bothShells.forced() + "]");
+                + " (max spill in the shells; nothing at the centre): " + (mergeOk ? "PASS" : "FAIL")
+                + " [shells spill=" + bothShells.wildBonus() + " centre=" + inside.isActive() + "]");
 
         // 数据包：往返 + 逐字段翻转。equals 往返测不出"漏搬一个字段"（两边都会落到默认值），
         // 所以每个字段各造一个"只改它"的变体，解码之后必须与原件不同。

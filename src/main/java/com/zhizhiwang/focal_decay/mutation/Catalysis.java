@@ -114,16 +114,27 @@ public record Catalysis(boolean forced, double wildBonus) {
             return new GuidedBias(tiered.isEmpty() ? index.tagged(concept) : tiered, q);
         }
 
-        /** 这个位置受到的催化：域内必中、域外一圈只有 spill、更远什么都没有。 */
+        /**
+         * 这个位置此刻受到的<b>持续</b>催化：域内什么都没有、域外一圈只有 spill、更远也没有。
+         * <p>
+         * <b>为什么域内不再"持续必中"</b>（2026-09-29，作者实机反馈 #1 之后改）：
+         * 点火改成"写入世界"（裁定 #8(b)）之后，域内的必中就是<b>两套语义叠在一起</b>，而且都有害：
+         * <ol>
+         *   <li><b>每挖一块再升一档</b>：写入后的方块仍是源，域内又必中 + 跨级确定，
+         *       于是挖走刚写出的铁矿就能拿到 T2 的东西——一次点火变成一台升级机；</li>
+         *   <li><b>整片每周期重抽</b>：必中意味着每个周期都命中，累积语义下每次都是"最新那次命中"，
+         *       于是整片区域每 5 秒换一副样子，客户端与服务端的周期相位差也被放大成可见的跳变。</li>
+         * </ol>
+         * 现在火是<b>一次性事件</b>：点火那一刻按概念把这片地写死（那一次用的是显式的
+         * {@code new Catalysis(true, 0.0)}，见 {@code MutationEventHandler#igniteCatalystRange}），
+         * 之后只有域外那圈 spill 继续生效——也就是 R2 的代价，而不是额外的收益。
+         */
         public Catalysis at(BlockPos pos, long period) {
             if (!isActive(period)) {
                 return NONE;
             }
             int distance = distance(center, pos);
-            if (distance <= radius) {
-                return new Catalysis(true, 0.0);
-            }
-            if (distance <= radius + ringWidth) {
+            if (distance > radius && distance <= radius + ringWidth) {
                 return new Catalysis(false, spill);
             }
             return NONE;
@@ -137,36 +148,6 @@ public record Catalysis(boolean forced, double wildBonus) {
      * 顺序无关是硬要求：服务端按登记顺序遍历、客户端按"整表 + 增量到达顺序"遍历，
      * 两种顺序不保证一致（与 {@code GuidedConcept#betterGuided} 同一条理由）。
      */
-    /**
-     * 多片域里取"概念偏向"最强的一片（{@code q} 大者胜，并列按中心坐标字典序——
-     * 与 {@code GuidedConcept#betterGuided} 同一条理由：两端的列表顺序不保证一致）。
-     * 没有任何一片带概念时返回 {@link GuidedBias#NONE}。
-     */
-    public static GuidedBias biasAt(List<Field> fields, BlockPos pos, long period,
-                                     MutationIndex index, BlockState source) {
-        Field best = null;
-        for (Field field : fields) {
-            if (field.concept().isEmpty() || field.q() <= 0.0 || !field.at(pos, period).isActive()) {
-                continue;
-            }
-            if (best == null || field.q() > best.q()
-                    || (field.q() == best.q() && compareCenters(field.center(), best.center()) < 0)) {
-                best = field;
-            }
-        }
-        return best == null ? GuidedBias.NONE : best.biasFor(index, source);
-    }
-
-    private static int compareCenters(BlockPos a, BlockPos b) {
-        if (a.getX() != b.getX()) {
-            return Integer.compare(a.getX(), b.getX());
-        }
-        if (a.getY() != b.getY()) {
-            return Integer.compare(a.getY(), b.getY());
-        }
-        return Integer.compare(a.getZ(), b.getZ());
-    }
-
     public static Catalysis at(List<Field> fields, BlockPos pos, long period) {
         boolean anyForced = false;
         double bestSpill = 0.0;

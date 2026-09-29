@@ -1,0 +1,21 @@
+{
+  "//": "破坏后掉自己（training_terminal）。本项目战利品表一律手写：LootTableProvider 会用原版 codec 重新编码，",
+  "//2": "自定义条件键会被静默丢弃（PITFALLS §3）。方块里插着的观测模型由方块实体的 onRemove 单独掉出。",
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "focal_decay:training_terminal"
+        }
+      ],
+      "conditions": [
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ]
+    }
+  ]
+}

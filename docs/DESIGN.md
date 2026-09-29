@@ -948,6 +948,9 @@ public static BlockState resolve(BlockState source, BlockPos pos, long worldSeed
   ③ 域内档位 `min(源+1, 3)` 是**确定性**的，且优先从"恰好那一档"的概念成员里抽——
   只抬上限没用，池子里成员那么多，抬了也大概率抽到同档的东西（实机反馈 #6）。
   q 仍决定"有多大概率按这个概念来"，所以完备度是进度而不是被火抹平。
+  **域内不再"持续必中"**（`1.0.15`）：点火是一次性事件，写入之后内圈就静下来了，
+  `until` 的含义是"域外那圈乱流持续多久"——否则一次点火会变成一台"每挖一块再升一档"的升级机，
+  而且整片每周期重抽会把客户端与服务端的周期相位差放大成可见的跳变。
   域外一圈 `wild_chance` 升高（R2 的代价）不变；
   三个数值配置是 `catalyst_duration_periods` / `catalyst_ring_width` / `catalyst_spill_bonus`
   （只影响登记那一刻的取值，之后随 Field 一起同步，所以不进快照）。

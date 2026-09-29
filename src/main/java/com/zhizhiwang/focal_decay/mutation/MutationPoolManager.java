@@ -230,20 +230,6 @@ public class MutationPoolManager extends SavedData {
         }
     }
 
-    /**
-     * 催化域给这个位置的<b>引导偏向</b>：域内的概念，且<b>跳过"源方块必须属于概念"这道门</b>。
-     * <p>
-     * 这一条是"点火＝点名"的落点：原型机的引导是背景性的（只对概念内成员生效），
-     * 而观测者点了火，就是宣称这片区域归这个概念管——石头也按矿物来解释。
-     * 理由与实机反馈见 {@link Catalysis.Field#biasFor}。
-     */
-    public GuidedBias catalystBiasAt(BlockPos pos, long period, MutationIndex index, BlockState source) {
-        if (catalystFields.isEmpty()) {
-            return GuidedBias.NONE;
-        }
-        return Catalysis.biasAt(List.copyOf(catalystFields.values()), pos, period, index, source);
-    }
-
     /** 该位置此刻受到的催化（{@code period} 用调用方那一端的显示刻）。 */
     public Catalysis catalysisAt(BlockPos pos, long period) {
         if (catalystFields.isEmpty()) {

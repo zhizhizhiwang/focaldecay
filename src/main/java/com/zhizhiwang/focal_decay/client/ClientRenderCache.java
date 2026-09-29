@@ -772,8 +772,44 @@ public final class ClientRenderCache {
     public void applyCatalystField(ResourceKey<Level> dimension, long packedPos, int radius, int ringWidth,
                                    long until, double spill, String concept, double q) {
         BlockPos pos = BlockPos.of(packedPos);
-        regions.applyCatalystField(dimension, pos,
-                new Catalysis.Field(pos, radius, ringWidth, until, spill, concept, q));
+        Catalysis.Field field = new Catalysis.Field(pos, radius, ringWidth, until, spill, concept, q);
+        regions.applyCatalystField(dimension, pos, field);
+        // ⚠️ 幽灵缓存必须跟着作废（2026-09-29，作者实机反馈"点火过程中右键会导致方块跳变"）。
+        // 域的到达改变了这片区域的解析输入（域外那圈的 wild 概率），而客户端此前保留着
+        // 点火前的幽灵：服务端已经按新的输入解析，玩家一点右键，"所见即所得"就会把方块
+        // 换成**他没在看的那个**。诞生周期那条路径一直有这一步（dropRegionEntries），
+        // 域这条我漏了。
+        dropCatalystEntries(field);
+    }
+
+    /**
+     * 丢掉一片域影响范围内（半径 + 壳厚）的幽灵与负缓存。
+     * <p>
+     * 只丢这个盒子而不是整张表：域是局部的，而整表清空会让全世界重扫一遍。
+     * 负缓存也必须清——"这里没有幽灵"这条结论同样依赖 wild 概率。
+     */
+    private void dropCatalystEntries(Catalysis.Field field) {
+        if (targetCache.isEmpty() && evaluated.isEmpty()) {
+            return;
+        }
+        double reach = field.radius() + field.ringWidth() + 0.5;
+        AABB box = new AABB(field.center()).inflate(reach);
+        Set<Long> dirty = new HashSet<>();
+        targetCache.forEach((key, entry) -> {
+            BlockPos pos = BlockPos.of(key);
+            if (box.contains(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5)
+                    && targetCache.remove(key, entry)) {
+                decrSection(pos);
+                dirty.add(SectionPos.asLong(pos));
+            }
+        });
+        evaluated.keySet().removeIf(key -> {
+            BlockPos pos = BlockPos.of(key);
+            return box.contains(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+        });
+        for (long sectionKey : dirty) {
+            markSectionDirty(SectionPos.of(sectionKey));
+        }
     }
 
     public void applyBirthPeriod(ResourceKey<Level> dimension, long packedPos, long period) {
@@ -1077,10 +1113,8 @@ public final class ClientRenderCache {
         int stage = settings.stage(worldDays);
         long period = settings.displayPeriod(level.getGameTime(), clockSpeed, clockOffset);
         Catalysis catalysis = regions.catalysis(level.dimension(), pos, period);
-        // 与服务端逐字同一条规则：点火优先，域内跳过源门控；域外维持背景引导。
-        GuidedBias bias = catalysis.forced()
-                ? regions.catalystBias(level.dimension(), pos, period, index, original)
-                : ClientRegionData.guidedBias(guided, pos, original, stage, settings.guidedStage3Halve());
+        // 与服务端逐字同一条规则：点火之后只剩域外那圈 spill，引导用原型机的背景引导。
+        GuidedBias bias = ClientRegionData.guidedBias(guided, pos, original, stage, settings.guidedStage3Halve());
         return MutationHelper.resolve(original, pos, settings, stage, period, index,
                 bias,
                 regions.protectionInfo(level.dimension(), pos, original, stage, settings),
