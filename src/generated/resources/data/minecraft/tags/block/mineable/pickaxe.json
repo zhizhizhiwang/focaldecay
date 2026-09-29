@@ -1,0 +1,7 @@
+{
+  "values": [
+    "focal_decay:anchor_prototype",
+    "focal_decay:training_terminal",
+    "focal_decay:semantic_catalyst"
+  ]
+}

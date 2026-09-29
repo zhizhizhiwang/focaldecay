@@ -39,6 +39,7 @@ public class ModBlockTagsProvider extends BlockTagsProvider {
     @Override
     protected void addTags(HolderLookup.Provider lookupProvider) {
         shapeClasses();
+        machineMining();
         immunityAndSources();
         wildPools();
         semanticPools();
@@ -103,6 +104,24 @@ public class ModBlockTagsProvider extends BlockTagsProvider {
      * 额外源留空：默认配置下"进池即源"，用不到它；需要"会坏掉但永远不会被抽到"的方块时
      * 由数据包自行添加。
      */
+    /**
+     * 可被镐子加速的机器方块（2026-09-29，作者实机反馈："催化方块没有适合的破坏工具，
+     * 训练终端和观测者基座也没有"）。
+     * <p>
+     * 根因：这三台机器都不在 {@code mineable/pickaxe} 里，于是工具速度<b>根本不参与计算</b>——
+     * 徒手与铁镐一样慢，玩家的直觉是"这个东西怎么挖都挖不动"。
+     * <p>
+     * 刻意<b>不加</b> {@code requiresCorrectToolForDrops()}：那会让徒手破坏不掉落，
+     * 而这三台都是玩家自己放的机器，拆的时候不该有"打碎了一无所有"的坑。
+     * 观星者核心与王座岩是 {@code strength(-1)} 的不可破坏方块，不在此列。
+     */
+    private void machineMining() {
+        tag(BlockTags.MINEABLE_WITH_PICKAXE)
+                .add(ModBlocks.ANCHOR_PROTOTYPE.get())
+                .add(ModBlocks.TRAINING_TERMINAL.get())
+                .add(ModBlocks.SEMANTIC_CATALYST.get());
+    }
+
     private void immunityAndSources() {
         tag(ModTags.Blocks.ANCHOR_PROTOTYPE_IMMUNE)
                 .add(ModBlocks.OBSERVER_CORE.get())

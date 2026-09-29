@@ -154,11 +154,9 @@ public class ObserverModelItem extends Item {
                                 GuidedConcept.displayName(data.concept()),
                                 Math.round(data.stabilityStrength() * 100))
                         .withStyle(ChatFormatting.AQUA));
-                // 解锁档：q 的四个门槛各给一个新动词（DESIGN.md §13.10），
-                // 所以工具提示要能一眼看出"这个模型现在能做什么"，而不是一个百分比。
-                tooltipComponents.add(Component.translatable("tooltip.focal_decay.guided_unlock",
-                                GuidedConcept.unlockFor(data.stabilityStrength()).displayName())
-                        .withStyle(ChatFormatting.DARK_AQUA));
+                // 这里刻意**不再**列"解锁：…"（2026-09-29 依作者反馈移除）：
+                // 四个门槛是"引导"，属于手册的内容，塞进物品提示只会把概念与完备度这两行淹掉。
+                // 那个数（完备度）本来就摆在上一行，玩家想深究时去翻手册。
             }
         }
         if (Screen.hasShiftDown()) {

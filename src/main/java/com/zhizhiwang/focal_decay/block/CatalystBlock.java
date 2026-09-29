@@ -80,6 +80,15 @@ public class CatalystBlock extends Block implements EntityBlock {
         }
         ServerLevel serverLevel = (ServerLevel) level;
 
+        // ---- 潜行 = 取回（不论手上拿着什么）----
+        // 放在最前面。作者实机反馈"空手潜行右键无法取回"——原因就是这条判定原先写在
+        // "手上拿着模型"的分支里，空手根本走不到；而潜行时手上拿着模型又会走进"插入"分支，
+        // 于是"想取回却把模型又插回去"。
+        if (player.isShiftKeyDown()) {
+            takeBack(serverLevel, player, catalyst, pos);
+            return ItemInteractionResult.SUCCESS;
+        }
+
         // ---- 火种：点火 ----
         if (stack.is(ModItems.IGNITER.get())) {
             if (catalyst.isLit(MutationEventHandler.displayPeriodIndex(serverLevel))) {
@@ -106,18 +115,8 @@ public class CatalystBlock extends Block implements EntityBlock {
             return ItemInteractionResult.SUCCESS;
         }
 
-        // ---- 引导模型：插入（潜行时取回，避免误插）----
+        // ---- 引导模型：插入 ----
         if (stack.getItem() instanceof ObserverModelItem) {
-            long period = MutationEventHandler.displayPeriodIndex(serverLevel);
-            if (player.isShiftKeyDown()) {
-                ItemStack taken = catalyst.takeModel(serverLevel);
-                if (taken.isEmpty()) {
-                    player.displayClientMessage(Component.translatable("message.focal_decay.catalyst_no_model"), true);
-                } else if (!player.getInventory().add(taken)) {
-                    Containers.dropItemStack(level, pos.getX(), pos.getY() + 1, pos.getZ(), taken);
-                }
-                return ItemInteractionResult.SUCCESS;
-            }
             if (catalyst.hasModel()) {
                 player.displayClientMessage(Component.translatable("message.focal_decay.catalyst_occupied"), true);
                 return ItemInteractionResult.SUCCESS;
@@ -146,6 +145,10 @@ public class CatalystBlock extends Block implements EntityBlock {
             return InteractionResult.sidedSuccess(level.isClientSide);
         }
         ServerLevel serverLevel = (ServerLevel) level;
+        if (player.isShiftKeyDown()) {
+            takeBack(serverLevel, player, catalyst, pos);
+            return InteractionResult.sidedSuccess(false);
+        }
         long period = MutationEventHandler.displayPeriodIndex(serverLevel);
         if (!catalyst.hasModel()) {
             player.displayClientMessage(Component.translatable("message.focal_decay.catalyst_no_model"), true);
@@ -164,6 +167,16 @@ public class CatalystBlock extends Block implements EntityBlock {
                     GuidedConcept.unlockFor(catalyst.q()).displayName()), true);
         }
         return InteractionResult.sidedSuccess(level.isClientSide);
+    }
+
+    /** 取下模型（潜行右键，不论手上拿着什么）：先给背包，装不下就掉在方块上方。 */
+    private static void takeBack(ServerLevel level, Player player, CatalystBlockEntity catalyst, BlockPos pos) {
+        ItemStack taken = catalyst.takeModel(level);
+        if (taken.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.focal_decay.catalyst_no_model"), true);
+        } else if (!player.getInventory().add(taken)) {
+            Containers.dropItemStack(level, pos.getX(), pos.getY() + 1, pos.getZ(), taken);
+        }
     }
 
     /**
