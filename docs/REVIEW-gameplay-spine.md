@@ -172,6 +172,12 @@ q / 强度不变              界面显示「完备度 87% · 漂移 43%」
 | **语义邻域也分维度** | 除大池外另有 `mutation_pool/nether.json`（35 条）与 `mutation_pool/end.json`（6 条）——下界方块的邻域是下界方块 |
 | **主世界的大池不含末地物** | 实测 `end_stone` / `purpur_*` 在 `mutation_pool/wild.json`（243 条）里**命中 0 次** |
 
+> ⚠️ **2026-09-29 实测更正**：上面这张表读的是**标签文件**，而真正决定行为的是构建后的池——
+> `wild_auto_include`（默认开）会把所有 cube 方块塞进**每一个**维度的大池，
+> 所以"下界/末地池分开"这件事**默认是失效的**（`the_nether: wild=600 (+163 auto)`，与主世界一模一样）。
+> 已修（自动纳入只对主世界生效），经过与 A/B 见 `progress/2026Q4.md` §W。
+> 教训记在 `PITFALLS.md` §12：验证机制要看**构建后的运行时形态**，不是它的输入数据。
+>
 > **更正一处我自己上一轮说错的话**："没去过末地的人可以让石头变成末地石"——在 **wild 与 local 两层都不成立**
 > （end_stone 只出现在 `concept/stone`、`mutation_pool/end`、`mutation_pool/wild_end` 里）。
 > 唯一能把末地石带进主世界的是**引导路径**（`concept/stone` 含 `end_stone`），

@@ -27,6 +27,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.InteractionHand;
@@ -393,6 +394,7 @@ public final class MutationAudit {
         out.addAll(tierSelfTest(index));
         out.addAll(qCurveSelfTest(index));
         out.addAll(catalysisSelfTest(index));
+        out.addAll(dimensionPoolSelfTest());
         return out;
     }
 
@@ -1534,6 +1536,67 @@ public final class MutationAudit {
                 + (blocked == 0 ? "PASS" : "FAIL (the exception is not wired)"));
 
         return out;
+    }
+
+    /**
+     * 维度池自测（2026-09-29，L-1 裁定 / {@code DESIGN.md} §13.9）。
+     * <p>
+     * 判据只有一条：<b>下界与末地的大池里不许有"一眼主世界"的方块</b>。
+     * 这条断言存在的理由很实在——它第一次跑起来就抓住了自动纳入把主世界方块
+     * 灌进每一个维度大池这件事（{@code wild_auto_include} 默认开，所以那条设计<b>默认失效</b>）。
+     * <p>
+     * A/B：把 {@code poolForDimension} 假装改回"永远返回主世界大池"并重建索引，
+     * 这条断言必须 FAIL（`{@code ignoreDimensionForTest}` 就是为此存在的）。
+     */
+    private static List<String> dimensionPoolSelfTest() {
+        List<String> out = new ArrayList<>();
+        // "一眼主世界"的样本：它们都不在策展的下界/末地池里，也没有跨维度语义。
+        List<Block> overworldish = List.of(Blocks.STONE, Blocks.DIRT, Blocks.GRASS_BLOCK, Blocks.OAK_LOG,
+                Blocks.SAND, Blocks.GRAVEL, Blocks.COBBLESTONE, Blocks.IRON_ORE);
+
+        MutationIndex nether = MutationIndexes.get(Level.NETHER);
+        MutationIndex end = MutationIndexes.get(Level.END);
+        int strayNether = countStrays(nether.wild().flat(), overworldish);
+        int strayEnd = countStrays(end.wild().flat(), overworldish);
+        out.add("[dim] nether/end wild pools keep their own palette ("
+                + nether.wild().total() + " / " + end.wild().total() + " blocks, "
+                + overworldish.size() + " overworld probes): strays=" + strayNether + " / " + strayEnd
+                + " -> " + (strayNether == 0 && strayEnd == 0 ? "PASS" : "FAIL"));
+
+        MutationIndex overworld = MutationIndexes.get(Level.OVERWORLD);
+        boolean distinct = nether.wild().total() != overworld.wild().total()
+                && end.wild().total() != overworld.wild().total();
+        out.add("[dim] the three wild pools are built separately (overworld "
+                + overworld.wild().total() + "): " + (distinct ? "PASS" : "FAIL"));
+
+        ModTags.Blocks.setIgnoreDimensionForTest(true);
+        int control;
+        try {
+            MutationIndexes.invalidate();
+            control = countStrays(MutationIndexes.get(Level.NETHER).wild().flat(), overworldish);
+        } finally {
+            ModTags.Blocks.setIgnoreDimensionForTest(false);
+            MutationIndexes.invalidate();
+            MutationIndexes.get(Level.NETHER); // 重建回正确的那一份，别把坏索引留在缓存里
+        }
+        out.add("[dim] control (dimension wiring off, index rebuilt): " + control + " strays -> "
+                + (control > 0
+                        ? "PASS (the wiring is what makes the line above true)"
+                        : "FAIL (vacuous: the assertion above would pass even without dimension pools)"));
+        return out;
+    }
+
+    private static int countStrays(Block[] pool, List<Block> probes) {
+        int strays = 0;
+        for (Block block : probes) {
+            for (Block candidate : pool) {
+                if (candidate == block) {
+                    strays++;
+                    break;
+                }
+            }
+        }
+        return strays;
     }
 
     /** 催化域自测的采样周期数。 */

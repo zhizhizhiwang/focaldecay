@@ -91,8 +91,22 @@ public final class ModTags {
             return CURATED_CONCEPTS.contains(tag);
         }
 
+        /**
+         * <b>只给 {@code /focaldecay mutation selftest} 的 A/B 用</b>：假装本方法没接维度，
+         * 一律返回主世界大池。用来证明 {@code [dim]} 段那条"下界/末地保持本地画风"的断言
+         * 真的会因为接线断了而 FAIL（而不是一条永远 PASS 的空断言）。
+         */
+        private static volatile boolean ignoreDimensionForTest = false;
+
+        public static void setIgnoreDimensionForTest(boolean ignore) {
+            ignoreDimensionForTest = ignore;
+        }
+
         /** 维度对应的大池：下界/末地用专属池，其余维度（含未知模组维度）回退主世界大池。 */
         public static TagKey<Block> poolForDimension(ResourceKey<Level> dimension) {
+            if (ignoreDimensionForTest) {
+                return MUTATION_POOL_WILD;
+            }
             if (dimension == Level.NETHER) {
                 return MUTATION_POOL_WILD_NETHER;
             }

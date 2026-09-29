@@ -68,8 +68,13 @@ public final class MutationIndexBuilder {
         TagKey<Block> wildTag = ModTags.Blocks.poolForDimension(dimension);
         List<Block> wildMembers = new ArrayList<>(readMembers(wildTag));
         int autoIncluded = 0;
+        // ⚠️ 自动纳入**只对主世界生效**（2026-09-29 修，见 progress §W）：
+        // 下界与末地的大池是**策展**的（45 条 / 6 条，画风统一），而 wild_auto_include 默认是开的——
+        // 原来那行代码会把"所有 cube 方块"塞进**每一个**维度的大池，
+        // 于是"下界不会出现主世界方块"这条设计（L-1 裁定）默认就是失效的。
         // 取值来自 MutationIndexes 的"两端统一入口"，不再直接读本端配置（BACKLOG P0-7）。
-        if (MutationIndexes.wildAutoInclude()) {
+        boolean autoInclude = MutationIndexes.wildAutoInclude() && wildTag == ModTags.Blocks.MUTATION_POOL_WILD;
+        if (autoInclude) {
             // 默认把"当前规则下所有可失焦的完整方块"都算进大池，保证总池足够大且零行为回归。
             Set<Block> present = new HashSet<>(wildMembers);
             for (Block block : registry) {
