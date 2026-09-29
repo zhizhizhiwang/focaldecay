@@ -54,6 +54,8 @@ public final class MutationIndex {
     private final List<String> poolTagIds;
     /** 动态标签池（引导模型的概念标签等）的惰性缓存；只在模型装载/换模时访问，不在扫描热路径上。 */
     private final ConcurrentHashMap<String, ClassifiedPool> tagPools = new ConcurrentHashMap<>();
+    /** {@link #taggedAtTier} 的缓存（键 = 标签 + '@' + 档位）。 */
+    private final ConcurrentHashMap<String, ClassifiedPool> tierPools = new ConcurrentHashMap<>();
     /**
      * 掉落物突变的目标池（大池里"有对应物品"的方块），惰性构建后缓存。
      * 见 {@link #itemPool()}。用 {@code volatile} 是因为它可能被区块/实体线程首次构建。
@@ -169,6 +171,34 @@ public final class MutationIndex {
         return previous != null ? previous : built;
     }
 
+    /**
+     * 概念池里<b>恰好某一档</b>的成员（按形态类切好、按注册表 id 定序），惰性缓存。
+     * <p>
+     * 存在的理由：催化域要把"这次升一档"变成看得见的结果。只抬上限没用——池子里成员那么多，
+     * 抬了上限也大概率抽到同档的东西（作者反馈 #6 就是这个）。把这一档单独切出来当池子，
+     * "升级了"才真的等于"抽到升级档的方块"。
+     * <p>
+     * 与 {@link #tagged} 同一个生命周期：标签重载时随索引一起丢弃（见 {@code releaseCaches}）。
+     */
+    public ClassifiedPool taggedAtTier(String tagId, int tier) {
+        if (tagId == null || tagId.isEmpty()) {
+            return ClassifiedPool.empty("", shapeClasses);
+        }
+        String key = tagId + '@' + tier;
+        ClassifiedPool cached = tierPools.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        // ⚠️ 池的 tagId 必须传**基础标签**：ClassifiedPool 会把它当 ResourceLocation 解析，
+        // 而 '#' 或 '@' 这类装饰字符都不合法（第一次跑就把整段自测崩成了
+        // "SECTION CRASHED: Non [a-z0-9/._-] character in path"）。
+        // 区分不同档位的职责在缓存键与谓词上，不在 tagId 上——它只用来定位标签成员。
+        ClassifiedPool built = ClassifiedPool.of(tagId, shapeClasses,
+                block -> acceptable(block) && tier(block) == tier);
+        ClassifiedPool previous = tierPools.putIfAbsent(key, built);
+        return previous != null ? previous : built;
+    }
+
     /** 池成员过滤：空气、带方块实体的、免疫方块都不是候选，两端必须完全一致。 */
     public boolean acceptable(Block block) {
         return block != Blocks.AIR && !block.defaultBlockState().hasBlockEntity() && !immune.contains(block);
@@ -230,6 +260,9 @@ public final class MutationIndex {
      */
     public void releaseCaches() {
         tagPools.clear();
+        // ⚠️ 新加的缓存必须在这里一起清：漏掉它的形态是"几百份 Block[] 多活一个 GC 周期"，
+        // 正是 BACKLOG P1-6 第 11 条修过的那一类（重载可以在游玩中途反复发生）。
+        tierPools.clear();
     }
 
     /**

@@ -9,6 +9,7 @@ import com.zhizhiwang.focal_decay.network.SyncClientViewPacket;
 import com.zhizhiwang.focal_decay.network.SyncRegionDataPacket;
 import com.zhizhiwang.focal_decay.mutation.AnchorNormalizeProfiler;
 import com.zhizhiwang.focal_decay.mutation.Catalysis;
+import com.zhizhiwang.focal_decay.mutation.GuidedBias;
 import com.zhizhiwang.focal_decay.mutation.MutationHelper;
 import com.zhizhiwang.focal_decay.mutation.MutationSettings;
 import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
@@ -769,9 +770,10 @@ public final class ClientRenderCache {
      * 这里只负责让镜像跟上，别让两端算出不同的世界。
      */
     public void applyCatalystField(ResourceKey<Level> dimension, long packedPos, int radius, int ringWidth,
-                                   long until, double spill) {
+                                   long until, double spill, String concept, double q) {
         BlockPos pos = BlockPos.of(packedPos);
-        regions.applyCatalystField(dimension, pos, new Catalysis.Field(pos, radius, ringWidth, until, spill));
+        regions.applyCatalystField(dimension, pos,
+                new Catalysis.Field(pos, radius, ringWidth, until, spill, concept, q));
     }
 
     public void applyBirthPeriod(ResourceKey<Level> dimension, long packedPos, long period) {
@@ -1074,11 +1076,16 @@ public final class ClientRenderCache {
         }
         int stage = settings.stage(worldDays);
         long period = settings.displayPeriod(level.getGameTime(), clockSpeed, clockOffset);
+        Catalysis catalysis = regions.catalysis(level.dimension(), pos, period);
+        // 与服务端逐字同一条规则：点火优先，域内跳过源门控；域外维持背景引导。
+        GuidedBias bias = catalysis.forced()
+                ? regions.catalystBias(level.dimension(), pos, period, index, original)
+                : ClientRegionData.guidedBias(guided, pos, original, stage, settings.guidedStage3Halve());
         return MutationHelper.resolve(original, pos, settings, stage, period, index,
-                ClientRegionData.guidedBias(guided, pos, original, stage, settings.guidedStage3Halve()),
+                bias,
                 regions.protectionInfo(level.dimension(), pos, original, stage, settings),
                 regions.blockBirthPeriod(level.dimension(), pos),
-                regions.catalysis(level.dimension(), pos, period));
+                catalysis);
     }
 
     /**

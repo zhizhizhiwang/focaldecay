@@ -161,6 +161,7 @@ javap -classpath build/moddev/artifacts/neoforge-21.1.248-merged.jar <类名>
 | `BlockBehaviour#spawnAfterBreak` | 原版**只**在 `playerDestroy` 的**默认实现**里调它（`BlockBehaviour#playerDestroy` → `state.spawnAfterBreak(...)`）。方块一旦覆写 `playerDestroy` 且不调 `super`，`spawnAfterBreak` 就**永远不会被调用**——写测试断言它之前先确认这一点（本项目为此浪费了一轮 A/B） |
 | `AttachmentType.Builder#copyOnDeath` | 只对**有序列化器**的 attachment 生效（serializer 为 null 时它直接抛 `IllegalStateException`）。所以"锁定跨死亡存活"这个 bug 是**序列化器 + `copyOnDeath` 两条路径一起漏**；要根治就两条一起删，别只删一条 |
 | `AttachmentInternals#copyEntityAttachments` | 死亡时**只**复制显式勾了 `copyOnDeath` 的 attachment（`isDeath ? type -> type.copyOnDeath : type -> true`）。这就是上一条的判据来源 |
+| `ClassifiedPool.of(tagId, …)` 的 `tagId` | 会被当成 **`ResourceLocation` 解析**，所以只能传合法标签 ID。自测里为了区分缓存而写 `标签 + "@" + 档位` 直接崩成 `ResourceLocationException: Non [a-z0-9/._-] character in path`（2026-09-29，第一次跑就撞上）。要区分变体就在**缓存键**上区分，池本身仍拿基础标签 |
 | `BlockBehaviour#useItemOn` 的返回类型 | 是 **`ItemInteractionResult`** 而不是 `InteractionResult`（NeoForge 21.1 起）。照着 `useWithoutItem` 的签名去覆写会编译不过；两者混用时注意 `ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION` 与 `InteractionResult.PASS` 不是同一个东西 |
 | `ItemStack#hurtAndBreak` | 有三个重载，`(int, LivingEntity, EquipmentSlot)` 那个仍然可用，是"手上这件工具掉一点耐久"最省事的写法（另外两个要 `ServerLevel` + `Consumer<Item>`） |
 | `RightClickBlock.cancellationResult` 默认值 | `InteractionResult.PASS`。而 `ServerPlayerGameMode#useItemOn` 是 `if (event.isCanceled()) return event.getCancellationResult();` |

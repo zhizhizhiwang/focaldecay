@@ -28,28 +28,39 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  * （{@code Catalysis.Field#isActive}）。
  */
 public record SyncCatalystFieldPacket(ResourceKey<Level> dimension, long pos, int radius, int ringWidth,
-                                      long until, double spill) implements CustomPacketPayload {
+                                      long until, double spill, String concept, double q)
+        implements CustomPacketPayload {
 
     public static final Type<SyncCatalystFieldPacket> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(FocalDecay.MODID, "sync_catalyst_field"));
 
-    // 6 个分量，正好在 composite 的上限内
-    public static final StreamCodec<FriendlyByteBuf, SyncCatalystFieldPacket> STREAM_CODEC =
-            StreamCodec.composite(
-                    StreamCodec.of((buf, key) -> buf.writeResourceKey(key),
-                            buf -> buf.readResourceKey(Registries.DIMENSION)),
-                    SyncCatalystFieldPacket::dimension,
-                    StreamCodec.of(FriendlyByteBuf::writeLong, FriendlyByteBuf::readLong),
-                    SyncCatalystFieldPacket::pos,
-                    ByteBufCodecs.VAR_INT,
-                    SyncCatalystFieldPacket::radius,
-                    ByteBufCodecs.VAR_INT,
-                    SyncCatalystFieldPacket::ringWidth,
-                    StreamCodec.of(FriendlyByteBuf::writeLong, FriendlyByteBuf::readLong),
-                    SyncCatalystFieldPacket::until,
-                    ByteBufCodecs.DOUBLE,
-                    SyncCatalystFieldPacket::spill,
-                    SyncCatalystFieldPacket::new);
+    // 8 个分量超过 composite 的重载上限，手写编解码（与 PrototypeData 同一做法）。
+    // ⚠️ 手写编解码的读写顺序必须与 record 的分量顺序逐字对应——错一位不会崩，
+    // 只会让两端算出不同的世界（PITFALLS §5）。
+    public static final StreamCodec<FriendlyByteBuf, SyncCatalystFieldPacket> STREAM_CODEC = StreamCodec.of(
+            SyncCatalystFieldPacket::encode, SyncCatalystFieldPacket::new);
+
+    public SyncCatalystFieldPacket(FriendlyByteBuf buf) {
+        this(buf.readResourceKey(Registries.DIMENSION),
+                buf.readLong(),
+                buf.readVarInt(),
+                buf.readVarInt(),
+                buf.readLong(),
+                buf.readDouble(),
+                ByteBufCodecs.STRING_UTF8.decode(buf),
+                buf.readDouble());
+    }
+
+    private static void encode(FriendlyByteBuf buf, SyncCatalystFieldPacket packet) {
+        buf.writeResourceKey(packet.dimension());
+        buf.writeLong(packet.pos());
+        buf.writeVarInt(packet.radius());
+        buf.writeVarInt(packet.ringWidth());
+        buf.writeLong(packet.until());
+        buf.writeDouble(packet.spill());
+        ByteBufCodecs.STRING_UTF8.encode(buf, packet.concept());
+        buf.writeDouble(packet.q());
+    }
 
     @Override
     public Type<? extends CustomPacketPayload> type() {
@@ -58,6 +69,6 @@ public record SyncCatalystFieldPacket(ResourceKey<Level> dimension, long pos, in
 
     public void handle(IPayloadContext context) {
         context.enqueueWork(() -> ClientRenderCache.INSTANCE.applyCatalystField(
-                dimension, pos, radius, ringWidth, until, spill));
+                dimension, pos, radius, ringWidth, until, spill, concept, q));
     }
 }

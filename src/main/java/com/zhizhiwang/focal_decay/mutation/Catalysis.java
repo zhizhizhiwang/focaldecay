@@ -1,6 +1,10 @@
 package com.zhizhiwang.focal_decay.mutation;
 
+import com.zhizhiwang.focal_decay.mutation.pool.ClassifiedPool;
+import com.zhizhiwang.focal_decay.mutation.pool.MutationIndex;
+import com.zhizhiwang.focal_decay.mutation.pool.Tiers;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.List;
 
@@ -67,8 +71,11 @@ public record Catalysis(boolean forced, double wildBonus) {
      * @param ringWidth spill 圈的厚度（格）
      * @param until     生效到哪个显示刻为止（{@code < 0} = 没有域）
      * @param spill     spill 圈的 {@code wild_chance} 增量
+     * @param concept   点火时插着的模型指认的概念标签（{@code ""} = 没有概念，这时火只负责"必中"）
+     * @param q         那个模型的完备度
      */
-    public record Field(BlockPos center, int radius, int ringWidth, long until, double spill) {
+    public record Field(BlockPos center, int radius, int ringWidth, long until, double spill,
+                        String concept, double q) {
 
         /** 到中心的切比雪夫距离。 */
         public static int distance(BlockPos a, BlockPos b) {
@@ -79,6 +86,32 @@ public record Catalysis(boolean forced, double wildBonus) {
         /** 有效期判据：两端各拿自己的显示刻算，所以"什么时候结束"本身不需要同步。 */
         public boolean isActive(long period) {
             return until >= 0 && period <= until;
+        }
+
+        /**
+         * 这片域给某个源方块的<b>引导偏向</b>（2026-09-29，作者实机反馈后改）。
+         * <p>
+         * <b>这里与原型机的引导有一处关键差别：跳过"源方块必须属于概念"这道门。</b>
+         * 原型机的引导是背景性的（观测雪梨不会让苹果更容易失焦——出处见 {@code DESIGN.md} §4.2），
+         * 而点火是观测者<b>点名</b>：他说这片区域归"矿物"管，石头就按矿物来解释。
+         * 没有这一条，作者那次"石头底座 + 矿物模型"的实验永远不可能有反应
+         * （石头不是矿物概念的成员）。
+         * <p>
+         * <b>另一处差别：优先取"恰好高一档"的概念成员。</b>
+         * 只把档位上限抬一级是不够的——池子里成员那么多，抬了上限也大概率抽到同档的东西，
+         * 玩家看到的仍然"没什么变化"（这正是作者反馈 #6）。所以这里直接把池子换成
+         * "概念 ∩ 目标档位"；那一档在概念里不存在时，退回完整的概念池（而不是什么都没有）。
+         * <p>
+         * q 依然决定"有多大概率按这个概念来"（其余回退常规池），所以完备度仍然是有意义的进度：
+         * q = 1.0 才是"说了就一定算"。
+         */
+        public GuidedBias biasFor(MutationIndex index, BlockState source) {
+            if (concept.isEmpty() || q <= 0.0 || index == null) {
+                return GuidedBias.NONE;
+            }
+            int targetTier = Math.min(index.tier(source.getBlock()) + 1, Tiers.MAX_NATURAL_TIER);
+            ClassifiedPool tiered = index.taggedAtTier(concept, targetTier);
+            return new GuidedBias(tiered.isEmpty() ? index.tagged(concept) : tiered, q);
         }
 
         /** 这个位置受到的催化：域内必中、域外一圈只有 spill、更远什么都没有。 */
@@ -104,6 +137,36 @@ public record Catalysis(boolean forced, double wildBonus) {
      * 顺序无关是硬要求：服务端按登记顺序遍历、客户端按"整表 + 增量到达顺序"遍历，
      * 两种顺序不保证一致（与 {@code GuidedConcept#betterGuided} 同一条理由）。
      */
+    /**
+     * 多片域里取"概念偏向"最强的一片（{@code q} 大者胜，并列按中心坐标字典序——
+     * 与 {@code GuidedConcept#betterGuided} 同一条理由：两端的列表顺序不保证一致）。
+     * 没有任何一片带概念时返回 {@link GuidedBias#NONE}。
+     */
+    public static GuidedBias biasAt(List<Field> fields, BlockPos pos, long period,
+                                     MutationIndex index, BlockState source) {
+        Field best = null;
+        for (Field field : fields) {
+            if (field.concept().isEmpty() || field.q() <= 0.0 || !field.at(pos, period).isActive()) {
+                continue;
+            }
+            if (best == null || field.q() > best.q()
+                    || (field.q() == best.q() && compareCenters(field.center(), best.center()) < 0)) {
+                best = field;
+            }
+        }
+        return best == null ? GuidedBias.NONE : best.biasFor(index, source);
+    }
+
+    private static int compareCenters(BlockPos a, BlockPos b) {
+        if (a.getX() != b.getX()) {
+            return Integer.compare(a.getX(), b.getX());
+        }
+        if (a.getY() != b.getY()) {
+            return Integer.compare(a.getY(), b.getY());
+        }
+        return Integer.compare(a.getZ(), b.getZ());
+    }
+
     public static Catalysis at(List<Field> fields, BlockPos pos, long period) {
         boolean anyForced = false;
         double bestSpill = 0.0;

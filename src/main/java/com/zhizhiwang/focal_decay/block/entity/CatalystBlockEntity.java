@@ -131,6 +131,11 @@ public class CatalystBlockEntity extends BlockEntity {
         this.spill = FocalDecayConfig.CATALYST_SPILL_BONUS.get();
         this.until = MutationEventHandler.displayPeriodIndex(level)
                 + Math.max(1, FocalDecayConfig.CATALYST_DURATION_PERIODS.get());
+        // 先写入世界（此时域还没登记，写入不会被自己的 spill 影响），再登记域。
+        // 与锚固化的顺序一致：先固化，再登记效果。
+        MutationEventHandler.igniteCatalystRange(level, worldPosition, radius,
+                new Catalysis.Field(worldPosition.immutable(), radius, ringWidth, until, spill,
+                        data.concept(), data.stabilityStrength()));
         pushField(level);
         setChanged();
         return true;
@@ -159,8 +164,11 @@ public class CatalystBlockEntity extends BlockEntity {
         if (until < 0) {
             manager.setCatalystField(level, worldPosition, null);
         } else {
-            manager.setCatalystField(level, worldPosition,
-                    new Catalysis.Field(worldPosition.immutable(), radius, ringWidth, until, spill));
+            ObserverModelData data = modelData();
+            manager.setCatalystField(level, worldPosition, new Catalysis.Field(worldPosition.immutable(),
+                    radius, ringWidth, until, spill,
+                    data == null ? "" : data.concept(),
+                    data == null ? 0.0 : data.stabilityStrength()));
         }
     }
 

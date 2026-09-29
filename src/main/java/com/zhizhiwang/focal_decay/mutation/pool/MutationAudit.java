@@ -1,5 +1,7 @@
 package com.zhizhiwang.focal_decay.mutation.pool;
 
+import com.zhizhiwang.focal_decay.block.ModBlocks;
+import com.zhizhiwang.focal_decay.block.entity.CatalystBlockEntity;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
@@ -430,6 +432,8 @@ public final class MutationAudit {
         out.addAll(qCurveSelfTest(index));
         out.addAll(catalysisSelfTest(index));
         out.addAll(catalystRegistrySelfTest(level, pos));
+        out.addAll(catalystCommandSelfTest(index));
+        out.addAll(catalystWriteSelfTest(level, pos, index));
         out.addAll(dimensionPoolSelfTest());
         return out;
     }
@@ -1649,7 +1653,8 @@ public final class MutationAudit {
         MutationPoolManager manager = MutationPoolManager.get(level);
         BlockPos center = pos.offset(40, 0, 0);
         long now = MutationEventHandler.displayPeriodIndex(level);
-        manager.setCatalystField(level, center, new Catalysis.Field(center, 2, 1, now + 5, 0.3));
+        manager.setCatalystField(level, center,
+                new Catalysis.Field(center, 2, 1, now + 5, 0.3, "focal_decay:concept/ore", 0.75));
         boolean live;
         try {
             live = manager.catalysisAt(center, now).forced()
@@ -1665,6 +1670,159 @@ public final class MutationAudit {
                 + (live ? "PASS" : "FAIL"));
         out.add("[catalysis] the field is gone after cleanup (selftest leaves no state behind): "
                 + (!manager.catalysisAt(center, now).isActive() ? "PASS" : "FAIL"));
+        return out;
+    }
+
+    /**
+     * <b>"点火＝点名"的自测</b>（2026-09-29，作者实机反馈 #4/#6）。
+     * <p>
+     * 复现的正是作者那次没有反应的实验：<b>石头底座 + 矿物模型</b>。三条断言：
+     * <ol>
+     *   <li><b>点名生效</b>：石头不是矿物概念的成员，但点上火之后，抽出来的每一个目标
+     *       都必须是该概念里的方块（这要求域的概念<b>跳过"源必须属于概念"这道门</b>）；</li>
+     *   <li><b>升级真的落到结果上</b>：域内档位是 {@code min(源+1, 3)} 且<b>确定性</b>，
+     *       并且优先从"恰好那一档"的概念成员里抽——所以石头点上火出来的是 T1 的矿物，
+     *       而不是"上限抬了但照样抽到石头"；</li>
+     *   <li><b>控制组</b>：同一个偏向、<b>不点火</b>，必须一个 T1 都出不来——
+     *       证明升级来自火，而不是来自那个偏向。</li>
+     * </ol>
+     * 外加一条：q 仍然决定"有多大概率按你说的来"（不按概念走的部分回退常规池），
+     * 所以完备度依然是进度，而不是被火抹平。
+     */
+    private static List<String> catalystCommandSelfTest(MutationIndex index) {
+        List<String> out = new ArrayList<>();
+        BlockPos pos = BlockPos.ZERO;
+        long seed = 20260930L;
+        MutationSettings base = MutationSettings.fromConfig(seed);
+        String oreConcept = ModTags.Blocks.CONCEPT_ORE.location().toString();
+        ClassifiedPool oreMembers = index.tagged(oreConcept);
+        BlockState stone = Blocks.STONE.defaultBlockState();
+        Catalysis.Field field = new Catalysis.Field(pos, 4, 2, 1_000L, 0.3, oreConcept, 1.0);
+        GuidedBias bias = field.biasFor(index, stone);
+
+        int t1 = 0;
+        int t0 = 0;
+        int above = 0;
+        int outsideConcept = 0;
+        for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
+            Block target = MutationHelper.resolve(stone, pos, upTierOnly(base, 0.0), 1, period, index,
+                    bias, MutationHelper.Protection.NONE, -1L, new Catalysis(true, 0.0)).getBlock();
+            int tier = index.tier(target);
+            if (tier == 1) {
+                t1++;
+            } else if (tier == 0) {
+                t0++;
+            }
+            if (tier > 1) {
+                above++;
+            }
+            if (!oreMembers.contains(target)) {
+                outsideConcept++;
+            }
+        }
+        out.add("[catalysis] a lit field makes the model name the outcome (stone + ore concept, q=1.0):"
+                + " T1=" + t1 + " T0=" + t0 + " aboveT1=" + above + " outsideConcept=" + outsideConcept
+                + " of " + CATALYSIS_SAMPLES + " -> "
+                + (t1 == CATALYSIS_SAMPLES && above == 0 && outsideConcept == 0 ? "PASS" : "FAIL"));
+
+        int plainT1 = 0;
+        for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
+            Block target = MutationHelper.resolve(stone, pos, upTierOnly(base, 0.0), 1, period, index,
+                    bias, MutationHelper.Protection.NONE, -1L, Catalysis.NONE).getBlock();
+            if (index.tier(target) == 1) {
+                plainT1++;
+            }
+        }
+        out.add("[catalysis] control: the same bias without a lit field never reaches T1 ("
+                + plainT1 + "/" + CATALYSIS_SAMPLES + "): " + (plainT1 == 0 ? "PASS" : "FAIL"));
+
+        GuidedBias half = new GuidedBias(bias.pool(), 0.5);
+        int namedAtHalf = 0;
+        for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
+            Block target = MutationHelper.resolve(stone, pos, upTierOnly(base, 0.0), 1, period, index,
+                    half, MutationHelper.Protection.NONE, -1L, new Catalysis(true, 0.0)).getBlock();
+            if (oreMembers.contains(target)) {
+                namedAtHalf++;
+            }
+        }
+        out.add("[catalysis] q still decides how often the concept wins (q=0.5 -> named "
+                + namedAtHalf + "/" + CATALYSIS_SAMPLES + "): "
+                + (namedAtHalf > CATALYSIS_SAMPLES / 5 && namedAtHalf < CATALYSIS_SAMPLES * 4 / 5 ? "PASS" : "FAIL"));
+        return out;
+    }
+
+    /**
+     * <b>点火写世界</b>的端到端自测（2026-09-29，作者裁定 #8(b)）。
+     * <p>
+     * 这是那条"点火即写入"的新代码路径——它此前<b>从没被执行过</b>（自测只覆盖解析），
+     * 所以必须真的跑一遍：搭一个半径 2 的石头盒子，点火，数有多少格真的变了，
+     * 并检查它们是不是"概念里的 T1 成员"。
+     * <p>
+     * <b>它真的会动世界，所以先把要动的每一格原样存下来，结束时逐格还原</b>——
+     * 自测不许给开发存档留痕迹（{@code [anchor]} 那段会改地形是历史包袱，不是先例）。
+     * 半径用 2 而不是模型默认的 8：受控、可还原，而且能覆盖同一段代码。
+     */
+    private static List<String> catalystWriteSelfTest(ServerLevel level, BlockPos anchor, MutationIndex index) {
+        List<String> out = new ArrayList<>();
+        BlockPos center = anchor.offset(0, -6, 0);
+        int radius = 2;
+        String oreConcept = ModTags.Blocks.CONCEPT_ORE.location().toString();
+        ClassifiedPool oreMembers = index.tagged(oreConcept);
+
+        java.util.Map<BlockPos, BlockState> saved = new java.util.LinkedHashMap<>();
+        for (BlockPos p : BlockPos.betweenClosed(center.offset(-radius, -radius, -radius),
+                center.offset(radius, radius, radius))) {
+            BlockPos key = p.immutable();
+            saved.put(key, level.getBlockState(key));
+            level.setBlock(key, Blocks.STONE.defaultBlockState(), 3);
+        }
+
+        int written;
+        int t1 = 0;
+        int stray = 0;
+        try {
+            long until = MutationEventHandler.displayPeriodIndex(level) + 100L;
+            Catalysis.Field field = new Catalysis.Field(center, radius, 0, until, 0.0, oreConcept, 1.0);
+            MutationEventHandler.NormalizeStats stats =
+                    MutationEventHandler.igniteCatalystRange(level, center, radius, field);
+            written = (int) stats.changed();
+            for (BlockPos key : saved.keySet()) {
+                if (key.equals(center)) {
+                    continue; // 催化剂自己占的那一格不写
+                }
+                Block now = level.getBlockState(key).getBlock();
+                if (now == Blocks.STONE) {
+                    continue;
+                }
+                if (index.tier(now) == 1 && oreMembers.contains(now)) {
+                    t1++;
+                } else {
+                    stray++;
+                }
+            }
+        } finally {
+            for (java.util.Map.Entry<BlockPos, BlockState> entry : saved.entrySet()) {
+                level.setBlock(entry.getKey(), entry.getValue(), 3);
+            }
+        }
+
+        int expected = saved.size() - 1;
+        out.add("[catalysis] firing actually writes the world (r=2 stone box, ore concept): written=" + written
+                + " T1Concept=" + t1 + " stray=" + stray + " of " + expected + " -> "
+                + (written == expected && t1 == expected && stray == 0 ? "PASS" : "FAIL"));
+        out.add("[catalysis]   (the box was restored block by block - a selftest must not leave marks)");
+
+        // 方块路径的接线（不写世界）：放一块催化剂，方块实体类型必须认得出来。
+        BlockPos blockPos = anchor.offset(radius + 3, 0, 0);
+        BlockState previous = level.getBlockState(blockPos);
+        level.setBlock(blockPos, ModBlocks.SEMANTIC_CATALYST.get().defaultBlockState(), 3);
+        boolean wired;
+        try {
+            wired = level.getBlockEntity(blockPos) instanceof CatalystBlockEntity;
+        } finally {
+            level.setBlock(blockPos, previous, 3);
+        }
+        out.add("[catalysis] the catalyst block creates its block entity: " + (wired ? "PASS" : "FAIL"));
         return out;
     }
 
@@ -1754,7 +1912,7 @@ public final class MutationAudit {
         List<String> out = new ArrayList<>();
         BlockPos center = new BlockPos(0, 64, 0);
         // 半径 4、spill 圈厚 2、有效到 100 期、溢出差 0.5
-        Catalysis.Field field = new Catalysis.Field(center, 4, 2, 100L, 0.5);
+        Catalysis.Field field = new Catalysis.Field(center, 4, 2, 100L, 0.5, "focal_decay:concept/ore", 0.75);
 
         Catalysis atCenter = field.at(center, 50L);
         Catalysis atEdge = field.at(new BlockPos(4, 64, 0), 50L);
@@ -1781,7 +1939,7 @@ public final class MutationAudit {
                 + " verified on the vertical axis too) and expiry at the synced period: "
                 + (geometryOk ? "PASS" : "FAIL"));
 
-        Catalysis.Field inactive = new Catalysis.Field(center, 4, 2, -1L, 0.5);
+        Catalysis.Field inactive = new Catalysis.Field(center, 4, 2, -1L, 0.5, "", 0.0);
         out.add("[catalysis] a field with until < 0 is inert (that is how removal is encoded): "
                 + (!inactive.at(center, 0L).isActive() && !inactive.at(center, Long.MIN_VALUE).isActive()
                         ? "PASS" : "FAIL"));
@@ -1790,8 +1948,8 @@ public final class MutationAudit {
         // ⚠️ 两个域的中心必须离得够远，"同时落在两边的壳里"才可能存在（第一版把中心放在 3 格外，
         //    而 r=4 时那个位置已经被其中一片<b>必中</b>覆盖，于是"取最大 spill"根本没被触发）。
         //    r=1、壳厚 2、中心相距 4 ⇒ 中点 (2,·,·) 到两边都是 2，正好同时在两个壳里。
-        Catalysis.Field narrowA = new Catalysis.Field(new BlockPos(0, 64, 0), 1, 2, 100L, 0.5);
-        Catalysis.Field narrowB = new Catalysis.Field(new BlockPos(4, 64, 0), 1, 2, 100L, 0.9);
+        Catalysis.Field narrowA = new Catalysis.Field(new BlockPos(0, 64, 0), 1, 2, 100L, 0.5, "", 0.0);
+        Catalysis.Field narrowB = new Catalysis.Field(new BlockPos(4, 64, 0), 1, 2, 100L, 0.9, "", 0.0);
         Catalysis bothShells = Catalysis.at(List.of(narrowA, narrowB), new BlockPos(2, 64, 0), 50L);
         Catalysis forcedWins = Catalysis.at(List.of(narrowA, narrowB), new BlockPos(0, 64, 0), 50L);
         Catalysis reversedShells = Catalysis.at(List.of(narrowB, narrowA), new BlockPos(2, 64, 0), 50L);
@@ -1805,7 +1963,8 @@ public final class MutationAudit {
 
         // 数据包：往返 + 逐字段翻转。equals 往返测不出"漏搬一个字段"（两边都会落到默认值），
         // 所以每个字段各造一个"只改它"的变体，解码之后必须与原件不同。
-        SyncCatalystFieldPacket packet = new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 999L, 0.4);
+        SyncCatalystFieldPacket packet = new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 999L, 0.4,
+                "focal_decay:concept/ore", 0.75);
         FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
         SyncCatalystFieldPacket.STREAM_CODEC.encode(buf, packet);
         SyncCatalystFieldPacket read = SyncCatalystFieldPacket.STREAM_CODEC.decode(buf);
@@ -1814,19 +1973,21 @@ public final class MutationAudit {
 
         int collapsed = 0;
         for (SyncCatalystFieldPacket variant : List.of(
-                new SyncCatalystFieldPacket(Level.NETHER, 4321L, 8, 3, 999L, 0.4),
-                new SyncCatalystFieldPacket(Level.OVERWORLD, 4322L, 8, 3, 999L, 0.4),
-                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 9, 3, 999L, 0.4),
-                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 4, 999L, 0.4),
-                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 1000L, 0.4),
-                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 999L, 0.5))) {
+                new SyncCatalystFieldPacket(Level.NETHER, 4321L, 8, 3, 999L, 0.4, "focal_decay:concept/ore", 0.75),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4322L, 8, 3, 999L, 0.4, "focal_decay:concept/ore", 0.75),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 9, 3, 999L, 0.4, "focal_decay:concept/ore", 0.75),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 4, 999L, 0.4, "focal_decay:concept/ore", 0.75),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 1000L, 0.4, "focal_decay:concept/ore", 0.75),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 999L, 0.5, "focal_decay:concept/ore", 0.75),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 999L, 0.4, "minecraft:logs", 0.75),
+                new SyncCatalystFieldPacket(Level.OVERWORLD, 4321L, 8, 3, 999L, 0.4, "focal_decay:concept/ore", 0.5))) {
             FriendlyByteBuf one = new FriendlyByteBuf(Unpooled.buffer());
             SyncCatalystFieldPacket.STREAM_CODEC.encode(one, variant);
             if (SyncCatalystFieldPacket.STREAM_CODEC.decode(one).equals(packet)) {
                 collapsed++;
             }
         }
-        out.add("[catalysis] every field of that packet is really encoded (6 single-field variants): "
+        out.add("[catalysis] every field of that packet is really encoded (8 single-field variants): "
                 + (collapsed == 0 ? "PASS" : "FAIL (" + collapsed + " collapsed)"));
         return out;
     }

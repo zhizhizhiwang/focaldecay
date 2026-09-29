@@ -47,11 +47,17 @@ public final class MutationTargets {
         // 服务端也走<b>同一份快照</b>（BACKLOG P0-7）：客户端的输入只可能来自同步下来的快照，
         // 服务端各处直接读配置就会留下"两条取值路径"，而两条路径在局域网里会分叉。
         MutationSettings settings = MutationSettings.server(level.getSeed());
+        Catalysis catalysis = manager.catalysisAt(pos, periodIndex);
+        // 点火优先：域内的概念跳过"源必须属于概念"的门（点火＝点名，见 Catalysis.Field#biasFor）。
+        // 域外的 spill 圈不算——那是无法瞄准的漂移，维持原型机那种背景引导。
+        GuidedBias bias = catalysis.forced()
+                ? manager.catalystBiasAt(pos, periodIndex, index, state)
+                : manager.getGuidedBias(pos, state, stage);
         return MutationHelper.resolve(state, pos, settings, stage,
                 periodIndex, index,
-                manager.getGuidedBias(pos, state, stage),
+                bias,
                 manager.protectionInfo(pos, state, stage, settings),
                 manager.getBlockBirthPeriod(pos),
-                manager.catalysisAt(pos, periodIndex));
+                catalysis);
     }
 }

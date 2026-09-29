@@ -201,6 +201,60 @@ public class MutationEventHandler {
     }
 
     /**
+     * <b>点火时把结果写进世界</b>（2026-09-29，作者裁定 #8(b)：火种应当真的改变这片地，
+     * 而不是只当一扇"点火期间才看得见"的窗口）。
+     * <p>
+     * 与锚固化同一个套路（逐坐标、只动源方块、硬保护绝不改写、flag 3），差别只有两处：
+     * <ul>
+     *   <li>用 {@code forced} 的催化：这一次写入就是"必中"的那一次；</li>
+     *   <li>用<b>域自己的概念</b>当引导（{@link Catalysis.Field#biasFor}，跳过源门控、优先取高一档），
+     *       而不是在场原型机的背景引导——玩家点的是这一片，别处的模型不该插手。</li>
+     * </ul>
+     * 成本：催化半径默认取模型的 {@code prototype_radius}（默认 8）→ 17³ ≈ 4,900 个坐标，
+     * 与锚固化实测的 4,879 扫描同量级（那次 66 ms 是半径 32 的 27 万坐标）。
+     */
+    public static NormalizeStats igniteCatalystRange(ServerLevel level, BlockPos center, int radius,
+                                                     Catalysis.Field field) {
+        if (FocalDecayWorldData.get(level.getServer()).isObserverOnline()) {
+            return new NormalizeStats(0, 0, 0); // 失焦终止：无可写入
+        }
+        long periodIndex = displayPeriodIndex(level);
+        int stage = MutationHelper.currentStage(FocalDecayWorldData.get(level.getServer()).getDays());
+        MutationSettings settings = MutationSettings.server(level.getSeed());
+        MutationIndex index = MutationIndexes.get(level.dimension());
+        MutationPoolManager manager = MutationPoolManager.get(level);
+        Catalysis catalysis = new Catalysis(true, 0.0);
+
+        long[] counters = new long[3];
+        BlockPos.betweenClosed(center.offset(-radius, -radius, -radius), center.offset(radius, radius, radius))
+                .forEach(p -> {
+                    if (p.equals(center) || !level.isLoaded(p)) {
+                        return;
+                    }
+                    BlockState state = level.getBlockState(p);
+                    if (!index.isSource(state.getBlock())) {
+                        return;
+                    }
+                    MutationHelper.Protection protection = manager.protectionInfo(p, state, stage, settings);
+                    if (protection.hard()) {
+                        counters[2]++;
+                        return;
+                    }
+                    counters[0]++;
+                    GuidedBias bias = field.biasFor(index, state);
+                    BlockState target = MutationHelper.resolve(state, p, settings, stage, periodIndex, index,
+                            bias, protection, manager.getBlockBirthPeriod(p), catalysis);
+                    if (target != state) {
+                        level.setBlock(p, target, 3);
+                        counters[1]++;
+                    }
+                });
+        FocalDecay.LOGGER.info("[focal_decay] catalyst fired at {} r={}: scanned={} written={} protected={}",
+                center.toShortString(), radius, counters[0], counters[1], counters[2]);
+        return new NormalizeStats(counters[0], counters[1], counters[2]);
+    }
+
+    /**
      * 将锚保护范围内的方块全部转换为"当前的失焦目标"（与生存破坏同一公式），
      * 然后才由调用方登记保护。
      * <p>

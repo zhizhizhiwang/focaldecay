@@ -25,8 +25,9 @@ public final class ModNetwork {
      * 1 → 2：新增 C→S 的 {@link RequestRegionDataPacket}（BACKLOG P0-5）。
      * 2 → 3：{@code MutationSettings} 增加"引导跨级概率"字段（P2-7 第①步）。
      * 3 → 4：新增 S→C 的 {@link SyncCatalystFieldPacket}（P2-7 第③步）。
+     * 4 → 5：催化域带上"概念 + 完备度"（作者实机反馈 #4/#6：火要点名，否则插着的模型对落点毫无影响）。
      */
-    public static final String PROTOCOL_VERSION = "4";
+    public static final String PROTOCOL_VERSION = "5";
 
     private ModNetwork() {
     }
@@ -67,9 +68,9 @@ public final class ModNetwork {
     public static void sendCatalystField(ServerLevel level, BlockPos pos,
                                          com.zhizhiwang.focal_decay.mutation.Catalysis.Field field) {
         SyncCatalystFieldPacket packet = field == null
-                ? new SyncCatalystFieldPacket(level.dimension(), pos.asLong(), 0, 0, -1L, 0.0)
+                ? new SyncCatalystFieldPacket(level.dimension(), pos.asLong(), 0, 0, -1L, 0.0, "", 0.0)
                 : new SyncCatalystFieldPacket(level.dimension(), pos.asLong(), field.radius(), field.ringWidth(),
-                        field.until(), field.spill());
+                        field.until(), field.spill(), field.concept(), field.q());
         PacketDistributor.sendToPlayersInDimension(level, packet);
     }
 

@@ -149,8 +149,12 @@ public final class FocalDecayConfig {
                         "source block (tier = 'how much civilisation it takes to obtain'). Natural defocus never",
                         "goes up a tier, and no mutation ever reaches the compression tier T4 (netherite_block),",
                         "which the precipitation rite is the only source of. Must match on both sides.",
-                        "0 disables the exception entirely.")
-                .defineInRange("guide_up_tier_chance", 0.1, 0.0, 1.0);
+                        "0 disables the exception entirely.",
+                        "This only affects a prototype's background guidance: inside a LIT catalyst the exception",
+                        "is deterministic (the fire itself is the licence). NOTE: changing this default does not",
+                        "touch an existing config file - edit run/config/focal_decay-server.toml if you already ran",
+                        "the game once.")
+                .defineInRange("guide_up_tier_chance", 0.25, 0.0, 1.0);
         WILD_AUTO_INCLUDE = builder
                 .comment("Automatically add every full-cube block without a block entity to the wild pool,",
                         "so the big pool is never accidentally tiny. Turn off to keep the wild pool limited",

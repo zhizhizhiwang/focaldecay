@@ -183,13 +183,19 @@ public final class MutationHelper {
         int conceptCount = biased ? bias.pool().count(shapeClass) : 0;
         // tier 护栏的上限：只降不升，加上"引导下有小概率跨一级"。A/B 开关打开时直接放开，
         // 于是除护栏之外的行为与改动前逐位相同（骰子走独立流，不消耗主流）。
-        // 越级例外：引导模型生效，或身处催化域。注意 spill 圈<b>不算</b>——
-        // 那是无法瞄准的漂移，让它也能越级等于开一个随机产矿的口子（见 Catalysis 的类注释）。
-        boolean upTierEligible = biased || catalysis.forced();
+        // 越级例外分两种（2026-09-29 依作者反馈改）：
+        //   - **催化域内是确定性的**：火本身就是"这次升级"的凭据。原来是逐周期掷 10%，
+        //     而每次更新的周期命中都会重抽一次落点，于是升级几乎立刻被下一次普通抽取覆盖——
+        //     作者的原话是"这次提升了下次还是按照没提升的抽取，整体还是在下降"，
+        //     那是**结构性**的，不是概率太低（提高概率也治不了被覆盖）。
+        //   - **域外（只有引导模型）仍掷骰**：那是背景性的影响，不该等于一张许可证。
+        // 两种情况都封顶在 T3：T4（下界合金块）永远只能靠沉降仪式。
+        boolean forcedUpTier = catalysis.forced();
+        boolean upTierEligible = biased || forcedUpTier;
         int maxTargetTier = Tiers.gateDisabled()
                 ? Tiers.MAX_TIER
                 : Tiers.maxTargetTier(index.tier(sourceBlock),
-                        upTierEligible && rollUpTier(pos, worldSeed, periodIndex, upTierChance));
+                        forcedUpTier || (upTierEligible && rollUpTier(pos, worldSeed, periodIndex, upTierChance)));
 
         long span = periodIndex - fromPeriod + 1;
         int cap = (int) Math.min(span, CUMULATIVE_SCAN_CAP);
