@@ -88,7 +88,7 @@ public final class MutationHelper {
                                      Protection protection, long birthPeriod) {
         return resolveInternal(source, pos, worldSeed, chance, FocalDecayConfig.WILD_CHANCE.get(),
                 FocalDecayConfig.GUIDE_UP_TIER_CHANCE.get(), periodIndex,
-                index, bias, protection, birthPeriod);
+                index, bias, protection, birthPeriod, Catalysis.NONE);
     }
 
     /**
@@ -101,8 +101,24 @@ public final class MutationHelper {
     public static BlockState resolve(BlockState source, BlockPos pos, MutationSettings settings, int stage,
                                      long periodIndex, MutationIndex index, GuidedBias bias,
                                      Protection protection, long birthPeriod) {
+        return resolve(source, pos, settings, stage, periodIndex, index, bias, protection, birthPeriod,
+                Catalysis.NONE);
+    }
+
+    /**
+     * 带<b>催化域</b>的解析入口（2026-09-29，{@code DESIGN.md} §13.8）。
+     * <p>
+     * 催化是<b>位置相关</b>的输入，所以不能塞进 {@link MutationSettings}（那是全局静态快照）；
+     * 它与保护范围、引导模型同源——都由区域效果解析而来，走同一条同步通道。
+     * 保留上面那个不带催化的重载，是为了让"与催化无关"的调用方（自测、诊断、旧路径）
+     * 不必逐个改签名。
+     */
+    public static BlockState resolve(BlockState source, BlockPos pos, MutationSettings settings, int stage,
+                                     long periodIndex, MutationIndex index, GuidedBias bias,
+                                     Protection protection, long birthPeriod, Catalysis catalysis) {
         return resolveInternal(source, pos, settings.worldSeed(), settings.blockChance(stage),
-                settings.wildChance(), settings.upTierChance(), periodIndex, index, bias, protection, birthPeriod);
+                settings.wildChance(), settings.upTierChance(), periodIndex, index, bias, protection,
+                birthPeriod, catalysis);
     }
 
     /**
@@ -114,12 +130,19 @@ public final class MutationHelper {
      * <p>
      * 唯一的升档例外是引导/催化下的 {@code upTierChance}，骰子走<b>独立随机流</b>，
      * 所以打开/关闭护栏不会扰动"抽哪个目标"这条主流（见 {@link Tiers#UP_TIER_SALT}）。
+     * <p>
+     * <b>催化域</b>（{@link Catalysis}）在这里生效，且只改两件事：
+     * "是否发生"（{@link Catalysis#forced()} → 必中）与"大池概率"（{@link Catalysis#wildBonus()}）；
+     * 它<b>不改</b>落点公式——落点仍然由引导模型的概念 + q 决定。
      */
     private static BlockState resolveInternal(BlockState source, BlockPos pos, long worldSeed, double chance,
                                               double wildChance, double upTierChance, long periodIndex,
                                               MutationIndex index, GuidedBias bias, Protection protection,
-                                              long birthPeriod) {
-        if (protection.hard() || chance <= 0.0 || index == null || index.isEmpty()) {
+                                              long birthPeriod, Catalysis catalysis) {
+        // 催化只在这里改写两个输入，之后整条管线（含两端的预览）看到的都是改写后的值。
+        double effectiveChance = catalysis.forced() ? Catalysis.FORCED_CHANCE : chance;
+        double effectiveWild = Math.min(1.0, wildChance + catalysis.wildBonus());
+        if (protection.hard() || effectiveChance <= 0.0 || index == null || index.isEmpty()) {
             return source;
         }
         // 玩家放置/转换过的方块：从"诞生周期 + 1"才开始崩坏，放置瞬间保持原方块。
@@ -160,10 +183,13 @@ public final class MutationHelper {
         int conceptCount = biased ? bias.pool().count(shapeClass) : 0;
         // tier 护栏的上限：只降不升，加上"引导下有小概率跨一级"。A/B 开关打开时直接放开，
         // 于是除护栏之外的行为与改动前逐位相同（骰子走独立流，不消耗主流）。
+        // 越级例外：引导模型生效，或身处催化域。注意 spill 圈<b>不算</b>——
+        // 那是无法瞄准的漂移，让它也能越级等于开一个随机产矿的口子（见 Catalysis 的类注释）。
+        boolean upTierEligible = biased || catalysis.forced();
         int maxTargetTier = Tiers.gateDisabled()
                 ? Tiers.MAX_TIER
                 : Tiers.maxTargetTier(index.tier(sourceBlock),
-                        biased && rollUpTier(pos, worldSeed, periodIndex, upTierChance));
+                        upTierEligible && rollUpTier(pos, worldSeed, periodIndex, upTierChance));
 
         long span = periodIndex - fromPeriod + 1;
         int cap = (int) Math.min(span, CUMULATIVE_SCAN_CAP);
@@ -178,7 +204,7 @@ public final class MutationHelper {
                 }
             }
             state = MutationRandom.next(state);
-            if (MutationRandom.toDouble(state) >= chance) {
+            if (MutationRandom.toDouble(state) >= effectiveChance) {
                 continue; // 该周期没抽中
             }
 
@@ -194,7 +220,7 @@ public final class MutationHelper {
             if (tagPool == null) {
                 if (localCount > 0 && wildCount > 0) {
                     state = MutationRandom.next(state);
-                    useLocal = MutationRandom.toDouble(state) >= wildChance;
+                    useLocal = MutationRandom.toDouble(state) >= effectiveWild;
                 } else {
                     // 只有一边可用时直接用它：不消耗随机步，但这条规则本身是纯函数，两端一致。
                     useLocal = localCount > 0;

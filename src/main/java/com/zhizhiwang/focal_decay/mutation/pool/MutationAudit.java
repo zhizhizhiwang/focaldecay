@@ -3,6 +3,7 @@ package com.zhizhiwang.focal_decay.mutation.pool;
 import com.zhizhiwang.focal_decay.config.FocalDecayConfig;
 import com.zhizhiwang.focal_decay.data.ObserverModelData;
 import com.zhizhiwang.focal_decay.data.tags.ModTags;
+import com.zhizhiwang.focal_decay.mutation.Catalysis;
 import com.zhizhiwang.focal_decay.mutation.FocalDecayWorldData;
 import com.zhizhiwang.focal_decay.mutation.GuidedConcept;
 import com.zhizhiwang.focal_decay.mutation.GuidedBias;
@@ -391,6 +392,7 @@ public final class MutationAudit {
         out.addAll(syncSelfTest(level, pos));
         out.addAll(tierSelfTest(index));
         out.addAll(qCurveSelfTest(index));
+        out.addAll(catalysisSelfTest(index));
         return out;
     }
 
@@ -1532,6 +1534,141 @@ public final class MutationAudit {
                 + (blocked == 0 ? "PASS" : "FAIL (the exception is not wired)"));
 
         return out;
+    }
+
+    /** 催化域自测的采样周期数。 */
+    private static final int CATALYSIS_SAMPLES = 128;
+
+    /**
+     * 催化域自测（2026-09-29，{@code DESIGN.md} §13.8）。
+     * <p>
+     * 四条断言，对应设计的四句话：
+     * <ol>
+     *   <li><b>催化 = 必中</b>：把 1% 的骰子变成确定性（否则"引导看不见"这个洞就没补上）；</li>
+     *   <li><b>spill 圈只改"从哪儿抽"，不改"抽不抽"</b>：R2 的代价必须落在<b>落点</b>上，
+     *       而不是偷偷把世界整体调快；</li>
+     *   <li><b>越级例外在域内生效</b>：催化算"被引导"，所以能跨一级（P-2 的"引导/催化下"）；</li>
+     *   <li><b>spill 圈不给越级</b>：那是无法瞄准的漂移，给它越级等于开一个随机产矿的口子——
+     *       这一条是 tier 护栏与催化域的交界，必须钉住。</li>
+     * </ol>
+     */
+    private static List<String> catalysisSelfTest(MutationIndex index) {
+        List<String> out = new ArrayList<>();
+        BlockPos pos = BlockPos.ZERO;
+        long seed = 20260929L;
+        MutationSettings base = MutationSettings.fromConfig(seed);
+        Block source = Blocks.STONE;
+
+        // ⚠️ 基线不能用"1% × 周期数"来估（2026-09-29 第一版就是这么写错的）：
+        // 累积回扫让每个周期都去回看 [periodIndex-CAP+1, periodIndex] 这一整段，
+        // 于是"有没有变"是这段窗口里"至少中过一次"的概率，实测 128 个周期里有 95 个变了
+        // （≈74%，正好是 1-0.99^128 的量级），不是 1%。所以下面的断言全部改成
+        // 与实测基线比较，并且用"落点一定不是源方块"的引导池消掉自环，把"必中"钉成精确等式。
+        ClassifiedPool ore = index.tagged(ModTags.Blocks.mutationPool("ore").location().toString());
+        GuidedBias oreBias = new GuidedBias(ore, 1.0);
+
+        int plainHits = countHits(index, source, pos, base, Catalysis.NONE, oreBias);
+        int forcedHits = countHits(index, source, pos, base, new Catalysis(true, 0.0), oreBias);
+        out.add("[catalysis] forcing makes every period yield a target ("
+                + CATALYSIS_SAMPLES + " periods on " + id(source) + ", guided by ore so there is no self-loop):"
+                + " plain=" + plainHits + " forced=" + forcedHits + " -> "
+                + (forcedHits == CATALYSIS_SAMPLES && plainHits < CATALYSIS_SAMPLES ? "PASS" : "FAIL"));
+        out.add("[catalysis]   (plain is the CUMULATIVE rate of the backscan window, not the 1%/period roll)");
+
+        // spill 圈：只改"从哪儿抽"，不改"抽不抽"。判据是精确等式——
+        // 命中骰子用的是同一条随机流，spill 只影响它之后的"局部/大池"分支，
+        // 所以在"落点一定不是源方块"的引导下，两者的命中数必须一模一样。
+        int spillHits = countHits(index, source, pos, base, new Catalysis(false, 0.75), oreBias);
+        int movedBySpill = countTargetMoves(index, source, pos, base,
+                new Catalysis(true, 0.0), new Catalysis(true, 0.75));
+        out.add("[catalysis] spill bonus moves the draw (local <-> wild) without changing whether it happens:"
+                + " plain=" + plainHits + " spill=" + spillHits + " targetsMoved=" + movedBySpill + " -> "
+                + (spillHits == plainHits && movedBySpill > CATALYSIS_SAMPLES / 10 ? "PASS" : "FAIL"));
+
+        int insideT1 = countAboveTier(index, source, pos, upTierOnly(base, 1.0), new Catalysis(true, 0.0), 0);
+        int insideAboveT1 = countAboveTier(index, source, pos, upTierOnly(base, 1.0), new Catalysis(true, 0.0), 1);
+        int spillAboveT0 = countAboveTier(index, source, pos, upTierOnly(base, 1.0), new Catalysis(false, 1.0), 0);
+        out.add("[catalysis] up-tier exception applies inside the field only:"
+                + " inside reaching T1=" + insideT1 + ", inside above T1=" + insideAboveT1
+                + ", spill above T0=" + spillAboveT0 + " -> "
+                + (insideT1 > 0 && insideAboveT1 == 0 && spillAboveT0 == 0 ? "PASS" : "FAIL"));
+
+        // 两端一致：同一次催化在两个入口（本端配置 / 同步快照）下必须给出同一个方块。
+        int mismatch = 0;
+        MutationSettings snapshot = decode(base);
+        for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
+            BlockState viaConfig = resolveWith(index, source, pos, base, period, new Catalysis(true, 0.4));
+            BlockState viaSnapshot = resolveWith(index, source, pos, snapshot, period, new Catalysis(true, 0.4));
+            if (viaConfig != viaSnapshot) {
+                mismatch++;
+            }
+        }
+        out.add("[catalysis] both entries agree while a field is active (" + CATALYSIS_SAMPLES
+                + " samples): " + (mismatch == 0 ? "PASS" : "FAIL (" + mismatch + ")"));
+        return out;
+    }
+
+    private static BlockState resolveWith(MutationIndex index, Block source, BlockPos pos,
+                                          MutationSettings settings, long period, Catalysis catalysis) {
+        return MutationHelper.resolve(source.defaultBlockState(), pos, settings, 1, period, index,
+                GuidedBias.NONE, MutationHelper.Protection.NONE, -1L, catalysis);
+    }
+
+    private static BlockState resolveWith(MutationIndex index, Block source, BlockPos pos,
+                                          MutationSettings settings, long period, Catalysis catalysis,
+                                          GuidedBias bias) {
+        return MutationHelper.resolve(source.defaultBlockState(), pos, settings, 1, period, index,
+                bias, MutationHelper.Protection.NONE, -1L, catalysis);
+    }
+
+    /** 有多少个周期真的变了（在给定的引导下，落点一定不是源方块，所以没有自环干扰）。 */
+    private static int countHits(MutationIndex index, Block source, BlockPos pos, MutationSettings settings,
+                                 Catalysis catalysis) {
+        return countHits(index, source, pos, settings, catalysis, GuidedBias.NONE);
+    }
+
+    private static int countHits(MutationIndex index, Block source, BlockPos pos, MutationSettings settings,
+                                 Catalysis catalysis, GuidedBias bias) {
+        int hits = 0;
+        for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
+            if (resolveWith(index, source, pos, settings, period, catalysis, bias).getBlock() != source) {
+                hits++;
+            }
+        }
+        return hits;
+    }
+
+    /** 两份催化设置下，落点不同的样本数（证明这个输入确实参与了解析）。 */
+    private static int countTargetMoves(MutationIndex index, Block source, BlockPos pos, MutationSettings settings,
+                                        Catalysis a, Catalysis b) {
+        int moved = 0;
+        for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
+            if (resolveWith(index, source, pos, settings, period, a)
+                    != resolveWith(index, source, pos, settings, period, b)) {
+                moved++;
+            }
+        }
+        return moved;
+    }
+
+    /** 目标 tier 高于 {@code tier} 的样本数。 */
+    private static int countAboveTier(MutationIndex index, Block source, BlockPos pos, MutationSettings settings,
+                                      Catalysis catalysis, int tier) {
+        int above = 0;
+        for (long period = 0; period < CATALYSIS_SAMPLES; period++) {
+            if (index.tier(resolveWith(index, source, pos, settings, period, catalysis).getBlock()) > tier) {
+                above++;
+            }
+        }
+        return above;
+    }
+
+    /** 只改"跨级概率"，保留自然命中概率（{@code upTierSettings} 会把 chance 也逼成 1）。 */
+    private static MutationSettings upTierOnly(MutationSettings base, double upTierChance) {
+        return new MutationSettings(base.worldSeed(), base.baseInterval(), base.stageSystem(),
+                base.stage2Day(), base.stage3Day(), base.chanceStage1(), base.chanceStage2(),
+                base.chanceStage3(), base.wildChance(), base.semanticLockStage3(),
+                base.guidedStage3Halve(), base.wildAutoInclude(), upTierChance);
     }
 
     /** 只改"跨级概率"与"每周期必中"，用于把例外条款逼到必然发生（{@code withChance} 不动跨级概率）。 */
